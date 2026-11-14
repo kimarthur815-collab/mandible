@@ -16,6 +16,7 @@ export class Player {
     this.bob = 0; this.speed = 0;
     this.moved = false;
     this.speedMul = 1;
+    this.slowMul = 1;     // bugs on you
     this.noclip = false;
   }
 
@@ -40,7 +41,7 @@ export class Player {
       this.stamina = Math.min(1, this.stamina + dt / 4);
       if (this.exhausted && this.stamina > 0.35) this.exhausted = false;
     }
-    const top = (this.crouch ? 1.5 : wantRun ? 5.5 : 3.0) * this.speedMul;
+    const top = (this.crouch ? 1.5 : wantRun ? 5.5 : 3.0) * this.speedMul * this.slowMul;
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);   // forward on the floor
     const rx = -fz, rz = fx;                                  // right
     const tx = (fx * mz + rx * mx) * top, tz = (fz * mz + rz * mx) * top;

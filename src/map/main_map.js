@@ -4,6 +4,9 @@ import { buildLevel, buildBugMarkers, ROOMS, DOORS, SPOTS, greyMat, boxGeom } fr
 import { Player } from './player.js';
 import { makeSilkMaterial, makeDoorWeb } from '../silk.js';
 import { RoachSwarms } from './roachswarm.js';
+import { Arms } from './arms.js';
+import { Sound } from './audio.js';
+import { dressLevel } from './dressing.js';
 
 const $ = (s) => document.querySelector(s);
 const touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -29,9 +32,22 @@ const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 1
 // ------------------------------------------------------------------ level
 const { group: levelGroup, colliders, labels: roomLabels } = buildLevel(scene);
 const markers = buildBugMarkers(scene);
+const silk = makeSilkMaterial();
+// set dressing (boxes, racks, pipes, stains, signs...) adds its footprints to the colliders before the bugs map the floor
+const dress = dressLevel(scene, { colliders, T: 0.3, silkMat: silk });
 const nests = SPOTS.bugs.filter((b) => b.kind === 'roach').map((b, i) => ({ x: b.x, z: b.z, count: [12, 10, 9, 8][i] || 8, spread: 1.0 }));
 const swarms = new RoachSwarms(scene, nests, colliders, TX.makeContactShadow(128));
-const silk = makeSilkMaterial();
+const arms = new Arms();
+const sfx = new Sound();
+window.__SFX = sfx;
+let stepAcc = 0, stepSide = false;
+arms.scene.add(swarms.overlay);
+// eyes getting used to the dark: with the light off, what is close slowly becomes faintly visible
+const nightEye = new THREE.PointLight(0x9db0cc, 0, 6.5, 1.6);
+scene.add(nightEye);
+const NIGHT_K = 0.75;
+let adapt = 0, prevYaw = 0, prevPitch = 0, shakeKick = 0;
+const lensW = new THREE.Vector3();
 {
   const web = makeDoorWeb(0.1, 1.9, 0, 1.95, 3.95, silk);
   web.position.set(18.5, 0, 38);
@@ -61,6 +77,7 @@ flash.shadow.camera.near = 0.2; flash.shadow.camera.far = 40;
 flash.map = cookie;
 scene.add(flash, flash.target);
 // spill: the soft halo around a real flashlight beam that lights things right in front of you
+const beamDir = new THREE.Vector3();
 const spill = new THREE.PointLight(0xffeedd, 0, 1.8, 2);
 scene.add(spill);
 const bounce = new THREE.PointLight(0xffd8b0, 0, 8, 1.6);
@@ -70,8 +87,8 @@ const lampMat = () => new THREE.MeshStandardMaterial({ color: 0x2a2620, emissive
 const lamps = SPOTS.lamps.map((s, i) => {
   const g = new THREE.Group();
   g.position.set(s.x, 0, s.z);
-  const pole = new THREE.Mesh(boxGeom(0.12, 2.8, 0.12, 0, 1.4, 0), greyMat('#7d7a74'));
-  const arm = new THREE.Mesh(boxGeom(0.7, 0.08, 0.08, 0.3, 2.78, 0), greyMat('#7d7a74'));
+  const pole = new THREE.Mesh(boxGeom(0.12, 2.8, 0.12, 0, 1.4, 0), dress.metalMaterial(0x6d726e));
+  const arm = new THREE.Mesh(boxGeom(0.7, 0.08, 0.08, 0.3, 2.78, 0), dress.metalMaterial(0x6d726e));
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), lampMat());
   bulb.position.set(0.6, 2.62, 0);
   const shade = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.22, 20, 1, true), new THREE.MeshStandardMaterial({ color: 0x3a3732, side: THREE.DoubleSide }));
@@ -92,9 +109,9 @@ const genMeshes = SPOTS.generators.map((s, i) => {
   const g = new THREE.Group();
   g.position.set(s.x, 0, s.z);
   g.rotation.y = s.yaw;
-  const body = new THREE.Mesh(boxGeom(1.6, 1.3, 1.1, 0, 0.65, 0), greyMat('#8a7a5e'));
-  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.3, 20).rotateZ(Math.PI / 2).translate(0, 1.0, 0), greyMat('#6f6a60'));
-  const panel = new THREE.Mesh(boxGeom(0.6, 0.4, 0.05, 0.3, 0.75, 0.57), greyMat('#55524c'));
+  const body = new THREE.Mesh(boxGeom(1.6, 1.3, 1.1, 0, 0.65, 0), dress.metalMaterial(0xb0922a));
+  const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.3, 20).rotateZ(Math.PI / 2).translate(0, 1.0, 0), dress.metalMaterial(0x4e5458));
+  const panel = new THREE.Mesh(boxGeom(0.6, 0.4, 0.05, 0.3, 0.75, 0.57), dress.metalMaterial(0x34363a));
   const led = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), new THREE.MeshStandardMaterial({ color: 0x220000, emissive: new THREE.Color(0xff2a10), emissiveIntensity: 1.2 }));
   led.position.set(0.45, 0.85, 0.6);
   for (const m of [body, drum, panel]) { m.castShadow = true; m.receiveShadow = true; }
@@ -131,13 +148,13 @@ const refill = (() => {
 })();
 
 // emergency door and shutter
-const emDoor = new THREE.Mesh(boxGeom(3, 3, 0.18, 0, 1.5, 0), greyMat('#6e6258'));
+const emDoor = new THREE.Mesh(boxGeom(3, 3, 0.18, 0, 1.5, 0), dress.metalMaterial(0x4f6b58));
 emDoor.position.set(-15.5, 0, 52);
 emDoor.castShadow = emDoor.receiveShadow = true;
 scene.add(emDoor);
 const emCol = { x0: -17, x1: -14, z0: 51.8, z1: 52.2 };
 colliders.push(emCol);
-const shutter = new THREE.Mesh(boxGeom(5.0, 4.5, 0.16, 0, 2.25, 0), greyMat('#7a7974'));
+const shutter = new THREE.Mesh(boxGeom(5.0, 4.5, 0.16, 0, 2.25, 0), dress.metalMaterial(0x8b8d88));
 shutter.position.set(0, 0, 0.2);
 shutter.castShadow = shutter.receiveShadow = true;
 scene.add(shutter);
@@ -157,6 +174,7 @@ scene.add(shutterGlow);
 const player = new Player(camera, colliders);
 const G = {};
 function resetGame() {
+  sfx.resetWorld();
   Object.assign(G, {
     battery: 1, flashOn: false, locked: false, holdT: 0, holdKey: null, shutter: 0, shutterOpening: false,
     emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: 3, inSafe: false,
@@ -290,6 +308,8 @@ function toggleFlash() {
   if (G.locked) { tip('배터리가 바닥났다. 잠시 기다려라', 'empty'); return; }
   G.flashOn = !G.flashOn;
   $('#bFlash').classList.toggle('on', G.flashOn);
+  arms.toggleClick();
+  if (window.__SFX) window.__SFX.click(G.flashOn);
 }
 let showMap = false, bright = false;
 function toggleMap() { showMap = !showMap; $('#minimap').classList.toggle('show', showMap); document.querySelectorAll('[data-act="map"]').forEach((b) => b.classList.toggle('on', showMap)); }
@@ -309,9 +329,10 @@ function genOn(g) {
   r.on = true;
   indicators[G.gens - 1].material.emissive.set(0x30ff60);
   msg(`발전기 ${G.gens}/3 가동`);
+  sfx.generatorStart(g.x, g.z);
   tip('발전기 소리가 벌레를 부른다', 'gen');
-  if (g.room === 'lab') { G.emergencyOpening = true; setTimeout(() => msg('비상 통로가 열렸다'), 1400); }
-  if (G.gens === 3) { G.shutterOpening = true; setTimeout(() => msg('셔터가 열린다. 하역장으로!'), 2800); }
+  if (g.room === 'lab') { G.emergencyOpening = true; setTimeout(() => { msg('비상 통로가 열렸다'); }, 1400); sfx.doorRumble(-15.5, 52, 1.6); }
+  if (G.gens === 3) { G.shutterOpening = true; setTimeout(() => msg('셔터가 열린다. 하역장으로!'), 2800); sfx.doorRumble(0, 0.5, 3.4); }
   updateHud();
 }
 
@@ -358,7 +379,8 @@ function die(deathTip) {
 }
 function onAttach(r) {
   if (dev.god || G.dead || G.attached.length >= 3) return false;
-  G.attached.push({ r, t: 1.5, shake: 0, rev: 0, lastSign: 0, taps: 0 });
+  G.attached.push({ r, age: 0, shake: 0, rev: 0, lastSign: 0, taps: 0 });
+  sfx.attach();
   tip(touch ? '털기 버튼을 연타해 털어내라' : '마우스를 흔들어 털어내라', 'attach');
   return true;
 }
@@ -446,14 +468,31 @@ function frame(dtOverride) {
   const hit = ray.intersectObjects(levelMeshes, false)[0];
   aim.copy(hit ? hit.point : camera.position.clone().addScaledVector(fwd, 12));
   aimS.lerp(aim, 1 - Math.exp(-dt * 14));
-  const off = new THREE.Vector3(0.18, -0.16, 0).applyQuaternion(camera.quaternion);
-  flash.position.copy(camera.position).add(off);
+  const hd = hit ? hit.distance : 12;
+  // the arms: the beam comes out of the flashlight in the right hand
+  let dYaw = player.yaw - prevYaw; dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
+  const dPitch = player.pitch - prevPitch; prevYaw = player.yaw; prevPitch = player.pitch;
+  let nearLamp = null;
+  for (const l of lamps) if (l.on) { const d = Math.hypot(player.pos.x - l.x, player.pos.z - l.z); if (d < 9 && (!nearLamp || d < nearLamp.d)) nearLamp = { d, l }; }
+  shakeKick = Math.max(0, shakeKick - dt * 4);
+  arms.update({
+    dt, camera, moving: player.moving && player.speed > 0.3, running: player.running, crouch: player.crouch, speed: player.speed,
+    lookDX: dYaw, lookDY: dPitch, flashOn: G.flashOn, flashK: fl, aimWorld: aimS, hitDist: hd,
+    lamp: nearLamp ? { k: (1 - nearLamp.d / 9) * (nearLamp.l.light.intensity / 9), dir: new THREE.Vector3(player.pos.x - nearLamp.l.x, 0, player.pos.z - nearLamp.l.z).normalize() } : null,
+    adapt, bright, using: inp.use, shake: G.attached.length ? Math.min(1, 0.3 + lookMag * 10 + shakeKick) : 0,
+  });
+  arms.lensWorld(camera, hd, lensW);
+  flash.position.copy(lensW);
   flash.target.position.copy(aimS);
   flash.intensity = G.flashOn ? 115 * fl : 0;
   spill.position.copy(flash.position); spill.intensity = G.flashOn ? 0.2 * fl : 0;
-  const hd = hit ? hit.distance : 12;
+  // dark adaptation: builds up over ~7 s with the light off, gone almost at once when it comes on
+  adapt = G.flashOn ? Math.max(0, adapt - dt / 0.6) : Math.min(1, adapt + dt / 7);
+  nightEye.position.copy(camera.position);
+  nightEye.intensity = bright ? 0 : Math.pow(adapt, 1.5) * NIGHT_K;
   bounce.position.copy(camera.position).addScaledVector(fwd, Math.min(hd * 0.75, 4.5));
   bounce.intensity = G.flashOn ? 2.2 * fl : 0;
+  dress.update(dt, camera.position, flash.position, beamDir.subVectors(flash.target.position, flash.position).normalize(), G.flashOn ? fl : 0, renderer.domElement.height * 1.2);
   silk.uniforms.uSpotPos.value.copy(flash.position);
   silk.uniforms.uSpotDir.value.copy(fwd);
   silk.uniforms.uOn.value = G.flashOn ? 0.55 * fl : 0;
@@ -464,26 +503,45 @@ function frame(dtOverride) {
   swarms.update({
     dt, t, camera, frozen: dev.freeze || !G.started,
     player: { pos: player.pos, noise, alive: !G.dead && !G.won },
-    flash: { on: G.flashOn && flash.intensity > 20, pos: flash.position, dir: fwd },
+    flash: { on: G.flashOn && flash.intensity > 20, pos: flash.position, dir: beamDir.subVectors(flash.target.position, flash.position).normalize() },
     lamps: lamps.map((l) => ({ x: l.x, z: l.z, on: l.on })),
     events: G.events,
     onAttach,
     onFirstFlee: () => tip('바퀴는 빛을 싫어한다', 'roachlight'),
+    onFirstWait: () => tip('바퀴는 빛 밖에서 기다린다. 다른 곳을 비추면 덮친다', 'roachwait'),
     onFirstHunt: () => tip('바퀴는 소리를 따라온다. 앉아서 걸어라', 'roachsound'),
-    onFlyerHit: () => { shakeScreen(); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
+    onFlyerLaunch: (p) => sfx.scareLaunch(p.x, p.y, p.z),
+    onFlyerHit: () => {
+      sfx.scareHit(); shakeScreen(); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
   });
   G.events.length = 0;
+
+  // ---- sound
+  if (G.started && !G.won && player.moving && player.speed > 0.3) {
+    stepAcc += player.speed * dt;
+    const stride = player.running ? 1.0 : player.crouch ? 0.55 : 0.78;
+    if (stepAcc > stride) { stepAcc = 0; stepSide = !stepSide; sfx.step(player.running ? 'run' : player.crouch ? 'crouch' : 'walk', stepSide); }
+  }
+  const ai = swarms.audioInfo(player.pos);
+  let inten = 0;
+  for (const w of ai.swarms) if (w.hunt) inten = Math.max(inten, 1 - w.d / 14);
+  if (G.attached.length) inten = Math.max(inten, 0.8 + G.attached.length * 0.07);
+  const fly = swarms.flyer;
+  if (fly.state === 'fly' || fly.state === 'face') { inten = 1; sfx.flyerAt(fly.pos.x, fly.pos.y, fly.pos.z); }
+  sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce });
   if (G.started && !G.scared && !dev.freeze && Math.hypot(player.pos.x - nests[0].x, player.pos.z - nests[0].z) < 7.5) { G.scared = true; swarms.jumpScare(camera, 0); }
+  for (const a of G.attached) a.age += dt;
+  // roaches on you: no damage, but they slow you down and crawl over your face until shaken off
+  player.slowMul = Math.max(0.4, 1 - 0.22 * G.attached.length);
   if (G.attached.length) {
     const a = G.attached[0];
-    a.t -= dt;
     if (lookSign && lookSign !== a.lastSign) { a.rev++; a.lastSign = lookSign; }
     a.shake += lookMag;
-    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); swarms.drop(a.r, player.pos, player.pos); msg('털어냈다'); }
-    else if (a.t <= 0) { G.attached.shift(); swarms.drop(a.r, player.pos, player.pos); hurt(); }
+    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); swarms.drop(a.r, player.pos, player.pos); msg('털어냈다'); sfx.shakeOff(); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
   }
   swarms.showAttached(camera, G.attached, dt, t);
   $('#crawl').classList.toggle('show', G.attached.length > 0);
+  $('#crawl').style.setProperty('--n', G.attached.length);
   $('#bShake').classList.toggle('show', G.attached.length > 0);
 
   // ---- lamps (safe zones)
@@ -496,9 +554,10 @@ function frame(dtOverride) {
       const left = 20 - l.t;
       const f = left < 5 ? (Math.sin(t * (18 + (5 - left) * 6)) > -0.2 ? 1 : 0.15) : 1;
       l.light.intensity = 9 * f;
+      sfx.lampLevel(l.x, l.z, f);
       l.bulb.material.emissiveIntensity = 3 * f;
       if (d < 4.2) G.inSafe = true;
-      if (l.t >= 20) { l.on = false; l.burnt = true; l.light.intensity = 0; l.bulb.material.emissive.set(0x40220e); l.bulb.material.emissiveIntensity = 0.4; msg('전구가 터졌다'); }
+      if (l.t >= 20) { sfx.lampPop(l.x, l.z); l.on = false; l.burnt = true; l.light.intensity = 0; l.bulb.material.emissive.set(0x40220e); l.bulb.material.emissiveIntensity = 0.4; msg('전구가 터졌다'); }
     }
   }
   $('#safe').classList.toggle('show', G.inSafe);
@@ -543,10 +602,10 @@ function frame(dtOverride) {
       }
     } else if (target.kind === 'lamp') {
       prompt = o.burnt ? '전구가 터져서 다시 켤 수 없다' : o.on ? `전등이 켜져 있다 (${Math.ceil(20 - o.t)}초)` : `${useLabel()} · 전등 레버 당기기`;
-      if (pressed && !o.on && !o.burnt) { o.on = true; o.t = 0; o.leverPivot.rotation.z = -0.6; }
+      if (pressed && !o.on && !o.burnt) { o.on = true; o.t = 0; o.leverPivot.rotation.z = -0.6; sfx.lampOn(o.x, o.z); }
     } else if (target.kind === 'note') {
       prompt = `${useLabel()} · 일지 읽기`;
-      if (pressed) { o.read = true; o.m.visible = false; note(o.text); }
+      if (pressed) { o.read = true; o.m.visible = false; note(o.text); sfx.paper(); }
     } else if (target.kind === 'refill') {
       prompt = `${useLabel()} · 스프레이 리필 줍기`;
       if (pressed) { refill.taken = true; refill.m.visible = false; G.spray += 2; msg('스프레이 +2회'); }
@@ -573,7 +632,9 @@ function frame(dtOverride) {
     $('#devinfo').textContent = `FPS ${Math.round(1 / Math.max(1e-3, fpsAvg))}  위치 ${player.pos.x.toFixed(1)}, ${player.pos.z.toFixed(1)}  방 ${(ROOMS[roomAt(player.pos.x, player.pos.z)] || {}).name || '-'}\n체력 ${G.hp}/3  배터리 ${Math.round(G.battery * 100)}%  소음 반경 ${noise}m  붙은 바퀴 ${G.attached.length}\n바퀴 떼 ${swarms.states().map((x, i) => `${i + 1}:${({ hide: '숨음', hunt: '추적', return: '복귀' })[x]}`).join('  ')}`;
   }
   fpsAvg += (dt - fpsAvg) * 0.05;
+  if (window.__NORENDER) return;
   renderer.render(scene, camera);
+  arms.render(renderer, camera);
 }
 let fpsAvg = 1 / 60, fpsN = 0;
 
@@ -604,6 +665,13 @@ function syncFs() {
   if (standalone) document.querySelectorAll('[data-act="fs"]').forEach((b) => { b.style.display = 'none'; });
 }
 document.addEventListener('fullscreenchange', syncFs);
+// sound needs a first tap or key press before the browser lets it play
+addEventListener('pointerdown', () => sfx.start(), { once: true, capture: true });
+addEventListener('keydown', () => sfx.start(), { once: true, capture: true });
+document.querySelectorAll('[data-act="snd"]').forEach((b) => b.addEventListener('click', (e) => {
+  e.stopPropagation(); sfx.start(); sfx.setMuted(!sfx.muted);
+  document.querySelectorAll('[data-act="snd"]').forEach((x) => { x.classList.toggle('on', !sfx.muted); x.textContent = sfx.muted ? '소리 꺼짐' : '소리'; });
+}));
 document.addEventListener('webkitfullscreenchange', syncFs);
 document.querySelectorAll('[data-act="fs"]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); toggleFullscreen(); }));
 syncFs();
@@ -614,6 +682,7 @@ if (isIOS && !fsOK() && !standalone) $('#iosHint').classList.add('show');
 G.started = false;
 resetGame();
 $('#startBtn').addEventListener('click', () => {
+  sfx.start();
   if (touch && fsOK() && !fsEl() && !standalone) enterFullscreen().catch(() => {});
   G.started = true;
   $('#start').classList.add('hide');
@@ -621,6 +690,7 @@ $('#startBtn').addEventListener('click', () => {
   setTimeout(() => tip(touch ? '손전등 버튼으로 손전등을 켜라' : '좌클릭으로 손전등을 켜라', 'start'), 1200);
 });
 $('#againBtn').addEventListener('click', () => {
+  sfx.start();
   resetGame(); G.started = true;
   if (!touch) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
 });
@@ -631,7 +701,7 @@ function checkOrient() { needRotate = touch && innerHeight > innerWidth; $('#rot
 addEventListener('resize', checkOrient);
 addEventListener('orientationchange', () => setTimeout(checkOrient, 200));
 checkOrient();
-$('#bShake').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); if (G.attached[0]) G.attached[0].taps++; });
+$('#bShake').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); if (G.attached[0]) G.attached[0].taps++; shakeKick = 1; });
 
 // ------------------------------------------------------------------ developer mode
 const TP = {
@@ -675,6 +745,8 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests,
+  arms, sfx, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { G.started = true; $('#start').classList.add('hide'); },
   setInput(o) { override = o ? Object.assign({ mx: 0, mz: 0, run: false, crouch: false, lookX: 0, lookY: 0, use: false, usePressed: false }, o) : null; },

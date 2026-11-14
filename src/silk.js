@@ -37,7 +37,7 @@ export function makeSilkMaterial() {
   });
 }
 
-function segmentsGeometry(segs) {
+export function segmentsGeometry(segs) {
   const pos = new Float32Array(segs.length * 6), tan = new Float32Array(segs.length * 6);
   segs.forEach(([a, b], i) => {
     pos.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6);
@@ -50,7 +50,7 @@ function segmentsGeometry(segs) {
   return g;
 }
 
-function sagLine(a, b, sag, n, out) {
+export function sagLine(a, b, sag, n, out) {
   let prev = a.clone();
   for (let i = 1; i <= n; i++) {
     const u = i / n;

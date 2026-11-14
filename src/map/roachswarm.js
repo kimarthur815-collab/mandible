@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildShell, colorize, PRONOTUM } from '../roach.js';
+import { NavGrid } from './nav.js';
 
 const V3 = THREE.Vector3;
 const clamp = THREE.MathUtils.clamp;
@@ -172,6 +173,16 @@ export class RoachSwarms {
     this.mesh.frustumCulled = false;
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(this.mesh);
+    // roaches on you are drawn in the arms pass, in front of everything
+    const og = geo.clone();
+    this.oPhase = new THREE.InstancedBufferAttribute(new Float32Array(4), 1).setUsage(THREE.DynamicDrawUsage);
+    this.oMove = new THREE.InstancedBufferAttribute(new Float32Array(4), 1).setUsage(THREE.DynamicDrawUsage);
+    og.setAttribute('iPhase', this.oPhase); og.setAttribute('iMove', this.oMove);
+    og.setAttribute('iSeed', new THREE.InstancedBufferAttribute(new Float32Array([0.13, 0.57, 0.81, 0.33]), 1));
+    this.overlay = new THREE.InstancedMesh(og, this.mesh.material, 4);
+    this.overlay.frustumCulled = false;
+    this.overlay.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < 4; i++) this.overlay.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
     this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.34, 0.42).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, color: 0x000000, opacity: 0.7 }), total);
     this.blobs.frustumCulled = false;
     this.blobs.renderOrder = 1;
@@ -183,21 +194,40 @@ export class RoachSwarms {
     this.flyer = this.newRoach(k, -1);
     this.flyer.state = 'off';
     this.roaches.push(this.flyer);
+    // navigation: free cells, light mask, distance fields
+    this.nav = new NavGrid(colliders);
+    this.FIELD = { wallCost: 0.88, litCost: 7, maxDist: 48 };
+    this.fPlayer = new Float32Array(this.nav.N).fill(Infinity);
+    this.fieldAge = 99; this.fieldCell = -1;
+    this.buildNestFields();
+    this.t = 0;
     this.reset();
   }
 
   newRoach(i, sw) {
-    return { i, sw, pos: new V3(), yaw: 0, speed: 0, state: 'idle', fleeT: 0, burst: 0, burstOn: false, off: new V3(), phase: Math.random() * 6, scale: 0.85 + Math.random() * 0.3, flyT: 0, from: new V3(), to: new V3() };
+    const R = Math.random;
+    return {
+      i, sw, pos: new V3(), yaw: 0, speed: 0, state: 'idle', fleeT: 0, burst: 0, burstOn: false, off: new V3(), phase: R() * 6, scale: 0.85 + R() * 0.3, flyT: 0, from: new V3(), to: new V3(),
+      // personality: how it weaves, whether it circles round to the side, how fast it is
+      zigAmp: 0.15 + R() * 0.65, zigFreq: 1.4 + R() * 3.2, zigPh: R() * 6.3,
+      flank: R() < 0.55 ? (R() < 0.5 ? -1 : 1) : 0, speedK: 0.85 + R() * 0.35,
+      meander: 0.2 + R() * 0.35, meanderF: 0.25 + R() * 0.4,
+      mode: 'move', waitT: 0, pounceT: 0, recoilT: 0, rdx: 0, rdz: 1,
+    };
+  }
+
+  buildNestFields() {
+    this.fNest = this.swarms.map((s) => this.nav.field([[s.x, s.z]], { wallCost: this.FIELD.wallCost, maxDist: 60 }));
   }
 
   reset() {
-    for (const s of this.swarms) { s.state = 'hide'; s.target.set(s.x, 0, s.z); s.lostT = 0; s.alerted = false; }
+    for (const s of this.swarms) { s.state = 'hide'; s.target.set(s.x, 0, s.z); s.lostT = 0; s.alerted = false; s.tCell = -1; }
     for (const r of this.roaches) {
       if (r === this.flyer) { r.sw = -1; r.state = 'off'; continue; }
       const s = this.swarms[r.sw];
       const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * s.spread;
       r.pos.set(s.x + Math.cos(a) * d, 0, s.z + Math.sin(a) * d);
-      r.yaw = Math.random() * Math.PI * 2; r.speed = 0; r.state = 'idle'; r.fleeT = 0;
+      r.yaw = Math.random() * Math.PI * 2; r.speed = 0; r.state = 'idle'; r.fleeT = 0; r.mode = 'move'; r.waitT = 0; r.pounceT = 0;
       r.off.set((Math.random() - 0.5) * 1.6, 0, (Math.random() - 0.5) * 1.6);
     }
     this.scared = false;
@@ -227,108 +257,158 @@ export class RoachSwarms {
     f.q0 = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new V3().crossVectors(toCam, up), toCam, up));
     // flying in: belly and legs toward the face
     f.q1 = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new V3().crossVectors(flat, up), flat, up));
-    f.state = 'fly'; f.flyT = 0;
+    f.state = 'fly'; f.flyT = 0; f.launched = false;
     f.pos.copy(f.from);
   }
 
-  // ctx: { dt, t, player:{pos,noise}, flash:{on,pos,dir}, lamps:[{x,z,on}], events:[{x,z,r}], frozen, onAttach(r), onFirstFlee(), onFirstHunt(), camera }
+  // ctx: { dt, t, player:{pos,noise,alive}, flash:{on,pos,dir}, lamps:[{x,z,on}], events:[{x,z,r}], frozen, onAttach(r), onFirstFlee(), onFirstHunt(), onFirstWait(), camera }
   update(ctx) {
     const { dt } = ctx;
     this.uTime.value += dt;
-    const P = ctx.player.pos;
-    const cosCone = Math.cos(0.5);
-    // ---- swarm level: hearing
+    this.t += dt;
+    const P = ctx.player.pos, nav = this.nav, F = this.FIELD;
+    if (nav.refreshIfChanged()) { this.buildNestFields(); this.fieldAge = 99; for (const s of this.swarms) s.tCell = -1; }
+    // what is lit right now (beam footprint + lamp discs)
+    nav.updateLight(ctx.flash.on ? { on: true, pos: ctx.flash.pos, dir: ctx.flash.dir, angle: 0.5, range: 13 } : null, ctx.lamps);
+    // distance field toward the player, routed around walls and around light
+    this.fieldAge += dt;
+    const pk = nav.idx(P.x, P.z);
+    if (this.fieldAge > 0.25 && (pk !== this.fieldCell || this.fieldAge > 0.5)) {
+      nav.field([[P.x, P.z]], F, this.fPlayer);
+      this.fieldCell = pk; this.fieldAge = 0;
+    }
+    // ---- swarm level: hearing, being lit, losing track
+    const litNow = new Set();
+    for (const r of this.roaches) if (r.sw >= 0 && r.state !== 'attached' && r.state !== 'off' && nav.lit[nav.idx(r.pos.x, r.pos.z)] === 1) litNow.add(r.sw);
     for (const s of this.swarms) {
       let heard = null;
-      if (ctx.player.noise > 0) {
-        const c = this.centroid(s);
-        if (Math.hypot(c.x - P.x, c.z - P.z) < ctx.player.noise) heard = P;
-      }
+      const c = this.centroid(s), dc = Math.hypot(c.x - P.x, c.z - P.z);
+      if (ctx.player.noise > 0 && dc < ctx.player.noise) heard = P;
       for (const e of ctx.events) if (Math.hypot(s.x - e.x, s.z - e.z) < e.r) heard = heard || new V3(e.x, 0, e.z);
+      if (litNow.has(s.idx)) heard = P;          // the beam gives you away
       if (heard && !ctx.frozen) {
         if (s.state !== 'hunt' && ctx.onFirstHunt) ctx.onFirstHunt(s);
         s.state = 'hunt'; s.target.copy(heard); s.lostT = 0; s.alerted = true;
       } else if (s.state === 'hunt') {
         s.lostT += dt;
-        // keep tracking a player who is close even if quiet
-        const c = this.centroid(s);
-        if (Math.hypot(c.x - P.x, c.z - P.z) < 3.5) { s.target.copy(P); s.lostT = Math.min(s.lostT, 2); }
+        // close by, or your light is on nearby: they keep tracking you
+        if (dc < 4 || (ctx.flash.on && dc < 10)) { s.target.copy(P); s.lostT = Math.min(s.lostT, 2); }
         if (s.lostT > 7) { s.state = 'return'; s.target.set(s.x, 0, s.z); }
       } else if (s.state === 'return') {
-        const c = this.centroid(s);
         if (Math.hypot(c.x - s.x, c.z - s.z) < 1.2) s.state = 'hide';
       }
+      // a field to a noise somewhere else than the player
+      if (s.state === 'hunt' && Math.hypot(s.target.x - P.x, s.target.z - P.z) > 2) {
+        const tk = nav.idx(s.target.x, s.target.z);
+        if (tk !== s.tCell) { s.f = nav.field([[s.target.x, s.target.z]], F, s.f); s.tCell = tk; }
+        s.useF = s.f;
+      } else s.useF = this.fPlayer;
     }
     // ---- individuals
     const M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new V3(), pos = new V3();
+    const D = { x: 0, z: 0 };
+    const T = this.t;
     for (const r of this.roaches) {
       if (r.state === 'off' || r.state === 'attached') { this.hide(r); continue; }
       if (r.state === 'fly' || r.state === 'face') { this.updateFlyer(r, ctx); continue; }
       const s = this.swarms[r.sw];
-      let tx, tz, want = 0;
-      // light: flashlight cone or a lit safe lamp makes them scatter to the dark
-      let lit = false, awayX = 0, awayZ = 0;
-      if (ctx.flash.on) {
-        const vx = r.pos.x - ctx.flash.pos.x, vy = 0.05 - ctx.flash.pos.y, vz = r.pos.z - ctx.flash.pos.z;
-        const d = Math.hypot(vx, vy, vz);
-        if (d < 13 && (vx * ctx.flash.dir.x + vy * ctx.flash.dir.y + vz * ctx.flash.dir.z) / d > cosCone) {
-          lit = true;
-          // flee sideways out of the beam and away from the player
-          const ax = ctx.flash.dir.x, az = ctx.flash.dir.z, al = Math.hypot(ax, az) || 1;
-          const perp = (vx * -az + vz * ax) / al;
-          awayX = (-az / al) * Math.sign(perp || 1) * 1.2 + vx / d * 0.6;
-          awayZ = (ax / al) * Math.sign(perp || 1) * 1.2 + vz / d * 0.6;
-        }
+      const k = nav.idx(r.pos.x, r.pos.z);
+      const cellLit = k >= 0 ? nav.lit[k] : 0;
+      const onWall = k >= 0 && nav.wall[k];
+      const dP = Math.hypot(P.x - r.pos.x, P.z - r.pos.z);
+      let dx = 0, dz = 0, want = 0, turn = 10;
+      if (!ctx.frozen && cellLit && r.mode !== 'recoil') {
+        r.mode = 'recoil'; r.recoilT = 0; r.waitT = 0; r.pounceT = 0;
+        if (ctx.onFirstFlee) ctx.onFirstFlee();
       }
-      for (const l of ctx.lamps) if (l.on) {
-        const dx = r.pos.x - l.x, dz = r.pos.z - l.z, d = Math.hypot(dx, dz);
-        if (d < 4.6) { lit = true; awayX += dx / (d || 1) * 2; awayZ += dz / (d || 1) * 2; }
-      }
-      if (lit && !ctx.frozen) {
-        if (r.state !== 'flee' && ctx.onFirstFlee) ctx.onFirstFlee();
-        r.state = 'flee'; r.fleeT = 3;
-        r.fleeX = awayX; r.fleeZ = awayZ;
-      }
-      if (r.state === 'flee') {
+      if (r.mode === 'recoil') {
+        // get out of the light by the shortest way that is not a wall
+        r.recoilT -= dt;
+        if (r.recoilT <= 0) { this.pickRecoil(r, ctx); r.recoilT = 0.15; }
+        dx = r.rdx; dz = r.rdz; want = 5.5; turn = 16;
+        if (!cellLit) { r.mode = s.state === 'hunt' ? 'wait' : 'move'; r.waitT = 0; }
+      } else if (r.state === 'flee') {
+        // thrown off: run away from the player, around walls
         r.fleeT -= dt;
-        tx = r.pos.x + r.fleeX * 3; tz = r.pos.z + r.fleeZ * 3; want = 5.0;
-        if (r.fleeT <= 0) r.state = 'idle';
-      } else if (s.state === 'hunt' || s.state === 'return') {
-        tx = s.target.x + r.off.x; tz = s.target.z + r.off.z;
-        if (s.state === 'hunt' && Math.hypot(P.x - r.pos.x, P.z - r.pos.z) < 2.5) { tx = P.x; tz = P.z; }
-        // irregular bursts: dart, freeze, dart
+        if (nav.descend(this.fPlayer, r.pos.x, r.pos.z, D, -1)) { dx = D.x; dz = D.z; } else { dx = r.pos.x - P.x; dz = r.pos.z - P.z; }
+        want = 5; if (r.fleeT <= 0) r.state = 'idle';
+      } else if (s.state === 'hunt') {
+        if (!nav.descend(s.useF, r.pos.x, r.pos.z, D)) { const l = Math.hypot(s.target.x - r.pos.x, s.target.z - r.pos.z) || 1; D.x = (s.target.x - r.pos.x) / l; D.z = (s.target.z - r.pos.z) / l; }
+        // weave, and some circle round to come at you from the side
+        let ang = Math.atan2(D.x, D.z);
+        const close = dP < 1.3;
+        ang += Math.sin(T * r.zigFreq + r.zigPh) * r.zigAmp * (onWall ? 0.35 : 1) * (close ? 0.25 : 1);
+        ang += Math.sin(T * r.meanderF + r.zigPh * 2.1) * r.meander * (onWall ? 0.4 : 1) * (close ? 0 : 1);   // slow wide curves
+        if (r.flank && dP > 1.6 && dP < 7.5) ang += r.flank * 0.85 * Math.min(1, (dP - 1.6) / 2);
+        dx = Math.sin(ang); dz = Math.cos(ang);
+        // light ahead? stop at its edge, or creep sideways along it
+        const ax = r.pos.x + dx * 0.4, az = r.pos.z + dz * 0.4;
+        if (!ctx.frozen && nav.isLit(ax, az)) {
+          const side = r.flank || (r.i % 2 ? 1 : -1);
+          let found = false;
+          for (const turnA of [0.9, -0.9, 1.6, -1.6]) {
+            const a2 = ang + turnA * side, cx = Math.sin(a2), cz = Math.cos(a2);
+            if (nav.free(r.pos.x + cx * 0.4, r.pos.z + cz * 0.4) && !nav.isLit(r.pos.x + cx * 0.4, r.pos.z + cz * 0.4) && !nav.isLit(r.pos.x + cx * 0.8, r.pos.z + cz * 0.8)) {
+              dx = cx; dz = cz; found = true; break;
+            }
+          }
+          if (r.mode !== 'wait') { r.mode = 'wait'; }
+          r.waitT += dt;
+          if (r.waitT > 1 && ctx.onFirstWait) ctx.onFirstWait();
+          if (found && Math.sin(T * 1.7 + r.zigPh) > -0.2) { want = 1.1; }
+          else {
+            // hold at the edge facing you, twitching forward and back
+            const fx = P.x - r.pos.x, fz = P.z - r.pos.z, fl = Math.hypot(fx, fz) || 1;
+            dx = fx / fl; dz = fz / fl;
+            want = Math.max(0, Math.sin(T * 5 + r.zigPh * 3)) * 0.35;
+            if (nav.isLit(r.pos.x + dx * 0.3, r.pos.z + dz * 0.3)) want = 0;
+          }
+        } else {
+          if (r.mode === 'wait' && r.waitT > 0.3) { r.pounceT = 0.9 + Math.random() * 0.6; this.pounceFlag = true; }   // the light left: rush in
+          r.mode = 'move'; r.waitT = 0;
+          if (r.pounceT > 0) { r.pounceT -= dt; want = 6.5 * r.speedK; turn = 14; }
+          else {
+            // dart, freeze, dart
+            r.burst -= dt;
+            if (r.burst <= 0) { r.burstOn = !r.burstOn; r.burst = r.burstOn ? 0.3 + Math.random() * 0.7 : 0.05 + Math.random() * 0.35; }
+            want = r.burstOn ? 4.0 * r.speedK : 0;
+          }
+        }
+      } else if (s.state === 'return') {
+        if (nav.descend(this.fNest[s.idx], r.pos.x, r.pos.z, D)) {
+          const ang = Math.atan2(D.x, D.z) + Math.sin(T * r.zigFreq * 0.6 + r.zigPh) * r.zigAmp * 0.5;
+          dx = Math.sin(ang); dz = Math.cos(ang);
+        } else { dx = s.x + r.off.x - r.pos.x; dz = s.z + r.off.z - r.pos.z; }
         r.burst -= dt;
-        if (r.burst <= 0) { r.burstOn = !r.burstOn; r.burst = r.burstOn ? 0.25 + Math.random() * 0.55 : 0.08 + Math.random() * 0.4; }
-        want = r.burstOn ? (s.state === 'hunt' ? 4.0 : 2.0) : 0;
-        const dd = Math.hypot(tx - r.pos.x, tz - r.pos.z);
-        if (dd < 0.25) want = 0;
+        if (r.burst <= 0) { r.burstOn = !r.burstOn; r.burst = r.burstOn ? 0.4 + Math.random() * 0.8 : 0.1 + Math.random() * 0.5; }
+        want = r.burstOn ? 2.2 * r.speedK : 0;
+        if (Math.hypot(s.x - r.pos.x, s.z - r.pos.z) < 1.0) want *= 0.3;
       } else {
         // hiding: tiny shuffles around the nest
         r.burst -= dt;
         if (r.burst <= 0) { r.burstOn = Math.random() < 0.25; r.burst = 0.3 + Math.random() * 1.5; r.wander = Math.random() * Math.PI * 2; }
-        tx = s.x + r.off.x * 0.6 + Math.cos(r.wander || 0) * 0.3; tz = s.z + r.off.z * 0.6 + Math.sin(r.wander || 0) * 0.3;
-        want = r.burstOn ? 0.6 : 0;
+        dx = s.x + r.off.x * 0.6 + Math.cos(r.wander || 0) * 0.3 - r.pos.x; dz = s.z + r.off.z * 0.6 + Math.sin(r.wander || 0) * 0.3 - r.pos.z;
+        want = r.burstOn && Math.hypot(dx, dz) > 0.1 ? 0.6 : 0;
       }
       if (ctx.frozen) want = 0;
-      // steer
-      const dx = tx - r.pos.x, dz = tz - r.pos.z;
-      if (Math.hypot(dx, dz) > 0.05 && want > 0) {
+      // steer: turn toward the wanted heading, slow down while turning hard
+      if (Math.hypot(dx, dz) > 1e-4) {
         let dy = Math.atan2(dx, dz) - r.yaw;
         dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-        r.yaw += clamp(dy, -12 * dt, 12 * dt);
-        want *= Math.max(0.2, Math.cos(dy));
+        r.yaw += clamp(dy, -turn * dt, turn * dt);
+        want *= Math.max(0.25, Math.cos(dy));
       }
       r.speed += clamp(want - r.speed, -40 * dt, 30 * dt);
       r.pos.x += Math.sin(r.yaw) * r.speed * dt;
       r.pos.z += Math.cos(r.yaw) * r.speed * dt;
       this.collide(r);
-      // reach the player -> climb on
-      if (!ctx.frozen && r.state !== 'flee' && s.state === 'hunt' && ctx.player.alive && Math.hypot(P.x - r.pos.x, P.z - r.pos.z) < 0.5) {
+      // reach the player in the dark -> climb on
+      if (!ctx.frozen && r.mode !== 'recoil' && r.state !== 'flee' && s.state === 'hunt' && ctx.player.alive && dP < 0.5 && !cellLit) {
         if (ctx.onAttach && ctx.onAttach(r)) { r.state = 'attached'; this.hide(r); continue; }
       }
       r.phase += r.speed * dt * 9;
       this.iPhase.array[r.i] = r.phase;
-      this.iMove.array[r.i] = clamp(r.speed / 1.2, 0, 1);
+      this.iMove.array[r.i] = r.mode === 'wait' && r.speed < 0.2 ? 0.08 : clamp(r.speed / 1.2, 0, 1);
       q.setFromEuler(e.set(0, r.yaw, 0));
       M.compose(pos.copy(r.pos).setY(0.004), q, sc.setScalar(r.scale));
       this.mesh.setMatrixAt(r.i, M);
@@ -340,6 +420,23 @@ export class RoachSwarms {
     this.blobs.instanceMatrix.needsUpdate = true;
     this.iPhase.needsUpdate = true;
     this.iMove.needsUpdate = true;
+  }
+
+  // the way out of the light: free, dark soon, not toward the player, not a U-turn
+  pickRecoil(r, ctx) {
+    const nav = this.nav, P = ctx.player.pos;
+    let ax = r.pos.x - P.x, az = r.pos.z - P.z;
+    const al = Math.hypot(ax, az) || 1; ax /= al; az /= al;
+    let best = -1e9, bx = r.rdx, bz = r.rdz;
+    for (let a = 0; a < 16; a++) {
+      const ang = a / 16 * Math.PI * 2, cx = Math.sin(ang), cz = Math.cos(ang);
+      const x1 = r.pos.x + cx * 0.5, z1 = r.pos.z + cz * 0.5, x2 = r.pos.x + cx * 1.2, z2 = r.pos.z + cz * 1.2;
+      if (!nav.free(x1, z1)) continue;
+      let sc = (nav.isLit(x1, z1) ? 0 : 2) + (nav.isLit(x2, z2) ? 0 : 1.5) + (nav.free(x2, z2) ? 0.4 : 0);
+      sc += 0.6 * (cx * ax + cz * az) + 0.3 * (cx * Math.sin(r.yaw) + cz * Math.cos(r.yaw));
+      if (sc > best) { best = sc; bx = cx; bz = cz; }
+    }
+    r.rdx = bx; r.rdz = bz;
   }
 
   updateFlyer(r, ctx) {
@@ -358,6 +455,7 @@ export class RoachSwarms {
       this.iMove.array[r.i] = 1.4;
       if (r.faceT > 0.5) {
         r.sw = 0; r.state = 'idle';
+        this.overlay.setMatrixAt(3, new THREE.Matrix4().makeScale(0, 0, 0)); this.overlay.instanceMatrix.needsUpdate = true;
         this.drop(r, ctx.player.pos, ctx.player.pos);
         return;
       }
@@ -367,6 +465,7 @@ export class RoachSwarms {
       q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.sin(r.flyT * 40) * 0.06, 0)));
       this.iMove.array[r.i] = r.flyT > HOLD - 0.15 ? 1.5 : 0.35;
     } else {
+      if (!r.launched) { r.launched = true; if (ctx.onFlyerLaunch) ctx.onFlyerLaunch(r.from); }
       const u = Math.min(1, (r.flyT - HOLD) / FLY);
       p.lerpVectors(r.from, r.to, Math.pow(u, 1.7));
       p.y += Math.sin(Math.PI * u) * 0.2;
@@ -377,8 +476,13 @@ export class RoachSwarms {
     }
     r.pos.copy(p);
     this.iPhase.array[r.i] += ctx.dt * 40;
-    this.mesh.setMatrixAt(r.i, new THREE.Matrix4().compose(p, q, new V3(1.1, 1.1, 1.1)));
-    this.blobs.setMatrixAt(r.i, new THREE.Matrix4().makeScale(0, 0, 0));
+    const Mx = new THREE.Matrix4().compose(p, q, new V3(1.1, 1.1, 1.1)), Z = new THREE.Matrix4().makeScale(0, 0, 0);
+    const near = r.state === 'face' || p.distanceTo(ctx.camera.position) < 0.9;
+    this.mesh.setMatrixAt(r.i, near ? Z : Mx);
+    this.overlay.setMatrixAt(3, near ? Mx : Z);
+    this.oMove.array[3] = this.iMove.array[r.i]; this.oPhase.array[3] = this.iPhase.array[r.i];
+    this.overlay.instanceMatrix.needsUpdate = true; this.oMove.needsUpdate = true; this.oPhase.needsUpdate = true;
+    this.blobs.setMatrixAt(r.i, Z);
   }
 
   // roaches on the player, drawn right in front of the camera: the first one crawls toward the face
@@ -391,20 +495,22 @@ export class RoachSwarms {
     ];
     list.forEach((at, k) => {
       const r = at.r, [A, B] = slots[k % 3];
-      const u = k === 0 ? Math.min(1, 1 - at.t / 1.5) : 0.2 + Math.sin(t * 2 + k) * 0.05;
+      // the first one climbs onto your face and stays there; the others creep up from the edges
+      const u = k === 0 ? Math.min(1, at.age / 1.5) : Math.min(0.55, 0.15 + at.age / 4) + Math.sin(t * 2 + k) * 0.05;
       const p = new V3().lerpVectors(A, B, u);
+      if (k === 0 && u >= 1) { p.x += Math.sin(t * 1.3) * 0.035; p.y += Math.cos(t * 1.7) * 0.025; }
       const j = Math.min(1, at.shake) * 0.04 + 0.004;
       p.x += Math.sin(t * 41 + k) * j; p.y += Math.cos(t * 37 + k * 2) * j;
       const dir = new V3().subVectors(B, A); dir.z = 0; dir.normalize().applyAxisAngle(new V3(0, 0, 1), Math.sin(t * 6 + k * 3) * 0.18);
       const Y = new V3(0, 0, 1), X = new V3().crossVectors(Y, dir);
       const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, dir)).premultiply(camera.quaternion);
       p.applyMatrix4(camera.matrixWorld);
-      this.mesh.setMatrixAt(r.i, new THREE.Matrix4().compose(p, q, new V3(0.9, 0.9, 0.9)));
-      this.blobs.setMatrixAt(r.i, new THREE.Matrix4().makeScale(0, 0, 0));
-      this.iMove.array[r.i] = 1.2; this.iPhase.array[r.i] += dt * 24;
+      this.overlay.setMatrixAt(k, new THREE.Matrix4().compose(p, q, new V3(0.9, 0.9, 0.9)));
+      this.oMove.array[k] = 1.2; this.oPhase.array[k] += dt * 24;
     });
-    this.mesh.instanceMatrix.needsUpdate = true;
-    this.iMove.needsUpdate = true; this.iPhase.needsUpdate = true;
+    for (let k = list.length; k < 3; k++) this.overlay.setMatrixAt(k, new THREE.Matrix4().makeScale(0, 0, 0));
+    this.overlay.instanceMatrix.needsUpdate = true;
+    this.oMove.needsUpdate = true; this.oPhase.needsUpdate = true;
   }
 
   hide(r) {
@@ -416,8 +522,9 @@ export class RoachSwarms {
     // thrown off the player: land nearby and scatter
     const a = Math.random() * Math.PI * 2;
     r.pos.set(at.x + Math.cos(a) * 1.2, 0, at.z + Math.sin(a) * 1.2);
+    if (!this.nav.free(r.pos.x, r.pos.z)) { const k = this.nav.nearestFree(r.pos.x, r.pos.z); if (k >= 0) r.pos.set(this.nav.cx(k), 0, this.nav.cz(k)); }
     r.yaw = Math.atan2(r.pos.x - awayFrom.x, r.pos.z - awayFrom.z);
-    r.state = 'flee'; r.fleeT = 2.5; r.fleeX = Math.sin(r.yaw); r.fleeZ = Math.cos(r.yaw); r.speed = 4;
+    r.state = 'flee'; r.fleeT = 2.5; r.speed = 4; r.mode = 'move'; r.waitT = 0; r.pounceT = 0;
     this.collide(r);
   }
 
@@ -461,4 +568,24 @@ export class RoachSwarms {
   }
 
   states() { return this.swarms.map((s) => s.state); }
+
+  // where the noise is: moving roaches per swarm, the closest one, and whether some just rushed in
+  audioInfo(P) {
+    const out = this.swarms.map(() => ({ x: 0, z: 0, moving: 0, n: 0, hunt: false }));
+    let near = null;
+    for (const r of this.roaches) {
+      if (r.sw < 0 || r.state === 'attached' || r.state === 'off' || r.state === 'fly' || r.state === 'face') continue;
+      const o = out[r.sw];
+      if (r.speed > 0.5) { o.moving++; o.x += r.pos.x; o.z += r.pos.z; o.n++; }
+      const d = Math.hypot(r.pos.x - P.x, r.pos.z - P.z);
+      if (!near || d < near.d) near = { x: r.pos.x, z: r.pos.z, d, speed: clamp(r.speed / 3, 0, 1) };
+    }
+    out.forEach((o, i) => {
+      if (o.n) { o.x /= o.n; o.z /= o.n; } else { const c = this.centroid(this.swarms[i]); o.x = c.x; o.z = c.z; }
+      o.hunt = this.swarms[i].state === 'hunt';
+      o.d = Math.hypot(o.x - P.x, o.z - P.z);
+    });
+    const pounce = !!this.pounceFlag; this.pounceFlag = false;
+    return { swarms: out, near, pounce };
+  }
 }

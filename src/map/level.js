@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import * as S from './surface.js';
 
 // All units are metres. +z runs from the loading dock (south) toward the hall (north).
 export const ROOMS = {
@@ -132,6 +133,42 @@ function label(text, size = 0.9) {
   return s;
 }
 
+// ---------------------------------------------------------------- surfaces per room
+let SURF = null;
+function surfaces() {
+  if (SURF) return SURF;
+  const macro = S.macroNoise();
+  const cf = S.concreteFloor(1), pw = S.paintedWall(3), wb = S.wallBand(5), rc = S.rawConcrete(7);
+  const tf = S.tiles({ seed: 11, count: 8, base: '#c8c2b2', grout: '#6c675d', floor: true });
+  const tw = S.tiles({ seed: 13, count: 16, base: '#e6e4dc', grout: '#a29e93' });
+  const W = (o) => S.worldMaterial({ macro, ...o });
+  const painted = (tint, bandTint, extra = {}) => W({ color: pw.color, data: pw.data, band: wb.color, bandData: wb.data, tint, bandTint, ...extra });
+  SURF = {
+    floor: {
+      dock: W({ color: cf.color, data: cf.data, tint: 0xd8d4cc }),
+      ware: W({ color: cf.color, data: cf.data, tint: 0xe4e0d8 }),
+      machine: W({ color: cf.color, data: cf.data, tint: 0xb8b2a6, wet: 0.5 }),
+      corridor: W({ color: tf.color, data: tf.data, tile: 2.4, tint: 0xd6d0c4 }),
+      hall: W({ color: cf.color, data: cf.data, tint: 0xd0cdc4, wet: 0.35 }),
+      lab: W({ color: tf.color, data: tf.data, tile: 2.4, tint: 0xf0eee8 }),
+      pass1: W({ color: cf.color, data: cf.data, tint: 0xa8a49c, wet: 0.9 }),
+      pass2: W({ color: cf.color, data: cf.data, tint: 0xa8a49c, wet: 0.9 }),
+    },
+    wall: {
+      dock: W({ color: rc.color, data: rc.data, band: wb.color, bandData: wb.data, bandTint: 0x8a8d90, tint: 0xd8d4cc }),
+      ware: painted(0xeef2f4, 0x7393b4),
+      machine: painted(0xece2d0, 0x6f8c68),
+      corridor: painted(0xdde8d9, 0x5f8a6c, { floorDirt: 0.45 }),
+      hall: painted(0xdcdcd8, 0x81878b),
+      lab: W({ color: tw.color, data: tw.data, tile: 2.4, tint: 0xffffff, floorDirt: 0.25 }),
+      pass1: W({ color: rc.color, data: rc.data, tint: 0xbcb8b0, wet: 0.8, floorDirt: 0.6 }),
+      pass2: W({ color: rc.color, data: rc.data, tint: 0xbcb8b0, wet: 0.8, floorDirt: 0.6 }),
+    },
+    ceil: W({ color: cf.color, data: cf.data, tint: 0x55524c, macroK: 0.6 }),
+  };
+  return SURF;
+}
+
 // ---------------------------------------------------------------- build
 export function buildLevel(scene) {
   const T = 0.3;              // wall thickness
@@ -140,16 +177,17 @@ export function buildLevel(scene) {
   scene.add(labels);
   const byMat = new Map();
   const colliders = [];       // xz AABBs { x0, x1, z0, z1, id? }
-  const add = (tint, g) => { if (!byMat.has(tint)) byMat.set(tint, []); byMat.get(tint).push(g); };
-  const solid = (tint, w, h, d, x, y, z, collide = true) => {
-    add(tint, boxGeom(w, h, d, x, y, z));
+  const SF = surfaces();
+  const add = (key, g) => { if (!byMat.has(key)) byMat.set(key, []); byMat.get(key).push(g); };
+  const solid = (key, w, h, d, x, y, z, collide = true) => {
+    if (key) add(key, boxGeom(w, h, d, x, y, z));
     if (collide) colliders.push({ x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2 });
   };
 
   for (const [key, r] of Object.entries(ROOMS)) {
     const w = r.x1 - r.x0, d = r.z1 - r.z0, cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2;
-    add('#8f8d88', planeGeom(w, d, cx, 0, cz, false));
-    add('#6d6b66', planeGeom(w, d, cx, r.h, cz, true));
+    add(`floor:${key}`, planeGeom(w, d, cx, 0, cz, false));
+    add('ceil', planeGeom(w, d, cx, r.h, cz, true));
     const sides = [
       { axis: 'z', at: r.z0, a: r.x0, b: r.x1, inward: +1 },
       { axis: 'z', at: r.z1, a: r.x0, b: r.x1, inward: -1 },
@@ -168,14 +206,14 @@ export function buildLevel(scene) {
       const wallCenter = s.at + (s.inward * T) / 2;
       for (const [p0, p1] of pieces) {
         const len = p1 - p0, mid = (p0 + p1) / 2;
-        if (s.axis === 'z') solid(r.tint, len, r.h, T, mid, r.h / 2, wallCenter);
-        else solid(r.tint, T, r.h, len, wallCenter, r.h / 2, mid);
+        if (s.axis === 'z') solid(`wall:${key}`, len, r.h, T, mid, r.h / 2, wallCenter);
+        else solid(`wall:${key}`, T, r.h, len, wallCenter, r.h / 2, mid);
       }
       for (const hh of holes) {
         if (hh.h >= r.h) continue;
         const len = hh.to - hh.from, mid = (hh.from + hh.to) / 2, lh = r.h - hh.h;
-        if (s.axis === 'z') solid(r.tint, len, lh, T, mid, hh.h + lh / 2, wallCenter, false);
-        else solid(r.tint, T, lh, len, wallCenter, hh.h + lh / 2, mid, false);
+        if (s.axis === 'z') solid(`wall:${key}`, len, lh, T, mid, hh.h + lh / 2, wallCenter, false);
+        else solid(`wall:${key}`, T, lh, len, wallCenter, hh.h + lh / 2, mid, false);
       }
     }
     if (r.name) {
@@ -185,48 +223,33 @@ export function buildLevel(scene) {
     }
   }
 
-  // ---- props
-  const RACK = '#9aa3ad', CRATE = '#a8957a', MACH = '#8d8f91', BENCH = '#a7b0a8', DOCKC = '#a39f96';
-  for (const [x, z0, z1] of STATIC_PROPS.racks) {
-    const len = z1 - z0, z = (z0 + z1) / 2;
-    solid(RACK, 1.2, 3.2, len, x, 1.6, z);
-    for (let k = 0; k < Math.floor(len / 1.6); k++) {
-      const bz = z0 + 0.8 + k * 1.6, s = 0.5 + ((k * 37) % 5) * 0.08;
-      add(CRATE, boxGeom(s * 1.4, s, s * 1.4, x, 3.2 + s / 2, bz));
-    }
-  }
-  // dock: pallets, crates, a dead forklift block
-  solid(CRATE, 1.2, 1.0, 1.0, -4.8, 0.5, 6.5); solid(CRATE, 1.2, 1.6, 1.2, -5.2, 0.8, 3.0);
-  solid(CRATE, 1.0, 0.8, 1.0, 4.6, 0.4, 7.2); solid(DOCKC, 1.4, 2.0, 2.4, 5.0, 1.0, 3.6);
-  add(DOCKC, boxGeom(14, 0.25, 1.2, 0, 0.12, 0.6)); // loading lip
-  // machine room
-  solid(MACH, 2.4, 2.2, 1.6, 15.0, 1.1, 12.0); solid(MACH, 1.4, 3.0, 1.4, 21.0, 1.5, 16.5);
-  solid(BENCH, 2.2, 0.9, 0.8, 14.2, 0.45, 18.8);
-  // corridor pipes
-  for (const s of [-1, 1]) add(MACH, boxGeom(0.18, 0.18, 26, 18.5 + s * 1.7, 3.6, 33));
-  // hall: conveyor lines, tanks, platform under generator 2
-  solid(MACH, 1.4, 1.0, 15, 3.8, 0.5, 57.5); solid(MACH, 1.4, 1.0, 15, 10.5, 0.5, 57.5);
-  solid(MACH, 1.4, 1.0, 9, 17.5, 0.5, 60.5);
-  for (const [x, z] of [[-2.6, 49.6], [-2.6, 66.4], [21.0, 66.4]]) {
-    add(MACH, new THREE.CylinderGeometry(1.5, 1.5, 5, 24).translate(x, 2.5, z));
-    colliders.push({ x0: x - 1.5, x1: x + 1.5, z0: z - 1.5, z1: z + 1.5 });
-  }
-  solid(DOCKC, 3.2, 0.3, 2.4, 2.5, 0.15, 66.6, false);
-  solid(BENCH, 2.0, 0.9, 0.8, 20.5, 0.45, 67.2);
-  // lab benches
-  solid(BENCH, 3.2, 0.9, 1.0, -12.5, 0.45, 56.4); solid(BENCH, 3.2, 0.9, 1.0, -12.5, 0.45, 60.0);
-  solid(BENCH, 2.4, 0.9, 0.8, -12.0, 0.45, 63.2); solid(BENCH, 0.8, 2.2, 3.0, -19.4, 1.1, 61.5);
-  // passage: debris
-  solid(CRATE, 1.0, 0.7, 1.0, -16.3, 0.35, 33.5);
+  // ---- props: only their footprints live here; dressing.js draws them
+  for (const [x, z0, z1] of STATIC_PROPS.racks) solid(null, 1.2, 3.2, z1 - z0, x, 1.6, (z0 + z1) / 2);
+  solid(null, 1.2, 1.0, 1.0, -4.8, 0.5, 6.5); solid(null, 1.2, 1.6, 1.2, -5.2, 0.8, 3.0);
+  solid(null, 1.0, 0.8, 1.0, 4.6, 0.4, 7.2); solid(null, 1.4, 2.0, 2.4, 5.0, 1.0, 3.6);
+  add('dockLip', boxGeom(14, 0.25, 1.2, 0, 0.12, 0.6));
+  solid(null, 2.4, 2.2, 1.6, 15.0, 1.1, 12.0); solid(null, 1.4, 3.0, 1.4, 21.0, 1.5, 16.5);
+  solid(null, 2.2, 0.9, 0.8, 14.2, 0.45, 18.8);
+  solid(null, 1.4, 1.0, 15, 3.8, 0.5, 57.5); solid(null, 1.4, 1.0, 15, 10.5, 0.5, 57.5);
+  solid(null, 1.4, 1.0, 9, 17.5, 0.5, 60.5);
+  for (const [x, z] of [[-2.6, 49.6], [-2.6, 66.4], [21.0, 66.4]]) colliders.push({ x0: x - 1.5, x1: x + 1.5, z0: z - 1.5, z1: z + 1.5 });
+  add('platform', boxGeom(3.2, 0.3, 2.4, 2.5, 0.15, 66.6));
+  solid(null, 2.0, 0.9, 0.8, 20.5, 0.45, 67.2);
+  solid(null, 3.2, 0.9, 1.0, -12.5, 0.45, 56.4); solid(null, 3.2, 0.9, 1.0, -12.5, 0.45, 60.0);
+  solid(null, 2.4, 0.9, 0.8, -12.0, 0.45, 63.2); solid(null, 0.8, 2.2, 3.0, -19.4, 1.1, 61.5);
+  solid(null, 1.0, 0.7, 1.0, -16.3, 0.35, 33.5);
 
+  const metalPlain = new THREE.MeshStandardMaterial({ color: 0x5f5d58, roughness: 0.7, metalness: 0.3, map: gridTexture('#8a8780') });
   const group = new THREE.Group();
-  for (const [tint, list] of byMat) {
-    const m = new THREE.Mesh(mergeGeometries(list), greyMat(tint));
-    m.receiveShadow = true; m.castShadow = true;
+  for (const [key, list] of byMat) {
+    const [kind, room] = key.split(':');
+    const mat = kind === 'floor' ? SF.floor[room] : kind === 'wall' ? SF.wall[room] : kind === 'ceil' ? SF.ceil : metalPlain;
+    const m = new THREE.Mesh(mergeGeometries(list), mat);
+    m.receiveShadow = true; m.castShadow = kind !== 'floor' && kind !== 'ceil';
     group.add(m);
   }
   scene.add(group);
-  return { group, colliders, labels };
+  return { group, colliders, labels, T };
 }
 
 // ------------------------------------------------- bug markers (greybox)

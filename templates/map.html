@@ -95,7 +95,7 @@
   body.shake #app { animation: shake .45s linear; }
   @keyframes shake { 0%,100% { transform: none; } 20% { transform: translate(-14px, 8px) rotate(-1deg); } 40% { transform: translate(12px, -10px) rotate(1deg); } 60% { transform: translate(-8px, 6px); } 80% { transform: translate(5px, -3px); } }
   /* a roach on you: legs creeping in from the lower right */
-  #crawl { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .2s; background: radial-gradient(ellipse at 85% 95%, rgba(20,6,2,.75) 0%, rgba(20,6,2,0) 55%); }
+  #crawl { --n: 1; position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .2s; background: radial-gradient(ellipse at 50% 55%, rgba(0,0,0,0) calc(62% - var(--n) * 12%), rgba(14,5,2,.92) 100%); }
   #crawl.show { opacity: 1; animation: itch .12s steps(2) infinite alternate; }
   @keyframes itch { from { opacity: .85; } to { opacity: 1; } }
   #bShake { display: none; position: fixed; left: 50%; bottom: calc(64px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: 120px; height: 56px; border-radius: 28px; border: 0; background: #e05a3a; color: #fff; font: inherit; font-size: 16px; z-index: 4; }
@@ -143,8 +143,8 @@
 <body>
 <div id="app"></div>
 <div id="cross"></div>
-<div class="hud" id="top"><div class="logo">MANDIBLE</div><div class="sub">맵 그레이박스 · 바퀴 떼 추가됨</div><div class="row"><span id="obj">발전기 0/3</span><span id="timer">0:00</span></div></div>
-<div id="tools"><button data-act="fs">전체화면</button><button data-act="dev">개발</button><button data-act="map">지도</button><button data-act="marks" class="on">벌레 위치</button><button data-act="bright">밝게</button></div>
+<div class="hud" id="top"><div class="logo">MANDIBLE</div><div class="sub">맵 그레이박스 · 바퀴 떼 · 팔 · 소리</div><div class="row"><span id="obj">발전기 0/3</span><span id="timer">0:00</span></div></div>
+<div id="tools"><button data-act="snd" class="on">소리</button><button data-act="fs">전체화면</button><button data-act="dev">개발</button><button data-act="map">지도</button><button data-act="marks" class="on">벌레 위치</button><button data-act="bright">밝게</button></div>
 <div id="minimap"><canvas></canvas></div>
 <div id="hurt"></div><div id="hit"></div>
 <div id="crawl"></div>
@@ -177,9 +177,9 @@
   <div class="t">MANDIBLE</div>
   <div class="s">맵 그레이박스 · 동선과 공간 확인용</div>
   <div class="help only-desk">WASD 이동 · 마우스 시점 · 좌클릭 손전등<br>Shift 달리기 · C 웅크리기 · E 상호작용(발전기는 꾹)<br>M 지도 · B 밝게 보기 · ` 개발자 모드 · Esc 마우스 풀기<br>오른쪽 위 전체화면 버튼 또는 F11로 전체화면</div>
-  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용(발전기는 꾹 누르기)<br>위 버튼: 전체화면 · 개발자 모드 · 지도 · 벌레 위치 · 밝게 보기</div>
+  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용(발전기는 꾹 누르기)<br>위 버튼: 소리 · 전체화면 · 개발자 모드 · 지도 · 벌레 위치 · 밝게 보기</div>
   <div class="help" id="iosHint">아이폰에서 전체화면으로 하려면<br>Safari로 열고 공유 버튼 → 홈 화면에 추가 → 홈 화면의 MANDIBLE 아이콘으로 실행하세요.</div>
-  <div class="help">발전기 3개를 켜고 처음 들어온 셔터로 탈출하세요.</div>
+  <div class="help">발전기 3개를 켜고 처음 들어온 셔터로 탈출하세요.<br>이어폰을 끼면 벌레 소리가 어느 쪽에서 나는지 들려요.</div>
   <div><button id="startBtn">시작하기</button></div>
 </div>
 <div class="overlay" id="win"><div class="t">탈출</div><div class="s">셔터 밖으로 빠져나왔다</div><b id="winTime">0:00</b><div><button id="againBtn">다시 하기</button></div></div>

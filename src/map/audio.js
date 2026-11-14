@@ -1,0 +1,477 @@
+// All sound is synthesised here with Web Audio: no audio files.
+// Ambience (factory drone, room tone, creaks, drips) + a chase layer (heartbeat, strings)
+// + effects (steps, flashlight switch, roach skitter, wings, generators, lamps, doors).
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+export class Sound {
+  constructor() {
+    this.ctx = null;
+    this.muted = false;
+    this.intensity = 0;
+    this.nextEvent = 3;
+    this.nextBeat = 0;
+    this.swarmSrc = [];
+    this.genSrc = new Map();
+    this.lampSrc = new Map();
+    this.flyerSrc = null;
+    this.t = 0;
+  }
+
+  // must be called from a tap/click (browsers only allow audio after one)
+  start() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (this.ctx) { if (this.ctx.state !== 'running') this.ctx.resume(); return; }
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* iOS 17+: play even with the silent switch on */ }
+    const ctx = this.ctx = new AC();
+    this.master = ctx.createGain(); this.master.gain.value = this.muted ? 0 : 0.9;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.25;
+    this.master.connect(comp); comp.connect(ctx.destination);
+    // one big concrete hall reverb shared by everything
+    this.rev = ctx.createConvolver(); this.rev.buffer = this.makeIR(2.8);
+    this.revIn = ctx.createGain(); this.revIn.gain.value = 0.5;
+    this.revIn.connect(this.rev); this.rev.connect(this.master);
+    this.sfx = this.bus(1.0, 0.35);
+    this.amb = this.bus(0.9, 0.5);
+    this.mus = this.bus(0.8, 0.3);
+    // shared noise
+    this.white = this.noiseBuf(2, 'white');
+    this.brown = this.noiseBuf(4, 'brown');
+    this.skitBufs = [0, 1, 2].map((i) => this.makeSkitter(2.4, 140 + i * 40, i));
+    this.crinkleBuf = this.makeCrinkle(2.0);
+    this.buzzBuf = this.makeBuzz(1.0);
+    this.genBuf = this.makeGenerator(2.0);
+    this.lampBuf = this.makeLampHum(2.0);
+    this.startAmbience();
+    this.startTension();
+  }
+
+  setMuted(m) {
+    this.muted = m;
+    if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.05);
+  }
+
+  bus(gain, send) {
+    const g = this.ctx.createGain(); g.gain.value = gain;
+    g.connect(this.master);
+    const s = this.ctx.createGain(); s.gain.value = send;
+    g.connect(s); s.connect(this.revIn);
+    return g;
+  }
+
+  // ------------------------------------------------------------ buffers
+  noiseBuf(sec, kind) {
+    const ctx = this.ctx, n = Math.floor(sec * ctx.sampleRate), b = ctx.createBuffer(1, n, ctx.sampleRate), d = b.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < n; i++) {
+      const w = Math.random() * 2 - 1;
+      if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
+    }
+    return b;
+  }
+
+  makeIR(sec) {
+    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(sec * sr), b = ctx.createBuffer(2, n, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c);
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        // dense tail + a few hard early reflections off concrete
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t / sec, 2.2) * Math.exp(-t * 1.4);
+      }
+      for (const e of [0.011, 0.023, 0.037, 0.052, 0.071]) d[Math.floor((e + c * 0.003) * sr)] += rnd(0.3, 0.6) * (Math.random() < 0.5 ? -1 : 1);
+    }
+    return b;
+  }
+
+  // chitin feet on concrete: thousands of tiny dry clicks
+  makeSkitter(sec, rate, seed) {
+    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(sec * sr), b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+    let t = 0;
+    while (t < sec) {
+      const burst = Math.sin(t * (1.7 + seed)) * 0.5 + 0.5;        // the crowd surges and pauses
+      t += -Math.log(1 - Math.random()) / (rate * (0.35 + burst));
+      const i0 = Math.floor(t * sr), len = Math.floor(rnd(0.0008, 0.003) * sr), amp = rnd(0.2, 1) * (0.5 + burst * 0.5);
+      let lp = 0;
+      for (let k = 0; k < len && i0 + k < n; k++) {
+        const w = Math.random() * 2 - 1;
+        lp = lp * 0.25 + w * 0.75;                                    // keep it bright
+        d[i0 + k] += (w - lp * 0.6) * amp * Math.exp(-k / (len * 0.25));
+      }
+    }
+    // a faint rustle under the clicks
+    for (let i = 0; i < n; i++) d[i] = d[i] * 0.55 + (Math.random() * 2 - 1) * 0.015;
+    this.loopFade(d, sr);
+    return b;
+  }
+
+  // the suit's plastic crinkle when something crawls on it
+  makeCrinkle(sec) {
+    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(sec * sr), b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+    let env = 0, hp = 0, prev = 0;
+    for (let i = 0; i < n; i++) {
+      if (Math.random() < 120 / sr) env = rnd(0.3, 1);
+      env *= 0.9992;
+      const w = Math.random() * 2 - 1;
+      hp = 0.9 * (hp + w - prev); prev = w;
+      d[i] = hp * env * (Math.random() < 0.3 ? 1 : 0.4) * 0.6;
+    }
+    this.loopFade(d, sr);
+    return b;
+  }
+
+  // a big roach's wings: a rough 80-100 Hz buzz with flutter
+  makeBuzz(sec) {
+    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(sec * sr), b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+    let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr, f = 88 + Math.sin(t * 13) * 6 + Math.sin(t * 31) * 3;
+      ph += f / sr;
+      const saw = (ph % 1) * 2 - 1;
+      const flap = Math.pow(Math.abs(Math.sin(Math.PI * ph)), 3);
+      d[i] = (saw * 0.5 + (Math.random() * 2 - 1) * 0.35) * (0.3 + flap * 0.9) * 0.5;
+    }
+    this.loopFade(d, sr);
+    return b;
+  }
+
+  makeGenerator(sec) {
+    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(sec * sr), b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+    let p1 = 0, lp = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      p1 += 24.5 / sr;                                   // 1470 rpm two-stroke-ish thump
+      const firing = Math.pow(Math.max(0, Math.sin(Math.PI * 2 * p1)), 8);
+      const w = Math.random() * 2 - 1; lp = lp * 0.97 + w * 0.03;
+      const hum = Math.sin(2 * Math.PI * 49 * t) * 0.3 + Math.sin(2 * Math.PI * 98 * t) * 0.18 + Math.sin(2 * Math.PI * 147 * t) * 0.06;
+      const rattle = (Math.random() * 2 - 1) * Math.pow(Math.max(0, Math.sin(2 * Math.PI * 12.25 * t)), 6) * 0.12;
+      d[i] = (hum * 0.6 + firing * 0.7 + lp * 4 + rattle) * 0.45;
+    }
+    this.loopFade(d, sr);
+    return b;
+  }
+
+  makeLampHum(sec) {
+    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(sec * sr), b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      const buzz = Math.sin(2 * Math.PI * 120 * t) * 0.5 + Math.sin(2 * Math.PI * 240 * t) * 0.2 + Math.sign(Math.sin(2 * Math.PI * 60 * t)) * 0.05;
+      const crackle = Math.random() < 3 / sr ? 1 : 0;
+      d[i] = buzz * 0.25 + (Math.random() * 2 - 1) * 0.02 + crackle * 0.6;
+    }
+    this.loopFade(d, sr);
+    return b;
+  }
+
+  loopFade(d, sr) {
+    const f = Math.floor(0.02 * sr), n = d.length;
+    for (let i = 0; i < f; i++) { const k = i / f; d[i] = d[i] * k + d[n - f + i] * (1 - k); }
+  }
+
+  // ------------------------------------------------------------ helpers
+  panner(x, y, z, ref = 1.2, roll = 1.3) {
+    const p = this.ctx.createPanner();
+    p.panningModel = 'HRTF'; p.distanceModel = 'inverse';
+    p.refDistance = ref; p.rolloffFactor = roll; p.maxDistance = 60;
+    this.setPos(p, x, y, z);
+    return p;
+  }
+  setPos(p, x, y, z) {
+    if (p.positionX) { const t = this.ctx.currentTime; p.positionX.setTargetAtTime(x, t, 0.03); p.positionY.setTargetAtTime(y, t, 0.03); p.positionZ.setTargetAtTime(z, t, 0.03); }
+    else p.setPosition(x, y, z);
+  }
+  loop(buf, dest, gain = 0, rate = 1) {
+    const s = this.ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.playbackRate.value = rate;
+    const g = this.ctx.createGain(); g.gain.value = gain;
+    s.connect(g); g.connect(dest);
+    s.start(0, Math.random() * buf.duration);
+    return { s, g };
+  }
+  // one-shot noise burst through a filter with an envelope
+  burst({ dest = this.sfx, t = 0, dur = 0.1, f = 1000, q = 1, type = 'bandpass', gain = 0.5, attack = 0.002, buf = this.white, rate = 1, pan = 0 }) {
+    const ctx = this.ctx, now = ctx.currentTime + t;
+    const s = ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate;
+    const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(gain, now + attack); g.gain.exponentialRampToValueAtTime(0.0001, now + attack + dur);
+    let out = g;
+    if (pan && ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = pan; g.connect(p); out = p; }
+    s.connect(fl); fl.connect(g); out.connect(dest);
+    s.start(now, Math.max(0, Math.random() * (buf.duration - dur - attack - 0.1))); s.stop(now + attack + dur + 0.05);
+    return fl;
+  }
+  tone({ dest = this.sfx, t = 0, f0 = 100, f1 = 50, dur = 0.2, gain = 0.4, type = 'sine', attack = 0.003, pan = 0 }) {
+    const ctx = this.ctx, now = ctx.currentTime + t;
+    const o = ctx.createOscillator(); o.type = type;
+    o.frequency.setValueAtTime(f0, now); o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), now + dur);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(gain, now + attack); g.gain.exponentialRampToValueAtTime(0.0001, now + attack + dur);
+    let out = g;
+    if (pan && ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = pan; g.connect(p); out = p; }
+    o.connect(g); out.connect(dest);
+    o.start(now); o.stop(now + attack + dur + 0.05);
+  }
+
+  // ------------------------------------------------------------ ambience
+  startAmbience() {
+    const ctx = this.ctx;
+    // low factory drone, slowly breathing
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 170; lp.Q.value = 0.8;
+    const dg = ctx.createGain(); dg.gain.value = 0.065;
+    lp.connect(dg); dg.connect(this.amb);
+    for (const [f, type, g] of [[41.2, 'sawtooth', 0.5], [41.55, 'sawtooth', 0.5], [55, 'sine', 0.6], [82.4, 'triangle', 0.15]]) {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = f;
+      const og = ctx.createGain(); og.gain.value = g; o.connect(og); og.connect(lp); o.start();
+    }
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.045;
+    const lg = ctx.createGain(); lg.gain.value = 70; lfo.connect(lg); lg.connect(lp.frequency); lfo.start();
+    // room tone
+    const rt = this.loop(this.brown, this.amb, 0.035);
+    const rf = ctx.createBiquadFilter(); rf.type = 'lowpass'; rf.frequency.value = 380;
+    rt.s.disconnect(); rt.s.connect(rf); rf.connect(rt.g);
+    // distant ventilation hiss
+    const vh = this.loop(this.white, this.amb, 0.006);
+    const vf = ctx.createBiquadFilter(); vf.type = 'bandpass'; vf.frequency.value = 2400; vf.Q.value = 0.5;
+    vh.s.disconnect(); vh.s.connect(vf); vf.connect(vh.g);
+  }
+
+  // random sounds of the building around you
+  ambientEvent(listener) {
+    const k = Math.random();
+    const ang = Math.random() * Math.PI * 2, d = rnd(4, 14);
+    const x = listener.x + Math.cos(ang) * d, z = listener.z + Math.sin(ang) * d;
+    if (k < 0.3) {
+      // metal groan: resonant noise sweeping down
+      const p = this.panner(x, 4, z, 3, 0.6); p.connect(this.amb);
+      const f = this.burst({ dest: p, dur: rnd(1.2, 2.4), f: rnd(300, 700), q: 18, gain: 0.5, attack: 0.4, buf: this.brown, rate: 1 });
+      f.frequency.exponentialRampToValueAtTime(rnd(120, 260), this.ctx.currentTime + 2);
+    } else if (k < 0.6) {
+      // water drip
+      const p = this.panner(x, 0.2, z, 1.5, 1); p.connect(this.amb);
+      const f0 = rnd(900, 1600);
+      this.tone({ dest: p, f0, f1: f0 * 2.2, dur: 0.06, gain: 0.25 });
+      if (Math.random() < 0.5) this.tone({ dest: p, t: rnd(0.3, 0.6), f0: f0 * 1.1, f1: f0 * 2.4, dur: 0.05, gain: 0.15 });
+    } else if (k < 0.78) {
+      // a far clank
+      const p = this.panner(x, 2, z, 4, 0.5); p.connect(this.amb);
+      this.burst({ dest: p, dur: 0.5, f: rnd(500, 1200), q: 12, gain: 0.4 });
+      this.tone({ dest: p, f0: rnd(140, 220), f1: 60, dur: 0.4, gain: 0.2 });
+    } else {
+      // something small scuttling somewhere
+      const p = this.panner(x, 0.1, z, 1, 1.2); p.connect(this.amb);
+      const s = this.ctx.createBufferSource(); s.buffer = this.skitBufs[Math.floor(Math.random() * 3)];
+      const g = this.ctx.createGain(), now = this.ctx.currentTime, dur = rnd(0.6, 1.4);
+      g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.5, now + 0.1); g.gain.linearRampToValueAtTime(0, now + dur);
+      s.connect(g); g.connect(p); s.start(now, Math.random() * 1.5); s.stop(now + dur + 0.05);
+    }
+  }
+
+  // ------------------------------------------------------------ chase layer
+  startTension() {
+    const ctx = this.ctx;
+    this.tenGain = ctx.createGain(); this.tenGain.gain.value = 0; this.tenGain.connect(this.mus);
+    // dissonant string-ish cluster: detuned saws through a moving band-pass, with tremolo
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 1.2;
+    const trem = ctx.createGain(); trem.gain.value = 0.7;
+    bp.connect(trem); trem.connect(this.tenGain);
+    for (const f of [110, 116.5, 164.8, 174.6, 233.1]) for (const det of [-6, 7]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det;
+      const g = ctx.createGain(); g.gain.value = 0.05; o.connect(g); g.connect(bp); o.start();
+    }
+    const tl = ctx.createOscillator(); tl.frequency.value = 6.5;
+    const tlg = ctx.createGain(); tlg.gain.value = 0.3; tl.connect(tlg); tlg.connect(trem.gain); tl.start();
+    const sweep = ctx.createOscillator(); sweep.frequency.value = 0.11;
+    const sg = ctx.createGain(); sg.gain.value = 500; sweep.connect(sg); sg.connect(bp.frequency); sweep.start();
+    // high glassy harmonics
+    this.highGain = ctx.createGain(); this.highGain.gain.value = 0; this.highGain.connect(this.mus);
+    for (const f of [2637, 2794, 3136]) {
+      const o = ctx.createOscillator(); o.frequency.value = f;
+      const g = ctx.createGain(); g.gain.value = 0.012; o.connect(g); g.connect(this.highGain); o.start();
+      const v = ctx.createOscillator(); v.frequency.value = rnd(4, 7); const vg = ctx.createGain(); vg.gain.value = 9; v.connect(vg); vg.connect(o.frequency); v.start();
+    }
+  }
+
+  heartbeat(level) {
+    const g = 0.35 + level * 0.5;
+    this.tone({ dest: this.mus, f0: 62, f1: 38, dur: 0.16, gain: g, attack: 0.008 });
+    this.tone({ dest: this.mus, t: 0.22, f0: 55, f1: 34, dur: 0.2, gain: g * 0.7, attack: 0.01 });
+  }
+
+  // ------------------------------------------------------------ effects
+  step(kind, side) {
+    if (!this.ctx) return;
+    const g = kind === 'run' ? 0.7 : kind === 'crouch' ? 0.14 : 0.4;
+    const pan = side ? 0.15 : -0.15;
+    // grit on concrete + the heel
+    this.burst({ dur: kind === 'run' ? 0.09 : 0.07, f: rnd(1500, 2600), q: 0.9, gain: g * 0.7, pan });
+    this.burst({ dur: 0.05, f: rnd(5000, 7000), q: 1.5, gain: g * 0.18, t: 0.01, pan });
+    this.tone({ f0: kind === 'run' ? 110 : 90, f1: 45, dur: 0.07, gain: g * 0.8, pan });
+    // the suit rustles with each step
+    if (kind !== 'crouch') this.burst({ dur: 0.12, f: 4200, q: 0.7, gain: g * 0.12, t: 0.02, buf: this.white, pan: -pan });
+  }
+
+  click(on) {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.012, f: 3800, q: 3, gain: 0.35, pan: 0.3 });
+    this.tone({ f0: 3200, f1: 2600, dur: 0.03, gain: 0.05, pan: 0.3 });
+    this.burst({ t: 0.06, dur: 0.01, f: on ? 4300 : 3500, q: 3, gain: 0.25, pan: 0.3 });
+  }
+
+  shakeOff() {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.35, f: 3500, q: 0.6, gain: 0.5, attack: 0.02 });
+    this.burst({ t: 0.08, dur: 0.25, f: 5200, q: 0.8, gain: 0.3, attack: 0.01 });
+    this.tone({ t: 0.32, f0: 160, f1: 70, dur: 0.06, gain: 0.25 });
+    this.burst({ t: 0.33, dur: 0.05, f: 2500, q: 2, gain: 0.25 });
+  }
+
+  attach() {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.18, f: 4500, q: 0.8, gain: 0.45, attack: 0.005 });
+    this.tone({ f0: 220, f1: 90, dur: 0.08, gain: 0.25 });
+  }
+
+  // something flew at your face
+  scareLaunch(x, y, z) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, now = ctx.currentTime;
+    // stinger: low boom + screeching cluster
+    this.tone({ dest: this.mus, f0: 70, f1: 30, dur: 1.2, gain: 0.9, attack: 0.01 });
+    for (const f of [740, 784, 1046, 1108]) this.tone({ dest: this.mus, f0: f, f1: f * 0.94, dur: 1.1, gain: 0.07, type: 'sawtooth', attack: 0.02 });
+    this.burst({ dest: this.mus, dur: 0.6, f: 2000, q: 0.5, gain: 0.5, attack: 0.005 });
+    // the wings
+    const p = this.panner(x, y, z, 0.6, 1.4); p.connect(this.sfx);
+    const l = this.loop(this.buzzBuf, p, 0, 1);
+    l.g.gain.setValueAtTime(0, now); l.g.gain.linearRampToValueAtTime(1.0, now + 0.15);
+    this.flyerSrc = { ...l, p };
+  }
+  flyerAt(x, y, z) { if (this.flyerSrc) this.setPos(this.flyerSrc.p, x, y, z); }
+  scareHit() {
+    if (!this.ctx) return;
+    this.tone({ f0: 140, f1: 50, dur: 0.18, gain: 0.7 });
+    this.burst({ dur: 0.25, f: 3000, q: 0.7, gain: 0.6 });
+    if (this.flyerSrc) {
+      const now = this.ctx.currentTime, f = this.flyerSrc;
+      f.g.gain.setTargetAtTime(0, now + 0.4, 0.08); f.s.stop(now + 1);
+      this.flyerSrc = null;
+    }
+  }
+
+  generatorStart(x, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 1, z, 2, 1); p.connect(this.sfx);
+    // starter cranks, coughs, catches
+    for (let i = 0; i < 3; i++) {
+      this.tone({ dest: p, t: i * 0.45, f0: 60, f1: 140, dur: 0.35, gain: 0.35, type: 'sawtooth' });
+      this.burst({ dest: p, t: i * 0.45 + 0.3, dur: 0.12, f: 400, q: 1, gain: 0.4, buf: this.brown });
+    }
+    const now = this.ctx.currentTime;
+    const l = this.loop(this.genBuf, p, 0, 1);
+    l.g.gain.setValueAtTime(0, now + 1.3); l.g.gain.linearRampToValueAtTime(0.9, now + 2.2);
+    this.genSrc.set(`${x},${z}`, l);
+  }
+
+  lampOn(x, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 2.6, z, 1.5, 1.2); p.connect(this.sfx);
+    this.tone({ dest: p, f0: 180, f1: 70, dur: 0.12, gain: 0.5 });
+    this.burst({ dest: p, dur: 0.06, f: 1800, q: 4, gain: 0.4 });
+    const l = this.loop(this.lampBuf, p, 0.0, 1);
+    l.g.gain.setTargetAtTime(0.35, this.ctx.currentTime + 0.1, 0.1);
+    this.lampSrc.set(`${x},${z}`, { ...l, p });
+  }
+  lampLevel(x, z, k) {
+    const l = this.lampSrc.get(`${x},${z}`);
+    if (l) l.g.gain.setTargetAtTime(0.35 * k, this.ctx.currentTime, 0.01);
+  }
+  lampPop(x, z) {
+    if (!this.ctx) return;
+    const l = this.lampSrc.get(`${x},${z}`);
+    const p = this.panner(x, 2.6, z, 1.5, 1.1); p.connect(this.sfx);
+    this.burst({ dest: p, dur: 0.08, f: 2500, q: 0.6, gain: 0.9, attack: 0.001 });
+    for (let i = 0; i < 6; i++) this.tone({ dest: p, t: 0.05 + Math.random() * 0.4, f0: rnd(3000, 6000), f1: rnd(2500, 5000), dur: 0.04, gain: 0.06 });
+    if (l) { l.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02); l.s.stop(this.ctx.currentTime + 0.3); this.lampSrc.delete(`${x},${z}`); }
+  }
+
+  doorRumble(x, z, dur = 2.5) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 2, z, 3, 0.8); p.connect(this.sfx);
+    const f = this.burst({ dest: p, dur, f: 140, q: 1.5, gain: 0.9, attack: 0.2, buf: this.brown });
+    f.frequency.linearRampToValueAtTime(220, this.ctx.currentTime + dur);
+    for (let i = 0; i < dur * 6; i++) this.burst({ dest: p, t: i / 6 + rnd(0, 0.1), dur: 0.05, f: rnd(700, 1400), q: 6, gain: 0.15 });
+    this.tone({ dest: p, t: dur, f0: 90, f1: 40, dur: 0.4, gain: 0.6 });
+  }
+
+  paper() {
+    if (!this.ctx) return;
+    for (let i = 0; i < 4; i++) this.burst({ t: i * 0.07, dur: 0.08, f: rnd(2500, 5000), q: 0.8, gain: 0.25 });
+  }
+
+  // a restart: silence everything that was running in the level
+  resetWorld() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    for (const l of [...this.genSrc.values(), ...this.lampSrc.values()]) { l.g.gain.setTargetAtTime(0, now, 0.05); l.s.stop(now + 0.4); }
+    this.genSrc.clear(); this.lampSrc.clear();
+    if (this.flyerSrc) { this.flyerSrc.s.stop(now + 0.1); this.flyerSrc = null; }
+    this.intensity = 0;
+  }
+
+  // ------------------------------------------------------------ per frame
+  // s: { dt, camera, swarms:[{x,z,moving}], near:{x,z,d}|null, attached, intensity, gens:[{x,z,on}], pounce }
+  update(s) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const ctx = this.ctx, now = ctx.currentTime, L = ctx.listener;
+    this.t += s.dt;
+    // the listener is the camera
+    const c = s.camera, p = c.position, f = this._f || (this._f = { x: 0, y: 0, z: 0 });
+    const e = c.matrixWorld.elements;
+    f.x = -e[8]; f.y = -e[9]; f.z = -e[10];
+    if (L.positionX) {
+      L.positionX.setTargetAtTime(p.x, now, 0.02); L.positionY.setTargetAtTime(p.y, now, 0.02); L.positionZ.setTargetAtTime(p.z, now, 0.02);
+      L.forwardX.setTargetAtTime(f.x, now, 0.02); L.forwardY.setTargetAtTime(f.y, now, 0.02); L.forwardZ.setTargetAtTime(f.z, now, 0.02);
+      L.upX.setTargetAtTime(e[4], now, 0.02); L.upY.setTargetAtTime(e[5], now, 0.02); L.upZ.setTargetAtTime(e[6], now, 0.02);
+    } else { L.setPosition(p.x, p.y, p.z); L.setOrientation(f.x, f.y, f.z, e[4], e[5], e[6]); }
+
+    // swarm skitter, one positional loop per swarm
+    s.swarms.forEach((w, i) => {
+      if (!this.swarmSrc[i]) {
+        const pn = this.panner(w.x, 0.15, w.z, 1.2, 1.25); pn.connect(this.sfx);
+        const l = this.loop(this.skitBufs[i % 3], pn, 0, 0.9 + (i % 3) * 0.12);
+        this.swarmSrc[i] = { ...l, p: pn };
+      }
+      const src = this.swarmSrc[i];
+      this.setPos(src.p, w.x, 0.15, w.z);
+      src.g.gain.setTargetAtTime(Math.min(1.4, w.moving / 5) * 0.9 + (w.moving > 0 ? 0.04 : 0), now, 0.12);
+    });
+    // the closest roach gets its own crisp skitter
+    if (!this.nearSrc) {
+      const pn = this.panner(0, 0.1, 0, 0.5, 1.6); pn.connect(this.sfx);
+      this.nearSrc = { ...this.loop(this.skitBufs[1], pn, 0, 1.25), p: pn };
+    }
+    if (s.near && s.near.d < 3) { this.setPos(this.nearSrc.p, s.near.x, 0.1, s.near.z); this.nearSrc.g.gain.setTargetAtTime(0.5 * (1 - s.near.d / 3) * s.near.speed, now, 0.05); }
+    else this.nearSrc.g.gain.setTargetAtTime(0, now, 0.1);
+    // crawling on you
+    if (!this.onMe) {
+      this.onMe = { crinkle: this.loop(this.crinkleBuf, this.sfx, 0, 1), skit: this.loop(this.skitBufs[2], this.sfx, 0, 1.4) };
+    }
+    const a = Math.min(3, s.attached);
+    this.onMe.crinkle.g.gain.setTargetAtTime(a ? 0.35 + a * 0.15 : 0, now, 0.05);
+    this.onMe.skit.g.gain.setTargetAtTime(a ? 0.25 + a * 0.1 : 0, now, 0.05);
+    if (s.pounce) this.burst({ dur: 0.3, f: 5000, q: 0.7, gain: 0.25, attack: 0.03 });
+
+    // chase music follows how close the hunt is
+    this.intensity += (s.intensity - this.intensity) * Math.min(1, s.dt * (s.intensity > this.intensity ? 2.5 : 0.5));
+    const I = this.intensity;
+    this.tenGain.gain.setTargetAtTime(Math.pow(I, 1.4) * 0.5, now, 0.2);
+    this.highGain.gain.setTargetAtTime(Math.max(0, I - 0.4) * 0.6, now, 0.3);
+    if (I > 0.08) {
+      this.nextBeat -= s.dt;
+      if (this.nextBeat <= 0) { this.heartbeat(I); this.nextBeat = 60 / (58 + I * 70); }
+    } else this.nextBeat = 0.2;
+
+    // the building
+    this.nextEvent -= s.dt;
+    if (this.nextEvent <= 0) { this.ambientEvent(p); this.nextEvent = rnd(3.5, 10); }
+  }
+}
