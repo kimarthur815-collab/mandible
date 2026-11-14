@@ -1,0 +1,16 @@
+{
+  "name": "mandible",
+  "version": "0.1.0",
+  "description": "1인칭 3D 공포 게임: 버려진 살충제 공장에서 거대 벌레를 피해 탈출",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:map": "node build.mjs map"
+  },
+  "license": "Unlicense",
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "three": "^0.170.0"
+  }
+}
