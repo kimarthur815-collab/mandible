@@ -577,16 +577,44 @@ function frame(dtOverride) {
 }
 let fpsAvg = 1 / 60, fpsN = 0;
 
+// ------------------------------------------------------------------ fullscreen
+const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const standalone = matchMedia('(display-mode: fullscreen)').matches || matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+const fsOK = () => !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+function enterFullscreen() {
+  const d = document.documentElement;
+  let req = null;
+  try { req = d.requestFullscreen ? d.requestFullscreen({ navigationUI: 'hide' }) : d.webkitRequestFullscreen ? d.webkitRequestFullscreen() : null; } catch (e) { return Promise.reject(e); }
+  return Promise.resolve(req).then(() => {
+    // phones: hold the screen sideways while in fullscreen (Android); the rotate prompt covers the rest
+    try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}); } catch (e) { /* not supported */ }
+  });
+}
+function exitFullscreen() { const f = document.exitFullscreen || document.webkitExitFullscreen; if (f) f.call(document); }
+function toggleFullscreen() {
+  if (standalone) { msg('이미 전체화면이에요'); return; }
+  if (!fsOK()) { msg(isIOS ? '아이폰은 Safari에서 홈 화면에 추가해야 전체화면이 돼요' : '여기서는 전체화면이 막혀 있어요. 브라우저에서 직접 열어 주세요'); return; }
+  if (fsEl()) exitFullscreen();
+  else enterFullscreen().catch(() => msg('전체화면을 열 수 없어요. 브라우저에서 직접 열어 주세요'));
+}
+function syncFs() {
+  const on = !!fsEl() || standalone;
+  document.querySelectorAll('[data-act="fs"]').forEach((b) => { b.classList.toggle('on', on); b.textContent = on ? '창 모드' : '전체화면'; });
+  if (standalone) document.querySelectorAll('[data-act="fs"]').forEach((b) => { b.style.display = 'none'; });
+}
+document.addEventListener('fullscreenchange', syncFs);
+document.addEventListener('webkitfullscreenchange', syncFs);
+document.querySelectorAll('[data-act="fs"]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); toggleFullscreen(); }));
+syncFs();
+// iPhone Safari has no fullscreen for pages: point to Add to Home Screen instead
+if (isIOS && !fsOK() && !standalone) $('#iosHint').classList.add('show');
+
 // ------------------------------------------------------------------ start / win
 G.started = false;
 resetGame();
 $('#startBtn').addEventListener('click', () => {
-  if (touch) {
-    try {
-      const fs = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
-      if (fs && fs.then) fs.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape')).catch(() => {});
-    } catch (e) { /* the frame may refuse; the rotate prompt covers it */ }
-  }
+  if (touch && fsOK() && !fsEl() && !standalone) enterFullscreen().catch(() => {});
   G.started = true;
   $('#start').classList.add('hide');
   if (!touch) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }

@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>MANDIBLE — 맵 그레이박스</title>
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MANDIBLE">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
@@ -71,6 +79,7 @@
   .overlay .s { margin-top: 6px; font-size: 13px; color: var(--dim); }
   .overlay .help { margin: 22px auto 0; font-size: 13px; line-height: 1.9; color: rgba(236,230,220,.8); max-width: 340px; }
   .overlay button { margin-top: 26px; font: inherit; font-size: 15px; color: #1a1612; background: var(--amber); border: 0; border-radius: 12px; padding: 13px 34px; }
+  #iosHint { display: none; color: var(--amber); } #iosHint.show { display: block; }
   .only-touch { display: none; } body.touch .only-touch { display: block; } body.touch .only-desk { display: none; }
   #win { opacity: 0; pointer-events: none; }
   #win.show { opacity: 1; pointer-events: auto; }
@@ -135,7 +144,7 @@
 <div id="app"></div>
 <div id="cross"></div>
 <div class="hud" id="top"><div class="logo">MANDIBLE</div><div class="sub">맵 그레이박스 · 바퀴 떼 추가됨</div><div class="row"><span id="obj">발전기 0/3</span><span id="timer">0:00</span></div></div>
-<div id="tools"><button data-act="dev">개발</button><button data-act="map">지도</button><button data-act="marks" class="on">벌레 위치</button><button data-act="bright">밝게</button></div>
+<div id="tools"><button data-act="fs">전체화면</button><button data-act="dev">개발</button><button data-act="map">지도</button><button data-act="marks" class="on">벌레 위치</button><button data-act="bright">밝게</button></div>
 <div id="minimap"><canvas></canvas></div>
 <div id="hurt"></div><div id="hit"></div>
 <div id="crawl"></div>
@@ -167,8 +176,9 @@
 <div class="overlay" id="start">
   <div class="t">MANDIBLE</div>
   <div class="s">맵 그레이박스 · 동선과 공간 확인용</div>
-  <div class="help only-desk">WASD 이동 · 마우스 시점 · 좌클릭 손전등<br>Shift 달리기 · C 웅크리기 · E 상호작용(발전기는 꾹)<br>M 지도 · B 밝게 보기 · ` 개발자 모드 · Esc 마우스 풀기</div>
-  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용(발전기는 꾹 누르기)<br>위 버튼: 개발자 모드 · 지도 · 벌레 위치 · 밝게 보기</div>
+  <div class="help only-desk">WASD 이동 · 마우스 시점 · 좌클릭 손전등<br>Shift 달리기 · C 웅크리기 · E 상호작용(발전기는 꾹)<br>M 지도 · B 밝게 보기 · ` 개발자 모드 · Esc 마우스 풀기<br>오른쪽 위 전체화면 버튼 또는 F11로 전체화면</div>
+  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용(발전기는 꾹 누르기)<br>위 버튼: 전체화면 · 개발자 모드 · 지도 · 벌레 위치 · 밝게 보기</div>
+  <div class="help" id="iosHint">아이폰에서 전체화면으로 하려면<br>Safari로 열고 공유 버튼 → 홈 화면에 추가 → 홈 화면의 MANDIBLE 아이콘으로 실행하세요.</div>
   <div class="help">발전기 3개를 켜고 처음 들어온 셔터로 탈출하세요.</div>
   <div><button id="startBtn">시작하기</button></div>
 </div>
