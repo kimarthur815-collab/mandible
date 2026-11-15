@@ -772,8 +772,10 @@ export class Sound {
     // chase music follows how close the hunt is
     this.intensity += (s.intensity - this.intensity) * Math.min(1, s.dt * (s.intensity > this.intensity ? 2.5 : 0.5));
     const I = this.intensity;
-    this.tenGain.gain.setTargetAtTime(Math.pow(I, 1.4) * 0.5, now, 0.2);
-    this.highGain.gain.setTargetAtTime(Math.max(0, I - 0.4) * 0.6, now, 0.3);
+    // hiding: the music drops away and leaves the heartbeat
+    const hush = s.hush ? 0.2 : 1;
+    this.tenGain.gain.setTargetAtTime(Math.pow(I, 1.4) * 0.5 * hush, now, s.hush ? 0.6 : 0.2);
+    this.highGain.gain.setTargetAtTime(Math.max(0, I - 0.4) * 0.6 * hush, now, 0.3);
     if (I > 0.08) {
       this.nextBeat -= s.dt;
       if (this.nextBeat <= 0) { this.heartbeat(I); this.nextBeat = 60 / (58 + I * 70); }

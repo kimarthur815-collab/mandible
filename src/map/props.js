@@ -366,7 +366,8 @@ export function conveyor(B, room, atlas, x, z0, z1, R) {
     const l = box(0.07, 0.78, 0.07); l.translate(x + sx * 0.58, 0.39, z); B.add('metal', room, l, F);
     const fp = box(0.14, 0.01, 0.14); fp.translate(x + sx * 0.58, 0.005, z); B.add('metal', room, fp, F);
   }
-  for (let z = z0 + 0.8; z < z1; z += 3.2) { const xb = box(1.2, 0.05, 0.05); xb.translate(x, 0.3, z); B.add('metal', room, xb, F); }
+  // cross braces up under the belt, so there is room to crawl underneath
+  for (let z = z0 + 0.8; z < z1; z += 3.2) { const xb = box(1.2, 0.05, 0.05); xb.translate(x, 0.73, z); B.add('metal', room, xb, F); }
   for (let z = z0 + 0.15; z < z1; z += 0.3) for (const sx of [-1, 1]) { const rc = cyl(0.035, 0.035, 0.02, 8); rc.rotateZ(Math.PI / 2); rc.translate(x + sx * 0.655, 0.86, z); B.add('metal', room, rc, C('#8b8b86')); }
   const motor = cyl(0.17, 0.17, 0.45, 14); motor.rotateZ(Math.PI / 2); motor.translate(x + 0.9, 0.62, z1 - 0.3); B.add('metal', room, motor, C('#2c4d7a'));
   // things left on the belt
@@ -374,6 +375,35 @@ export function conveyor(B, room, atlas, x, z0, z1, R) {
     if (R() < 0.6) crumpledBox(B, room, atlas, 0.45, 0.3, 0.38, mtx(x + (R() - 0.5) * 0.3, 0.92 + 0.15, z, R() * 0.6), R);
     else sack(B, room, mtx(x, 0.92, z, R() * 3), R);
   }
+}
+
+// ---------------------------------------------------------------- open steel work table (room to crawl under)
+// w along its own x, d along z, turned by ry; legs `inset` from the corners
+export function steelTable(B, room, x, z, w, d, ry, R, inset = 0.06) {
+  const m = mtx(x, 0, z, ry);
+  const S = C('#a7aba9'), D = C('#7c817f');
+  let g = box(w, 0.035, d); g.translate(0, 0.9, 0); B.add('metal', room, g, S, m);
+  // turned-down lip and an apron under the edge
+  for (const s of [-1, 1]) {
+    g = box(w, 0.06, 0.012); g.translate(0, 0.87, s * d / 2); B.add('metal', room, g, S, m);
+    g = box(0.012, 0.06, d); g.translate(s * w / 2, 0.87, 0); B.add('metal', room, g, S, m);
+    g = box(w - 2 * inset, 0.08, 0.02); g.translate(0, 0.8, s * (d / 2 - inset)); B.add('metal', room, g, D, m);
+  }
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    g = box(0.04, 0.86, 0.04); g.translate(sx * (w / 2 - inset), 0.43, sz * (d / 2 - inset)); B.add('metal', room, g, D, m);
+    g = cyl(0.03, 0.03, 0.02, 10); g.translate(sx * (w / 2 - inset), 0.01, sz * (d / 2 - inset)); B.add('rubber', room, g, C('#1a1a1a'), m);
+  }
+  // rails across the two short ends only: the long sides stay open
+  for (const sx of [-1, 1]) { g = box(0.025, 0.025, d - 2 * inset); g.translate(sx * (w / 2 - inset), 0.16, 0); B.add('metal', room, g, D, m); }
+  // things left on top
+  g = box(0.42, 0.03, 0.3); g.translate(-w * 0.22, 0.93, -d * 0.1); g.rotateY(0); B.add('metal', room, g, C('#c4c6c2'), m);
+  for (let k = 0; k < 3; k++) { g = box(0.16, 0.012, 0.016); g.rotateY((R() - 0.5) * 0.8); g.translate(-w * 0.22 + (R() - 0.5) * 0.25, 0.952, -d * 0.1 + (R() - 0.5) * 0.18); B.add('metal', room, g, C('#d6d8d4'), m); }
+  g = cyl(0.05, 0.045, 0.14, 12); g.translate(w * 0.3, 0.987, d * 0.15); B.add('amber', room, g, C('#fff'), m);
+  if (R() < 0.7) { g = box(0.3, 0.02, 0.24); g.rotateY(R() * 2); g.translate(w * 0.05, 0.928, d * 0.12); B.add('paper', room, g, C('#d8d2c2'), m); }
+  // a rag hanging over the edge
+  g = new THREE.PlaneGeometry(0.22, 0.32, 3, 4).rotateX(-Math.PI / 2);
+  const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const zz = p.getZ(i); if (zz > 0.04) { p.setY(i, -(zz - 0.04) * 1.4); p.setZ(i, 0.04 + (zz - 0.04) * 0.25); } p.setY(i, p.getY(i) + (R() - 0.5) * 0.01); }
+  g.computeVertexNormals(); g.translate(w * 0.38, 0.922, d / 2 - 0.06); B.add('paper', room, g, C('#6b6250'), m);
 }
 
 // ---------------------------------------------------------------- big vertical tank with ribs, ladder, pipes

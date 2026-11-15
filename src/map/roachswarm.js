@@ -276,6 +276,13 @@ export class RoachSwarms {
     return true;
   }
 
+  // you hid: they lose you and comb the floor round the spot where you went
+  startSearch(s, P) {
+    const nav = this.nav, k = nav.nearestFree(P.x, P.z, 12);
+    s.state = 'search'; s.searchT = 6 + Math.random() * 3; s.lostT = 0; s.huntT = 0; s.bayT = 0;
+    s.target.set(k >= 0 ? nav.cx(k) : P.x, 0, k >= 0 ? nav.cz(k) : P.z); s.tCell = -1;
+  }
+
   alertNearest(p) {
     let best = null;
     for (const s of this.swarms) { const d = Math.hypot(s.x - p.x, s.z - p.z); if (!best || d < best.d) best = { s, d }; }
@@ -342,6 +349,13 @@ export class RoachSwarms {
       const calm = s.calmT > 0;
       if (ctx.player.noise > 0 && dc < ctx.player.noise * 0.75 && (!calm || (ctx.player.noise >= 12 && dc < 5))) heard = P;
       for (const e of ctx.events) if (Math.hypot(s.x - e.x, s.z - e.z) < e.r) heard = heard || new V3(e.x, 0, e.z);
+      const hid = ctx.player.hidden;
+      if (hid && s.state === 'hunt' && !ctx.frozen && !heard && (dc < 9 || Math.hypot(s.target.x - P.x, s.target.z - P.z) < 4)) this.startSearch(s, P);
+      if (s.state === 'search' && !ctx.frozen) {
+        s.searchT -= dt;
+        if (!hid && ctx.player.alive && dc < 7) { s.state = 'hunt'; s.target.copy(P); s.lostT = 0; }      // there you are
+        else if (s.searchT <= 0) { s.state = 'return'; s.target.set(s.x, 0, s.z); s.calmT = 8; }
+      }
       if (heard && !ctx.frozen) {
         if (s.state !== 'hunt' && ctx.onFirstHunt) ctx.onFirstHunt(s);
         s.state = 'hunt'; s.target.copy(heard); s.lostT = 0; s.alerted = true;
@@ -354,7 +368,7 @@ export class RoachSwarms {
         if (Math.hypot(c.x - s.x, c.z - s.z) < 1.2) s.state = 'hide';
       }
       // a field to a noise somewhere else than the player
-      if (s.state === 'hunt' && Math.hypot(s.target.x - P.x, s.target.z - P.z) > 2) {
+      if ((s.state === 'hunt' && Math.hypot(s.target.x - P.x, s.target.z - P.z) > 2) || s.state === 'search') {
         const tk = nav.idx(s.target.x, s.target.z);
         if (tk !== s.tCell) { s.f = nav.field([[s.target.x, s.target.z]], F, s.f); s.tCell = tk; }
         s.useF = s.f;
@@ -481,6 +495,25 @@ export class RoachSwarms {
             want = r.burstOn ? 3.6 * r.speedK : 0;
           }
         }
+      } else if (s.state === 'search') {
+        // sniffing round where you vanished: dart between spots near it, pausing to feel about
+        const tx = s.target.x, tz = s.target.z, dT = Math.hypot(tx - r.pos.x, tz - r.pos.z);
+        r.seekT = (r.seekT || 0) - dt;
+        if (!r.seek || r.seekT <= 0 || Math.hypot(r.seek.x - r.pos.x, r.seek.z - r.pos.z) < 0.25) {
+          r.seekT = 0.7 + Math.random() * 1.3;
+          for (let tries = 0; tries < 6; tries++) {
+            const a = Math.random() * Math.PI * 2, d = 0.4 + Math.random() * 2.4, x = tx + Math.sin(a) * d, z = tz + Math.cos(a) * d;
+            if (nav.free(x, z)) { r.seek = { x, z }; break; }
+          }
+        }
+        if (dT > 3.2 && nav.descend(s.useF, r.pos.x, r.pos.z, D)) { dx = D.x; dz = D.z; }
+        else if (r.seek) { dx = r.seek.x - r.pos.x; dz = r.seek.z - r.pos.z; }
+        else { dx = tx - r.pos.x; dz = tz - r.pos.z; }
+        const ang = Math.atan2(dx, dz) + Math.sin(T * r.zigFreq + r.zigPh) * r.zigAmp * 0.6;
+        dx = Math.sin(ang); dz = Math.cos(ang);
+        r.burst -= dt;
+        if (r.burst <= 0) { r.burstOn = !r.burstOn; r.burst = r.burstOn ? 0.25 + Math.random() * 0.5 : 0.2 + Math.random() * 0.7; }
+        want = r.burstOn ? (dT > 3.2 ? 3.2 : 2.0) * r.speedK : 0;
       } else if (s.state === 'return') {
         if (nav.descend(this.fNest[s.idx], r.pos.x, r.pos.z, D)) {
           const ang = Math.atan2(D.x, D.z) + Math.sin(T * r.zigFreq * 0.6 + r.zigPh) * r.zigAmp * 0.5;
@@ -510,7 +543,8 @@ export class RoachSwarms {
       r.pos.z += Math.cos(r.yaw) * r.speed * dt;
       this.collide(r);
       // reach the player in the dark -> climb on
-      if (!ctx.frozen && r.mode !== 'recoil' && r.state !== 'flee' && s.state === 'hunt' && ctx.player.alive && dP < 0.5 && !cellLit) {
+      // (under a table they reach in from the edge, but only once they know you're there)
+      if (!ctx.frozen && r.mode !== 'recoil' && r.state !== 'flee' && s.state === 'hunt' && ctx.player.alive && !ctx.player.hidden && dP < (ctx.player.under ? 1.0 : 0.5) && !cellLit) {
         if (ctx.onAttach && ctx.onAttach(r)) { r.state = 'attached'; this.hide(r); continue; }
       }
       r.phase += r.speed * dt * 9;
@@ -704,7 +738,7 @@ export class RoachSwarms {
     }
     out.forEach((o, i) => {
       if (o.n) { o.x /= o.n; o.z /= o.n; } else { const c = this.centroid(this.swarms[i]); o.x = c.x; o.z = c.z; }
-      o.hunt = this.swarms[i].state === 'hunt';
+      o.hunt = this.swarms[i].state === 'hunt'; o.search = this.swarms[i].state === 'search';
       o.d = Math.hypot(o.x - P.x, o.z - P.z);
     });
     const pounce = !!this.pounceFlag; this.pounceFlag = false;

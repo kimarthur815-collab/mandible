@@ -11,7 +11,7 @@
 // 21 paper, crumpled paper, cans, glass shards, plastic wrap, ceiling debris, rubble
 // 22 cobwebs in the corners        23 dust in the flashlight beam        24 bollards, bumpers, extinguishers, lane paint
 import * as THREE from 'three';
-import { ROOMS, DOORS } from './level.js';
+import { ROOMS, DOORS, TABLES } from './level.js';
 import { rng, canvas, texFrom } from './surface.js';
 import * as PT from './proptex.js';
 import * as P from './props.js';
@@ -85,6 +85,9 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
       else { const inward = Math.abs(d.at - r.x0) < 1e-6 ? 1 : -1; P.doorFrame(B, room, d.at + inward * (T + 0.03), mid, 'x', w, Math.min(d.h, r.h - 0.2)); }
     }
   }
+
+  // ================================================================== OPEN TABLES (hiding places)
+  for (const t of TABLES) if (t.room !== 'machine') P.steelTable(B, t.room, t.x, t.z, t.w, t.d, t.ry, R, t.inset);
 
   // ================================================================== DOCK
   {
@@ -184,11 +187,11 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
     // workbench at (14.2, 18.8): wood top, steel legs, vice, tools, rags
     g = P.box(2.2, 0.06, 0.8); g.translate(14.2, 0.88, 18.8); B.add('wood', rm, g, C('#ffffff'));
     for (const [x, z] of [[13.18, 18.48], [15.22, 18.48], [13.18, 19.12], [15.22, 19.12]]) { g = P.box(0.06, 0.85, 0.06); g.translate(x, 0.425, z); B.add('metal', rm, g, C('#3a3f44')); }
-    g = P.box(2.1, 0.03, 0.7); g.translate(14.2, 0.2, 18.8); B.add('metal', rm, g, C('#3a3f44'));
     g = P.box(0.2, 0.14, 0.18); g.translate(13.45, 0.98, 18.5); B.add('metal', rm, g, C('#2a4f8a'));
     g = P.box(0.32, 0.03, 0.05); g.translate(14.7, 0.93, 18.7); g.rotateY(0); B.add('metal', rm, g, C('#9a9a96'));
     g = P.cyl(0.07, 0.09, 0.2, 12); g.translate(15.0, 1.01, 19.0); B.add('metal', rm, g, C('#b8261c'));
-    g = P.box(0.5, 0.25, 0.28); g.translate(13.8, 0.33, 18.8); B.add('metal', rm, g, C('#b8261c'));
+    g = P.box(0.5, 0.25, 0.28); g.translate(16.0, 0.125, 19.35); B.add('metal', rm, g, C('#b8261c')); col(15.75, 16.25, 19.2, 19.5);      // the toolbox, out from under the bench
+    for (const sx of [-1, 1]) { g = P.box(0.03, 0.03, 0.66); g.translate(14.2 + sx * 1.02, 0.18, 18.8); B.add('metal', rm, g, C('#3a3f44')); }
     P.plasticWrap(B, rm, 14.0, 18.2, R);
     // walls: control panel, gauges, electrical panel, pipes on the south wall
     g = P.box(1.0, 1.0, 0.25); g.translate(13.4, 1.3, 19.57); B.add('metal', rm, g, C('#7d8580'));

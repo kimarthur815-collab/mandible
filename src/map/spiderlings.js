@@ -212,6 +212,9 @@ export class EggNest {
     let alive = 0, moving = 0, cx = 0, cz = 0;
     const emit = [];
     const cosC = Math.cos(0.42);
+    // you hid: they lose you and scurry round the spot where you went
+    if (ctx.hidden && !this.lost) { const k = nav.nearestFree(P.x, P.z, 12); this.lost = { x: k >= 0 ? nav.cx(k) : P.x, z: k >= 0 ? nav.cz(k) : P.z }; }
+    else if (!ctx.hidden) this.lost = null;
     for (const l of this.L) {
       if (!l.alive) { M.makeScale(0, 0, 0); this.mesh.setMatrixAt(l.i, M); continue; }
       alive++;
@@ -234,14 +237,20 @@ export class EggNest {
       } else {
         if (l.phase === 'run' && this.t > 10) { l.phase = 'leave'; l.t = 0; }
         if (l.phase === 'run') {
-          if (!nav.descend(ctx.field, l.p.x, l.p.z, D)) { const L = Math.hypot(P.x - l.p.x, P.z - l.p.z) || 1; D.x = (P.x - l.p.x) / L; D.z = (P.z - l.p.z) / L; }
+          const lost = this.lost;
+          if (lost && Math.hypot(lost.x - l.p.x, lost.z - l.p.z) < 3.5) {
+            // each one circles its own way round the spot
+            const a = l.ph * 2.4 + t * (0.6 + (l.ph % 1) * 0.5) * (l.i % 2 ? 1 : -1), rr = 0.8 + (l.ph % 1) * 1.6;
+            const gx = lost.x + Math.sin(a) * rr - l.p.x, gz = lost.z + Math.cos(a) * rr - l.p.z, L = Math.hypot(gx, gz) || 1;
+            D.x = gx / L; D.z = gz / L;
+          } else if (!nav.descend(ctx.field, l.p.x, l.p.z, D)) { const L = Math.hypot(P.x - l.p.x, P.z - l.p.z) || 1; D.x = (P.x - l.p.x) / L; D.z = (P.z - l.p.z) / L; }
           let ang = Math.atan2(D.x, D.z) + Math.sin(t * l.meanF + l.ph) * l.mean;
           dx = Math.sin(ang); dz = Math.cos(ang);
           want = lit || ctx.frozen ? 0 : 2.7 + (l.ph % 1) * 0.6;
           // lamps: they stop at the edge of a lit safe zone
           if (nav.lit[nav.idx(l.p.x + dx * 0.35, l.p.z + dz * 0.35)] === 2) want = 0;
           const dP = Math.hypot(P.x - l.p.x, P.z - l.p.z);
-          if (dP < 0.55 && l.cd <= 0 && !ctx.frozen) { l.cd = 2.2; ctx.onTouch && ctx.onTouch(l); l.speed = -2.5; }
+          if (dP < 0.55 && l.cd <= 0 && !ctx.frozen && !ctx.hidden) { l.cd = 2.2; ctx.onTouch && ctx.onTouch(l); l.speed = -2.5; }
         } else {
           // scatter away from you into the dark, then gone
           if (!nav.descend(ctx.field, l.p.x, l.p.z, D, -1)) { D.x = l.p.x - P.x; D.z = l.p.z - P.z; }

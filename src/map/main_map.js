@@ -193,6 +193,7 @@ function resetGame() {
     emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: 3, inSafe: false,
     tipped: {}, lampSeen: false, hp: 3, dead: false, attached: [], scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
+    hidden: false, revealT: 0, hiddenT: 0,
   });
   swarms.reset();
   spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
@@ -366,7 +367,7 @@ function useSpray() {
   if (!G.started || G.dead || G.won) return;
   if (G.sprayCd > 0) return;
   if (G.spray <= 0) { sfx.spray(true); msg('스프레이가 비었다'); return; }
-  G.spray--; G.sprayCd = 0.7;
+  G.spray--; G.sprayCd = 0.7; G.revealT = 1.5;      // the hiss gives a hiding place away
   updateHud();
   arms.sprayPuff(); sfx.spray();
   // the hit test comes from the eye along the view, the mist from the nozzle
@@ -475,7 +476,7 @@ const dev = { god: false, battery: false, noclip: false, freeze: false, fast: fa
 // health is back to 3, the spray keeps what was left, the lamp comes on again for 10 s and
 // every bug goes back to where it started.
 function respawnAtLamp(l) {
-  Object.assign(G, { dead: false, hp: 3, attached: [], grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [] });
+  Object.assign(G, { dead: false, hp: 3, attached: [], grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   // stand beside the pole, on the side with the most room, facing out
@@ -573,6 +574,7 @@ resize();
 
 const ray = new THREE.Raycaster();
 const levelMeshes = [...levelGroup.children, shutter, emDoor];
+const hideSpots = colliders.filter((c) => c.hide);
 const aim = new THREE.Vector3(), aimS = new THREE.Vector3();
 let t = 0, flick = 1, flickT = 3;
 const clock = new THREE.Clock();
@@ -663,11 +665,19 @@ function frame(dtOverride) {
   silk.uniforms.uOn.value = G.flashOn ? 0.55 * fl : 0;
   silk.uniforms.uAmb.value = bright ? 0.15 : 0;
 
+  // ---- hiding: all the way under a table or a conveyor, light off, keeping still.
+  // Hunters lose you and search round where you went; light, moving or the spray gives you away.
+  G.revealT = Math.max(0, G.revealT - dt);
+  const quiet = G.started && !G.dead && !G.won && !G.grab && !!player.inside && !G.flashOn && player.speed < 0.35 && G.revealT <= 0 && G.attached.length === 0;
+  G.stillT = quiet ? (G.stillT || 0) + dt : 0;
+  G.hidden = G.stillT > 0.6;          // a moment of keeping still first
+  G.hiddenT = G.hidden ? G.hiddenT + dt : 0;
+  if (player.inside && G.started) tip('불을 끄고 가만히 있으면 벌레가 찾지 못한다', 'hide');
   // ---- roaches
-  const noise = !G.started || G.dead || !player.moving || player.speed < 0.3 ? 0 : player.crouch ? 1 : player.running ? 12 : 5;
+  const noise = !G.started || G.dead || G.hidden || !player.moving || player.speed < 0.3 ? 0 : player.crouch ? 1 : player.running ? 12 : 5;
   swarms.update({
     dt, t, camera, frozen: dev.freeze || !G.started,
-    player: { pos: player.pos, noise, alive: !G.dead && !G.won },
+    player: { pos: player.pos, noise, alive: !G.dead && !G.won, hidden: G.hidden, under: !!player.inside },
     flash: { on: beamPow > 20, pos: flash.position, dir: beamDir.subVectors(flash.target.position, flash.position).normalize() },
     lamps: lamps.map((l) => ({ x: l.x, z: l.z, on: l.on })),
     events: G.events, playerSafe: G.inSafe,
@@ -686,7 +696,7 @@ function frame(dtOverride) {
   let safeLamp = null;
   for (const l of lamps) if (l.on && Math.hypot(player.pos.x - l.x, player.pos.z - l.z) < 4.2) safeLamp = { x: l.x, z: l.z, r: 4.2 };
   spiders.update({
-    dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god,
+    dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god, hidden: G.hidden,
     nav: swarms.nav, field: swarms.fPlayer,
     onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽의 늑대거미가 내려온다. 빛을 비추면 벽으로 물러난다', 'wolfwake'); },
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
@@ -716,7 +726,7 @@ function frame(dtOverride) {
     if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip('알집 근처에서는 소리를 내지 마라', 'eggs'); }
   }
   const lingInfo = eggs.update({
-    dt, player: { pos: player.pos }, nav: swarms.nav, field: swarms.fPlayer, light, frozen,
+    dt, player: { pos: player.pos }, nav: swarms.nav, field: swarms.fPlayer, light, frozen, hidden: G.hidden,
     onTouch: () => {
       if (dev.god) return;
       G.lingSlow = Math.min(0.4, G.lingSlow + 0.1); G.lingT = 0;
@@ -728,7 +738,7 @@ function frame(dtOverride) {
   G.lingT += dt;
   if (G.lingT > 2.5) G.lingSlow = Math.max(0, G.lingSlow - dt * 0.06);
   centi.update({
-    dt, player: { pos: player.pos, noise, alive: G.started && !G.dead && !G.won && !dev.god }, cam: camera.position.clone(),
+    dt, player: { pos: player.pos, noise, alive: G.started && !G.dead && !G.won && !dev.god, hidden: G.hidden }, cam: camera.position.clone(),
     light, nav: swarms.nav, field: swarms.fPlayer, events: G.events, safe: safeLamp, frozen,
     onBurst: () => { sfx.ventBurst(15, 69.7); shakeScreen(); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
     onLunge: () => sfx.centiScreech(centi.head.x, centi.head.z),
@@ -768,12 +778,24 @@ function frame(dtOverride) {
   if (fly.state === 'fly' || fly.state === 'face') { inten = 1; sfx.flyerAt(fly.pos.x, fly.pos.y, fly.pos.z); }
   if (centi.active) { const dC = Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z); if (centi.state === 'chase') inten = Math.max(inten, 0.65, 1 - dC / 20); }
   if (G.grab) inten = 1;
+  // hidden: everything hushes but your heart, which speeds up as something searches closer
+  let searchD = 99;
+  for (const w of ai.swarms) if (w.search && w.n) searchD = Math.min(searchD, w.d);
+  if (centi.state === 'search') searchD = Math.min(searchD, Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z));
+  for (const q of spiders.searchers()) searchD = Math.min(searchD, Math.hypot(q.x - player.pos.x, q.z - player.pos.z));
+  if (eggs.lost && lingInfo.moving) searchD = Math.min(searchD, Math.hypot(eggs.lost.x - player.pos.x, eggs.lost.z - player.pos.z));
+  const searchK = G.hidden ? Math.max(0, Math.min(1, 1 - (searchD - 1) / 6)) : 0;
+  if (G.hidden) inten = Math.max(inten * 0.6, searchK * 0.9);
+  // being chased with somewhere to hide close by
+  if (inten > 0.6 && !player.under && !G.tipped.hideHint && hideSpots.some((c) => Math.max(c.x0 - player.pos.x, 0, player.pos.x - c.x1) + Math.max(c.z0 - player.pos.z, 0, player.pos.z - c.z1) < 6)) {
+    G.tipped.hideHint = true; tip('테이블이나 컨베이어 밑에 웅크려 기어 들어가면 숨을 수 있다', 'hidehint');
+  }
   if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
   if (broodInfo.moving > 4) inten = Math.max(inten, 0.4);
   sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce,
     centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.speed } : null, lings: lingInfo, ghost: spiders.ghostInfo(),
-    brood: broodInfo,
+    brood: broodInfo, hush: G.hidden,
     emit: G.started ? ai.emit.concat(lingInfo.emit || [], broodInfo.emit, spiders.emitters(player.pos)) : [] });
   if (G.started && !G.scared && !dev.freeze && Math.hypot(player.pos.x - nests[0].x, player.pos.z - nests[0].z) < 7.5) { G.scared = true; swarms.jumpScare(camera, 0); }
   for (const a of G.attached) a.age += dt;
@@ -808,6 +830,11 @@ function frame(dtOverride) {
     }
   }
   $('#safe').classList.toggle('show', G.inSafe);
+  // under a table: are you hidden, or giving yourself away?
+  const hideEl = $('#hide');
+  const hideTxt = !player.inside || !G.started || G.dead ? '' : G.hidden ? '숨음' : G.flashOn ? '불빛 때문에 들킨다' : G.revealT > 0 ? '스프레이 소리에 들켰다' : player.speed >= 0.35 ? '움직이면 들킨다' : '';
+  hideEl.classList.toggle('show', !!hideTxt); hideEl.classList.toggle('on', G.hidden);
+  if (hideTxt && hideEl.dataset.t !== hideTxt) { hideEl.dataset.t = hideTxt; hideEl.querySelector('span').textContent = hideTxt; }
 
   // ---- red emergency lights
   for (const [room, r] of Object.entries(reds)) {
@@ -879,7 +906,7 @@ function frame(dtOverride) {
   if (showMap) drawMap();
   if (dev.info && Math.floor(t * 4) !== Math.floor((t - dt) * 4)) {
     fpsN++;
-    $('#devinfo').textContent = `FPS ${Math.round(1 / Math.max(1e-3, fpsAvg))}  위치 ${player.pos.x.toFixed(1)}, ${player.pos.z.toFixed(1)}  방 ${(ROOMS[roomAt(player.pos.x, player.pos.z)] || {}).name || '-'}\n체력 ${G.hp}/3  배터리 ${Math.round(G.battery * 100)}%  소음 반경 ${noise}m  붙은 바퀴 ${G.attached.length}\n바퀴 떼 ${swarms.states().map((x, i) => `${i + 1}:${({ hide: '숨음', hunt: '추적', return: '복귀' })[x]}`).join('  ')}\n거미 ${spiders.states().join(' / ')}  지네 ${centi.info()}  알집 ${eggs.burstDone ? '터짐' : '그대로'}  느려짐 ${Math.round((1 - player.slowMul) * 100)}%`;
+    $('#devinfo').textContent = `FPS ${Math.round(1 / Math.max(1e-3, fpsAvg))}  위치 ${player.pos.x.toFixed(1)}, ${player.pos.z.toFixed(1)}  방 ${(ROOMS[roomAt(player.pos.x, player.pos.z)] || {}).name || '-'}\n체력 ${G.hp}/3  배터리 ${Math.round(G.battery * 100)}%  소음 반경 ${noise}m  붙은 바퀴 ${G.attached.length}\n숨기 ${G.hidden ? '숨음' : player.inside ? '들킴' : '-'}  바퀴 떼 ${swarms.states().map((x, i) => `${i + 1}:${({ hide: '숨음', hunt: '추적', search: '수색', return: '복귀' })[x]}`).join('  ')}\n거미 ${spiders.states().join(' / ')}  지네 ${centi.info()}  알집 ${eggs.burstDone ? '터짐' : '그대로'}  느려짐 ${Math.round((1 - player.slowMul) * 100)}%`;
   }
   fpsAvg += (dt - fpsAvg) * 0.05;
   if (window.__NORENDER) return;
@@ -1001,7 +1028,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { G.started = true; $('#start').classList.add('hide'); },

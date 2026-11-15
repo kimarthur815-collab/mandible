@@ -2,6 +2,8 @@
 // the hall vent. Patrols, and once it sees or hears you it chases (4.5 m/s) round walls.
 // Light on the head: curls up 2 s (1 s from the third time in one chase). Spray: 4 s, then it
 // backs off. If you stand in a lit safe zone it circles the edge. A touch is death.
+// Hide under a table (light off, still) and it loses you: it noses round where you went for a
+// while, then wanders off on its patrol.
 import * as THREE from 'three';
 import { Centipede } from '../centipede.js';
 
@@ -113,8 +115,26 @@ export class MapCentipede {
       if (H.y < VENT.z - 3.2) { this.state = 'chase'; this.chases++; }
     } else {
       // can it sense you?
-      const sees = dP < 11 && nav.sees(H.x, H.y, P.x, P.z);
-      const hears = ctx.player.noise > 0 && dP < ctx.player.noise * 1.2;
+      const hid = ctx.player.hidden;
+      const sees = !hid && dP < 11 && nav.sees(H.x, H.y, P.x, P.z);
+      const hears = !hid && ctx.player.noise > 0 && dP < ctx.player.noise * 1.2;
+      // you hid: it lost you
+      if (this.state === 'chase' && hid && c.mode !== 'lunge') {
+        const k = nav.nearestFree(P.x, P.z, 12);
+        this.state = 'search'; this.searchT = 7 + Math.random() * 3; this.lostT = 0; this.sField = null;
+        this.spt = new THREE.Vector2(k >= 0 ? nav.cx(k) : P.x, k >= 0 ? nav.cz(k) : P.z);
+        this.orbitA = Math.atan2(H.x - this.spt.x, H.y - this.spt.y); this.orbitDir = Math.random() < 0.5 ? -1 : 1;
+      }
+      if (this.state === 'search') {
+        this.searchT -= dt;
+        if (!hid && ctx.player.alive && (sees || dP < 5)) { this.state = 'chase'; this.lostT = 0; ctx.onSee && ctx.onSee(); }   // there you are
+        else if (this.searchT <= 0 || !ctx.player.alive) {
+          // give up and wander off: carry on the patrol from the point furthest from here
+          let best = 0, bd = -1;
+          PATROL.forEach(([x, z], i) => { const d = Math.hypot(x - P.x, z - P.z); if (d > bd) { bd = d; best = i; } });
+          this.state = 'patrol'; this.wp = best; this.wpField = null;
+        }
+      }
       const event = ctx.events.some((e) => Math.hypot(e.x - H.x, e.z - H.y) < e.r);
       if (this.state === 'patrol' && ctx.player.alive && (sees || hears || event)) { this.state = 'chase'; this.lostT = 0; this.chases++; ctx.onSee && ctx.onSee(); }
       if (this.state === 'chase') {
@@ -134,11 +154,30 @@ export class MapCentipede {
         target = new THREE.Vector2(ctx.safe.x + Math.sin(a) * r, ctx.safe.z + Math.cos(a) * r);
         if (!nav.free(target.x, target.y)) target.set(ctx.safe.x + Math.sin(a0 + 0.2) * r, ctx.safe.z + Math.cos(a0 + 0.2) * r);
         speed = 2.2;
+      } else if (this.state === 'search') {
+        // over to where it lost you, then slow loops round it, stopping to feel about with its antennae
+        const S = this.spt, dS = Math.hypot(S.x - H.x, S.y - H.y);
+        if (dS > 3.2) {
+          if (!this.sField) this.sField = nav.field([[S.x, S.y]], { wallCost: 0.9, maxDist: 60 });
+          if (nav.descend(this.sField, H.x, H.y, D)) target = new THREE.Vector2(H.x + D.x * 1.6, H.y + D.z * 1.6);
+          else target = S.clone();
+          speed = 3.0;
+        } else {
+          this.orbitA += dt * 0.55 * this.orbitDir;
+          if (Math.random() < dt * 0.15) this.orbitDir *= -1;
+          const r = 1.8 + Math.sin(c.time * 0.6) * 0.5;
+          let tx = S.x + Math.sin(this.orbitA) * r, tz = S.y + Math.cos(this.orbitA) * r;
+          if (!nav.free(tx, tz)) { this.orbitDir *= -1; this.orbitA += 0.3 * this.orbitDir; tx = S.x + Math.sin(this.orbitA) * r; tz = S.y + Math.cos(this.orbitA) * r; }
+          target = new THREE.Vector2(tx, tz);
+          this.pause = Math.max(0, (this.pause || 0) - dt);
+          if (this.pause <= 0 && Math.random() < dt * 0.35) this.pause = 0.6 + Math.random() * 1.0;
+          speed = this.pause > 0 ? 0 : 1.6;
+        }
       } else if (this.state === 'chase') {
         if (nav.descend(ctx.field, H.x, H.y, D)) target = new THREE.Vector2(H.x + D.x * 1.6, H.y + D.z * 1.6);
         else target = new THREE.Vector2(P.x, P.z);
         speed = 4.5;
-        if (dP < 2.2 && c.mode !== 'lunge' && !b.stun && ctx.player.alive && !ctx.safe) {
+        if (dP < 2.2 && c.mode !== 'lunge' && !b.stun && ctx.player.alive && !ctx.safe && !hid) {
           c.mode = 'lunge'; b.lt = 0; b.caught = false;
           c.lungeDir = new V3(P.x - H.x, 0, P.z - H.y).normalize();
           c.onCatch = () => ctx.onCatch && ctx.onCatch();
@@ -171,5 +210,5 @@ export class MapCentipede {
     return prevStun;
   }
 
-  info() { return this.state === 'dormant' ? '잠듦' : this.c.b.stun ? '경직' : this.c.mode === 'lunge' ? '덮침' : ({ emerge: '등장', patrol: '순찰', chase: '추격' })[this.state]; }
+  info() { return this.state === 'dormant' ? '잠듦' : this.c.b.stun ? '경직' : this.c.mode === 'lunge' ? '덮침' : ({ emerge: '등장', patrol: '순찰', chase: '추격', search: '수색' })[this.state]; }
 }
