@@ -79,8 +79,10 @@ scene.add(hemi);
 const flash = new THREE.SpotLight(0xffeedd, 0, 0, 0.5, 0.5, 2);
 flash.castShadow = true;
 flash.shadow.mapSize.set(touch ? 512 : 1024, touch ? 512 : 1024);
-flash.shadow.bias = -0.0004; flash.shadow.normalBias = 0.03;
-flash.shadow.camera.near = 0.2; flash.shadow.camera.far = 40;
+flash.shadow.bias = -0.0005; flash.shadow.normalBias = 0.002;     // (more, and light leaks round edges when the lens is near a wall)
+// the near plane has to sit right at the lens: anything closer than it falls outside the beam
+// pattern's projection and gets the raw, unpatterned spot instead (a hard-edged bright patch)
+flash.shadow.camera.near = 0.01; flash.shadow.camera.far = 30;
 flash.map = beamPattern();
 scene.add(flash, flash.target);
 // the shaft of light through the dusty air (as in the hands viewer)
@@ -193,7 +195,7 @@ function resetGame() {
     emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: 3, inSafe: false,
     tipped: {}, lampSeen: false, hp: 3, dead: false, attached: [], scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
-    hidden: false, revealT: 0, hiddenT: 0,
+    hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false,
   });
   swarms.reset();
   spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
@@ -412,6 +414,7 @@ function endGrab(sprayed) {
 // ------------------------------------------------------------------ actions
 function toggleFlash() {
   if (!G.started) return;
+  if (!G.flashOn && G.drained) { if (window.__SFX) window.__SFX.click(false); msg(`배터리 충전 중 · ${Math.ceil((1 - G.battery) * 20)}초`); return; }
   G.flashOn = !G.flashOn;
   $('#bFlash').classList.toggle('on', G.flashOn);
   arms.toggleClick();
@@ -598,15 +601,18 @@ function frame(dtOverride) {
   if (G.timing) G.time += dt;
 
   // ---- flashlight + battery
-  if (G.flashOn) G.battery -= dt / 30;
+  if (G.drained) {
+    // run flat: the light is dead until the battery has charged all the way back up, 20 s
+    G.battery = Math.min(1, G.battery + dt / 20);
+    if (G.battery >= 1) { G.drained = false; msg('손전등 배터리 완충'); }
+  } else if (G.flashOn) G.battery -= dt / 30;
   else G.battery += dt * 0.02 * (G.inSafe ? 2 : 1);
   G.battery = Math.min(1, G.battery);
-  // an empty battery doesn't switch the light off: it sinks to a faint glow (too weak to keep bugs off)
-  if (G.battery <= 0) {
-    G.battery = 0;
-    if (G.flashOn && !G.drained) { G.drained = true; sfx.batteryDie(); tip('배터리가 다 됐다. 끄고 있으면 다시 충전된다', 'empty'); }
+  if (G.battery <= 0 && !G.drained) {
+    G.battery = 0; G.drained = true;
+    if (G.flashOn) toggleFlash();
+    sfx.batteryDie(); tip('배터리가 다 됐다. 20초 뒤에 완충된다', 'empty');
   }
-  if (G.battery > 0.03) G.drained = false;
   if (G.flashOn && G.battery < 0.3) tip('불빛이 약해진다. 손전등을 끄면 배터리가 충전된다', 'battery');
   flickT -= dt;
   if (flickT < 0) {
@@ -687,6 +693,7 @@ function frame(dtOverride) {
     onFirstWait: () => tip('바퀴는 빛 밖에서 기다린다. 다른 곳을 비추면 덮친다', 'roachwait'),
     onFirstHunt: () => tip('바퀴는 소리를 따라온다. 앉아서 걸어라', 'roachsound'),
     onFlyerLaunch: (p) => sfx.scareLaunch(p.x, p.y, p.z),
+    onFlyerOff: () => { sfx.shakeOff(); sfx.roachDie(1); },
     onFlyerHit: () => {
       sfx.scareHit(); shakeScreen(); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
   });
@@ -805,7 +812,7 @@ function frame(dtOverride) {
     const a = G.attached[0];
     if (lookSign && lookSign !== a.lastSign) { a.rev++; a.lastSign = lookSign; }
     a.shake += lookMag;
-    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); swarms.drop(a.r, player.pos, player.pos); msg('털어냈다'); sfx.shakeOff(); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
+    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); swarms.throwDead(a.r, player.pos, player.yaw); msg('털어냈다'); sfx.shakeOff(); sfx.roachDie(1); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
   }
   swarms.showAttached(camera, G.attached, dt, t);
   { const on = G.attached.length > 0 || swarms.flyer.state === 'face', k = on ? (G.flashOn ? 0.3 : 0.22) : 0; swarms.faceAmb += (k - swarms.faceAmb) * Math.min(1, dt * 6); }
@@ -897,7 +904,8 @@ function frame(dtOverride) {
   document.querySelectorAll('#battery i').forEach((n, i) => {
     n.className = i < segs ? (G.battery < 0.2 ? 'low' : 'on') : '';
   });
-  $('#battery').classList.toggle('dead', G.battery <= 0);
+  $('#battery').classList.toggle('dead', G.drained && G.battery < 0.05);
+  $('#battery').classList.toggle('charging', G.drained && G.battery >= 0.05);
   $('#stamina').style.opacity = player.stamina < 0.999 ? 1 : 0;
   $('#stamina i').style.width = `${player.stamina * 100}%`;
   $('#stamina').classList.toggle('tired', player.exhausted);

@@ -164,7 +164,7 @@ const LEVELS = {
 };
 let level = 'mid', beamK = 1, flick = 0;
 const spot = new THREE.SpotLight(0xfff1de, 0, 0, 0.33, 0.55, 2);
-spot.castShadow = true; spot.shadow.mapSize.set(1024, 1024); spot.shadow.camera.near = 0.05; spot.shadow.bias = -0.0005; spot.shadow.normalBias = 0.01;
+spot.castShadow = true; spot.shadow.mapSize.set(1024, 1024); spot.shadow.camera.near = 0.01; spot.shadow.bias = -0.0005; spot.shadow.normalBias = 0.01;
 spot.map = beamPattern();
 const spill = new THREE.PointLight(0xfff1de, 0, 0.55, 2);
 const bounce = new THREE.PointLight(0xd8cfc0, 0, 6, 2);

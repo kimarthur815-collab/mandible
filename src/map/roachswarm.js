@@ -597,7 +597,9 @@ export class RoachSwarms {
       if (r.faceT > 0.5) {
         r.sw = 0; r.state = 'idle';
         this.overlay.setMatrixAt(3, new THREE.Matrix4().makeScale(0, 0, 0)); this.overlay.instanceMatrix.needsUpdate = true;
-        this.drop(r, ctx.player.pos, ctx.player.pos);
+        const f = new V3(0, 0, -1).applyQuaternion(cam.quaternion);
+        this.throwDead(r, ctx.player.pos, Math.atan2(f.x, f.z));
+        ctx.onFlyerOff && ctx.onFlyerOff(r);
         return;
       }
     } else if (r.flyT < HOLD) {
@@ -657,6 +659,16 @@ export class RoachSwarms {
   hide(r) {
     const Z = new THREE.Matrix4().makeScale(0, 0, 0);
     this.mesh.setMatrixAt(r.i, Z); this.blobs.setMatrixAt(r.i, Z);
+  }
+
+  // shaken off you: thrown down in front of you, and it stays there on its back, legs going (like a sprayed one)
+  throwDead(r, at, yaw) {
+    const a = yaw + (Math.random() - 0.5) * 2.0, d = 0.8 + Math.random() * 0.6;
+    r.pos.set(at.x + Math.sin(a) * d, 0, at.z + Math.cos(a) * d);
+    if (!this.nav.free(r.pos.x, r.pos.z)) { const k = this.nav.nearestFree(r.pos.x, r.pos.z); if (k >= 0) r.pos.set(this.nav.cx(k), 0, this.nav.cz(k)); }
+    r.yaw = Math.random() * Math.PI * 2;
+    r.state = 'dead'; r.deadT = 0; r.spasm = 0.8; r.speed = 0; r.mode = 'move'; r.waitT = 0; r.pounceT = 0;
+    this.collide(r);
   }
 
   drop(r, at, awayFrom) {

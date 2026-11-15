@@ -53,6 +53,7 @@
   #battery i.on { background: #7fe08a; box-shadow: 0 0 6px rgba(127,224,138,.6); }
   #battery i.low { background: #ff6a4a; box-shadow: 0 0 6px rgba(255,106,74,.7); }
   #battery.dead i { animation: blink .5s steps(2) infinite; background: #5a1a10; }
+  #battery.charging i.on, #battery.charging i.low { background: #d9a43a; box-shadow: none; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 50% { opacity: .2; } }
   #stamina { width: 54px; height: 3px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; transition: opacity .4s; }
   #stamina i { display: block; height: 100%; background: rgba(236,230,220,.8); }

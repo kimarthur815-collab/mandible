@@ -188,7 +188,7 @@ export class Arms {
     this.root.updateMatrixWorld(true);
     const w = this.flash.localToWorld(new V3(0, 0, 0.0845));
     this.toGameView(camera, w, out);
-    const maxZ = Math.max(0.12, hitDist - 0.08);
+    const maxZ = Math.max(0.06, hitDist - 0.14);
     if (-out.z > maxZ) out.multiplyScalar(maxZ / -out.z);
     return camera.localToWorld(out);
   }
