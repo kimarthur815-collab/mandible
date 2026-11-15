@@ -260,18 +260,24 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 const el = renderer.domElement;
+// tablets count as touch devices but can have a mouse too: decide per event, not per device.
+// A tap also fires (fake) mouse events after it, so mouse events count only while the mouse was the last pointer used.
+let lastPointer = 'mouse';
+addEventListener('pointerdown', (e) => { lastPointer = e.pointerType; }, { capture: true });
+addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') lastPointer = 'mouse'; }, { capture: true });
+const viaTouch = () => lastPointer !== 'mouse';
 el.addEventListener('click', () => {
-  if (touch || !G.started) return;
+  if (viaTouch() || !G.started) return;
   if (!locked) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (err) { /* drag to look instead */ } }
   else if (G.grab) mashGrab();
   else toggleFlash();
 });
 document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === el; });
 let drag = null;
-el.addEventListener('mousedown', (e) => { if (e.button === 2) { useSpray(); return; } if (!locked && !touch) drag = { x: e.clientX, y: e.clientY }; });
+el.addEventListener('mousedown', (e) => { if (viaTouch()) return; if (e.button === 2) { useSpray(); return; } if (!locked) drag = { x: e.clientX, y: e.clientY }; });
 addEventListener('mouseup', () => { drag = null; });
 addEventListener('mousemove', (e) => {
-  if (touch) return;
+  if (viaTouch()) return;
   if (locked) { input.lookX += e.movementX * 0.0022; input.lookY += e.movementY * 0.0022; }
   else if (drag) { input.lookX += (e.clientX - drag.x) * 0.004; input.lookY += (e.clientY - drag.y) * 0.004; drag = { x: e.clientX, y: e.clientY }; }
 });
@@ -1019,13 +1025,13 @@ $('#startBtn').addEventListener('click', () => {
   if (touch && fsOK() && !fsEl() && !standalone) enterFullscreen().catch(() => {});
   G.started = true;
   $('#start').classList.add('hide');
-  if (!touch) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
+  if (!viaTouch()) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
   setTimeout(() => tip(touch ? '너무 어둡다. 손전등을 켜자 (손전등 버튼)' : '너무 어둡다. 손전등을 켜자 (좌클릭)', 'start'), 1200);
 });
 $('#againBtn').addEventListener('click', () => {
   sfx.start();
   resetGame(); G.started = true;
-  if (!touch) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
+  if (!viaTouch()) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
 });
 
 // ------------------------------------------------------------------ landscape on phones
