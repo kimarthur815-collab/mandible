@@ -165,6 +165,9 @@ export class EggNest {
   }
   hide() { const Z = new THREE.Matrix4().makeScale(0, 0, 0); for (let i = 0; i < this.N; i++) this.mesh.setMatrixAt(i, Z); this.mesh.instanceMatrix.needsUpdate = true; this.mesh.visible = false; }
 
+  // the young vanish (after a checkpoint respawn); burst sacs stay burst
+  clearYoung() { for (const l of this.L) l.alive = false; this.active = false; this.hide(); }
+
   get burstDone() { return this.sacs.every((s) => s.burst > 0); }
 
   burst() {

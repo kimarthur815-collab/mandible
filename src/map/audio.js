@@ -489,6 +489,17 @@ export class Sound {
     this.burst({ t: 0.02, dur: 0.6, f: 9000, q: 0.7, gain: 0.25, attack: 0.04, type: 'highpass', pan: -0.25 });
   }
 
+  // a roach taking off and flying away: a short whirr of wings
+  wingTakeoff(x, z, dur) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime, p = this.panner(x, 0.6, z, 1.2, 1.2); p.connect(this.sfx);
+    const l = this.loop(this.buzzBuf, p, 0, 1.25);
+    l.g.gain.setValueAtTime(0, now); l.g.gain.linearRampToValueAtTime(0.4, now + 0.08);
+    l.g.gain.setValueAtTime(0.4, now + dur * 0.6); l.g.gain.linearRampToValueAtTime(0, now + dur + 0.1);
+    l.s.stop(now + dur + 0.2);
+    this.burst({ dest: p, dur: 0.06, f: 3000, q: 0.8, gain: 0.15 });
+  }
+
   threadSnap(x, y, z) {
     if (!this.ctx) return;
     const p = this.panner(x, y, z, 1, 1); p.connect(this.sfx);

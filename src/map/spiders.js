@@ -98,6 +98,16 @@ export class MapSpiders {
     }
   }
 
+  // you came back at a lamp: both spiders let go and go back up to the ceiling. What has
+  // happened stays happened: snapped threads, a dropped egg sac, melted webs.
+  regroup() {
+    for (const sp of this.spiders) {
+      sp.s.caught = false; sp.grabbed = false; sp.g = null; sp.fallT = 0;
+      sp.s.placeOnCeiling(sp.home.x, sp.home.z, sp.home.yaw, sp.ceil);
+      sp.s.cooldown = 4;
+    }
+  }
+
   // walls, floor, ceiling and anything standing in the corridor, for the ghost's feet to grab
   setColliders(cols) {
     const sp = this.ghost;

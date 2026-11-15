@@ -40,6 +40,18 @@ export class MapCentipede {
   get head() { return this.c.headPos; }
   get speed() { return this.c.speed; }
 
+  // you came back at a lamp: if it is out, it goes back to patrolling, starting far from you
+  regroup(from) {
+    if (this.state === 'dormant') return;
+    if (!this.coverV) { this.coverV = { x: 0, vy: 0, z: 0, spin: 0 }; this.cover.position.set(VENT.x, 0.05, VENT.z - 1.6); this.cover.rotation.set(Math.PI / 2, 0, 0); }
+    let best = 0, bd = -1;
+    PATROL.forEach(([x, z], i) => { const d = Math.hypot(x - from.x, z - from.z); if (d > bd) { bd = d; best = i; } });
+    const [x, z] = PATROL[best];
+    this.c.reset(x, z, Math.random() * Math.PI * 2);
+    this.c.mode = 'drive'; this.c.driveSpeed = 0;
+    this.state = 'patrol'; this.wp = best + 1; this.wpField = null; this.lostT = 0; this.retreatT = 0; this.sprayStun = false;
+  }
+
   // generator 2: out of the wall
   wake() {
     if (this.state !== 'dormant') return false;

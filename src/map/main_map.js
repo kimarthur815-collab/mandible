@@ -186,14 +186,14 @@ function resetGame() {
     battery: 1, flashOn: false, locked: false, holdT: 0, holdKey: null, shutter: 0, shutterOpening: false,
     emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: 3, inSafe: false,
     tipped: {}, lampSeen: false, hp: 3, dead: false, attached: [], scared: false, events: [],
-    grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false,
+    grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
   });
   swarms.reset();
   spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   player.place(SPOTS.start.x, SPOTS.start.z, SPOTS.start.yaw);
-  for (const l of lamps) { l.on = false; l.burnt = false; l.t = 0; l.light.intensity = 0; l.bulb.material.emissiveIntensity = 0; l.leverPivot.rotation.z = 0.6; }
+  for (const l of lamps) { l.on = false; l.burnt = false; l.t = 0; l.light.intensity = 0; l.bulb.material.emissive.set(0xffa24a); l.bulb.material.emissiveIntensity = 0; l.leverPivot.rotation.z = 0.6; }
   for (const g of genMeshes) { g.on = false; g.led.material.emissive.set(0xff2a10); }
   for (const r of Object.values(reds)) { r.on = false; r.light.intensity = 0; r.fixture.material.emissiveIntensity = 0; }
   for (const n of noteMeshes) { n.read = false; n.m.visible = true; }
@@ -462,6 +462,33 @@ const useLabel = () => (touch ? '손 버튼' : 'E');
 
 // ------------------------------------------------------------------ damage, death
 const dev = { god: false, battery: false, noclip: false, freeze: false, fast: false, info: false };
+// ---- lamp checkpoints: pulling a lamp's lever saves there; die and you get up under it again.
+// Progress stays (generators, notes, the refill, snapped threads, the egg sac, dead roaches),
+// health is back to 3, the spray keeps what was left, the lamp comes on again for 10 s and
+// every bug goes back to where it started.
+function respawnAtLamp(l) {
+  Object.assign(G, { dead: false, hp: 3, attached: [], grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [] });
+  document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
+  $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
+  // stand beside the pole, on the side with the most room, facing out
+  let best = null;
+  for (let k = 0; k < 12; k++) {
+    const a = k * Math.PI / 6, cx = Math.sin(a), cz = Math.cos(a);
+    if (!swarms.nav.free(l.x + cx * 1.1, l.z + cz * 1.1)) continue;
+    let room = 0;
+    for (let d = 1.1; d < 4; d += 0.25) { if (!swarms.nav.free(l.x + cx * d, l.z + cz * d)) break; room++; }
+    if (!best || room > best.room) best = { a, cx, cz, room };
+  }
+  if (best) player.place(l.x + best.cx * 1.1, l.z + best.cz * 1.1, best.a); else player.place(l.x + 1, l.z, 0);
+  // the lamp comes back on for a while
+  l.t = l.on ? Math.min(l.t, 10) : 10; l.on = true; l.burnt = false; l.leverPivot.rotation.z = -0.6; l.bulb.material.emissive.set(0xffa24a);
+  sfx.lampOn(l.x, l.z);
+  // the bugs go back where they started
+  swarms.regroup(); spiders.regroup(); eggs.clearYoung(); brood.reset(); centi.regroup(l);
+  G.started = true;
+  msg('전등 아래에서 다시 일어났다');
+}
+
 function hurt(reason = '달리는 소리가 바퀴를 부른다') {
   if (dev.god || G.dead) return;
   G.hp--;
@@ -479,7 +506,7 @@ function die(deathTip) {
   $('#dead').classList.add('show');
   $('#dead .s').textContent = '';
   setTimeout(() => { $('#dead .s').textContent = deathTip; }, 1600);
-  setTimeout(() => { resetGame(); G.started = true; }, 3800);
+  setTimeout(() => { if (G.checkpoint) respawnAtLamp(G.checkpoint); else { resetGame(); G.started = true; } }, 3800);
 }
 function onAttach(r) {
   if (dev.god || G.dead || G.attached.length >= 3) return false;
@@ -511,7 +538,10 @@ function drawMap() {
     mctx.stroke();
   }
   if (markers.visible) for (const b of SPOTS.bugs) { mctx.fillStyle = 'rgba(255,60,40,0.75)'; mctx.beginPath(); mctx.arc(X(b.x), Y(b.z), 3, 0, Math.PI * 2); mctx.fill(); }
-  for (const l of lamps) { mctx.fillStyle = l.burnt ? '#5a4a3a' : l.on ? '#ffb24a' : '#a07a40'; mctx.fillRect(X(l.x) - 2.5, Y(l.z) - 2.5, 5, 5); }
+  for (const l of lamps) {
+    mctx.fillStyle = l.burnt ? '#5a4a3a' : l.on ? '#ffb24a' : '#a07a40'; mctx.fillRect(X(l.x) - 2.5, Y(l.z) - 2.5, 5, 5);
+    if (l === G.checkpoint) { mctx.strokeStyle = '#ffd890'; mctx.lineWidth = 1.5; mctx.beginPath(); mctx.arc(X(l.x), Y(l.z), 6, 0, Math.PI * 2); mctx.stroke(); }
+  }
   for (const g of genMeshes) { mctx.fillStyle = g.on ? '#40ff70' : '#ffd23a'; mctx.beginPath(); mctx.arc(X(g.x), Y(g.z), 4, 0, Math.PI * 2); mctx.fill(); }
   const px = X(player.pos.x), py = Y(player.pos.z), a = player.yaw;
   mctx.save(); mctx.translate(px, py); mctx.rotate(-a);
@@ -612,6 +642,7 @@ function frame(dtOverride) {
     events: G.events, playerSafe: G.inSafe,
     onAttach,
     onFirstFlee: () => tip('바퀴는 빛을 싫어한다', 'roachlight'),
+    onEscape: (p, dur) => sfx.wingTakeoff(p.x, p.z, dur),
     onFirstWait: () => tip('바퀴는 빛 밖에서 기다린다. 다른 곳을 비추면 덮친다', 'roachwait'),
     onFirstHunt: () => tip('바퀴는 소리를 따라온다. 앉아서 걸어라', 'roachsound'),
     onFlyerLaunch: (p) => sfx.scareLaunch(p.x, p.y, p.z),
@@ -783,7 +814,10 @@ function frame(dtOverride) {
       }
     } else if (target.kind === 'lamp') {
       prompt = o.burnt ? '전구가 터져서 다시 켤 수 없다' : o.on ? `전등이 켜져 있다 (${Math.ceil(20 - o.t)}초)` : `${useLabel()} · 전등 레버 당기기`;
-      if (pressed && !o.on && !o.burnt) { o.on = true; o.t = 0; o.leverPivot.rotation.z = -0.6; sfx.lampOn(o.x, o.z); }
+      if (pressed && !o.on && !o.burnt) {
+        o.on = true; o.t = 0; o.leverPivot.rotation.z = -0.6; sfx.lampOn(o.x, o.z);
+        if (G.checkpoint !== o) { G.checkpoint = o; msg('체크포인트: 죽으면 이 전등에서 다시 시작한다'); }
+      }
     } else if (target.kind === 'note') {
       prompt = `${useLabel()} · 일지 읽기`;
       if (pressed) { o.read = true; o.m.visible = false; note(o.text); sfx.paper(); }

@@ -220,6 +220,7 @@ export class RoachSwarms {
       flank: R() < 0.55 ? (R() < 0.5 ? -1 : 1) : 0, speedK: 0.85 + R() * 0.35,
       meander: 0.2 + R() * 0.35, meanderF: 0.25 + R() * 0.4,
       mode: 'move', waitT: 0, pounceT: 0, recoilT: 0, rdx: 0, rdz: 1,
+      escCd: 0, escT: 0, escDur: 1, escH: 1, deadT: 0, spasm: 0,
     };
   }
 
@@ -228,16 +229,51 @@ export class RoachSwarms {
   }
 
   reset() {
-    for (const s of this.swarms) { s.state = 'hide'; s.target.set(s.x, 0, s.z); s.lostT = 0; s.alerted = false; s.tCell = -1; s.bayT = 0; s.calmT = 0; }
+    for (const s of this.swarms) { s.state = 'hide'; s.target.set(s.x, 0, s.z); s.lostT = 0; s.alerted = false; s.tCell = -1; s.bayT = 0; s.calmT = 0; s.huntT = 0; }
     for (const r of this.roaches) {
       if (r === this.flyer) { r.sw = -1; r.state = 'off'; continue; }
       const s = this.swarms[r.sw];
       const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * s.spread;
       r.pos.set(s.x + Math.cos(a) * d, 0, s.z + Math.sin(a) * d);
-      r.yaw = Math.random() * Math.PI * 2; r.speed = 0; r.state = 'idle'; r.fleeT = 0; r.mode = 'move'; r.waitT = 0; r.pounceT = 0; r.flipT = 0;
+      r.yaw = Math.random() * Math.PI * 2; r.speed = 0; r.state = 'idle'; r.fleeT = 0; r.mode = 'move'; r.waitT = 0; r.pounceT = 0; r.flipT = 0; r.escCd = 0; r.deadT = 0;
       r.off.set((Math.random() - 0.5) * 1.6, 0, (Math.random() - 0.5) * 1.6);
     }
     this.scared = false;
+  }
+
+  // you came back at a lamp: every living roach goes home and settles; the dead stay where they lie
+  regroup() {
+    for (const s of this.swarms) { s.state = 'hide'; s.target.set(s.x, 0, s.z); s.lostT = 0; s.tCell = -1; s.bayT = 0; s.calmT = 6; s.huntT = 0; }
+    for (const r of this.roaches) {
+      if (r.state === 'dead') continue;
+      if (r === this.flyer && r.sw < 0) { if (r.state !== 'off') { r.sw = 0; r.state = 'idle'; } else continue; }
+      const s = this.swarms[r.sw];
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * s.spread;
+      r.pos.set(s.x + Math.cos(a) * d, 0, s.z + Math.sin(a) * d);
+      r.yaw = Math.random() * Math.PI * 2; r.speed = 0; r.state = 'idle'; r.fleeT = 0; r.mode = 'move'; r.waitT = 0; r.pounceT = 0; r.flipT = 0; r.escCd = 0;
+    }
+    this.overlay.setMatrixAt(3, new THREE.Matrix4().makeScale(0, 0, 0)); this.overlay.instanceMatrix.needsUpdate = true;
+  }
+
+  // lit, it sometimes takes off and flies away from you to somewhere dark 4-8 m off
+  startEscape(r, ctx) {
+    const nav = this.nav, P = ctx.player.pos;
+    const a0 = Math.atan2(r.pos.x - P.x, r.pos.z - P.z);
+    let best = null, bestD = 0;
+    for (let k = 0; k < 12; k++) {
+      const a = a0 + (Math.random() - 0.5) * 2.4, d = 4 + Math.random() * 4;
+      const x = r.pos.x + Math.sin(a) * d, z = r.pos.z + Math.cos(a) * d;
+      if (!nav.free(x, z) || nav.isLit(x, z) || !nav.sees(r.pos.x, r.pos.z, x, z)) continue;
+      const dp = Math.hypot(x - P.x, z - P.z);
+      if (dp > 4.5 && dp > bestD) { best = [x, z]; bestD = dp; }
+    }
+    if (!best) return false;
+    const d = Math.hypot(best[0] - r.pos.x, best[1] - r.pos.z);
+    r.from.set(r.pos.x, 0, r.pos.z); r.to.set(best[0], 0, best[1]);
+    r.state = 'escape'; r.escT = 0; r.escDur = 0.2 + d / 4.4; r.escH = 0.9 + Math.random() * 0.7; r.speed = 0; r.mode = 'move';
+    r.yaw = Math.atan2(r.to.x - r.from.x, r.to.z - r.from.z);
+    ctx.onEscape && ctx.onEscape(r.pos, r.escDur);
+    return true;
   }
 
   alertNearest(p) {
@@ -287,7 +323,7 @@ export class RoachSwarms {
     // ---- swarm level: hearing, being lit, losing track
     const act = this.swarms.map(() => 0), held = this.swarms.map(() => 0);
     for (const r of this.roaches) {
-      if (r.sw < 0 || r.state === 'attached' || r.state === 'off' || r.state === 'flee') continue;
+      if (r.sw < 0 || r.state === 'attached' || r.state === 'off' || r.state === 'flee' || r.state === 'dead' || r.state === 'escape') continue;
       act[r.sw]++;
       if (r.mode === 'recoil' || r.mode === 'scatter' || r.mode === 'wait') held[r.sw]++;
     }
@@ -298,10 +334,13 @@ export class RoachSwarms {
       // (you standing in a lit lamp counts too: they circle a moment, then lose interest)
       if (s.state === 'hunt' && ((act[s.idx] && held[s.idx] / act[s.idx] > 0.25) || (ctx.playerSafe && dc < 14))) s.bayT = (s.bayT || 0) + dt * (ctx.playerSafe ? 1.2 : 1);
       else s.bayT = Math.max(0, (s.bayT || 0) - dt * 0.5);
-      if (s.bayT > 4) { s.state = 'return'; s.target.set(s.x, 0, s.z); s.calmT = 8; s.bayT = 0; }
+      if (s.bayT > 3) { s.state = 'return'; s.target.set(s.x, 0, s.z); s.calmT = 12; s.bayT = 0; }
+      // they don't keep after you for long, even if they can still hear you
+      if (s.state === 'hunt') s.huntT = (s.huntT || 0) + dt; else s.huntT = 0;
+      if (s.huntT > 14) { s.state = 'return'; s.target.set(s.x, 0, s.z); s.calmT = 10; s.huntT = 0; }
       s.calmT = Math.max(0, (s.calmT || 0) - dt);
       const calm = s.calmT > 0;
-      if (ctx.player.noise > 0 && dc < ctx.player.noise && (!calm || (ctx.player.noise >= 12 && dc < 6))) heard = P;
+      if (ctx.player.noise > 0 && dc < ctx.player.noise * 0.75 && (!calm || (ctx.player.noise >= 12 && dc < 5))) heard = P;
       for (const e of ctx.events) if (Math.hypot(s.x - e.x, s.z - e.z) < e.r) heard = heard || new V3(e.x, 0, e.z);
       if (heard && !ctx.frozen) {
         if (s.state !== 'hunt' && ctx.onFirstHunt) ctx.onFirstHunt(s);
@@ -309,8 +348,8 @@ export class RoachSwarms {
       } else if (s.state === 'hunt') {
         s.lostT += dt;
         // right next to you they keep tracking; otherwise they lose interest fairly soon
-        if (dc < 3) { s.target.copy(P); s.lostT = Math.min(s.lostT, 2); }
-        if (s.lostT > 5) { s.state = 'return'; s.target.set(s.x, 0, s.z); }
+        if (dc < 2.2) { s.target.copy(P); s.lostT = Math.min(s.lostT, 1.5); }
+        if (s.lostT > 3.5) { s.state = 'return'; s.target.set(s.x, 0, s.z); }
       } else if (s.state === 'return') {
         if (Math.hypot(c.x - s.x, c.z - s.z) < 1.2) s.state = 'hide';
       }
@@ -328,6 +367,37 @@ export class RoachSwarms {
     for (const r of this.roaches) {
       if (r.state === 'off' || r.state === 'attached') { this.hide(r); continue; }
       if (r.state === 'fly' || r.state === 'face') { this.updateFlyer(r, ctx); continue; }
+      if (r.state === 'dead') {
+        // sprayed: stays on its back for good, legs still going - hard at first, then weaker, with the odd spasm
+        r.deadT += dt;
+        if (!ctx.frozen) { if (r.spasm > 0) r.spasm -= dt; else if (Math.random() < dt * 0.25) r.spasm = 0.3 + Math.random() * 0.5; }
+        const mv = r.spasm > 0 ? 1.3 : 0.35 + 1.15 * Math.exp(-r.deadT / 8);
+        this.iMove.array[r.i] = mv; this.iPhase.array[r.i] += dt * (10 + 22 * mv);
+        if (!ctx.frozen) r.yaw += Math.sin(T * 1.3 + r.zigPh) * dt * 0.2 * mv;
+        q.setFromEuler(e.set(0, r.yaw, Math.PI));
+        M.compose(pos.set(r.pos.x, 0.09 * r.scale, r.pos.z), q, sc.setScalar(r.scale));
+        this.mesh.setMatrixAt(r.i, M);
+        M.makeScale(0, 0, 0); this.blobs.setMatrixAt(r.i, M);
+        continue;
+      }
+      if (r.state === 'escape') {
+        // flying away: wings up, a short hop off the floor, an arc, and down somewhere dark
+        if (!ctx.frozen) r.escT += dt;
+        const TO = 0.2, u = clamp((r.escT - TO) / (r.escDur - TO), 0, 1), ez = u * u * (3 - 2 * u);
+        pos.lerpVectors(r.from, r.to, ez);
+        const h = Math.sin(Math.PI * u) * r.escH + (r.escT < TO ? 0 : 0.05);
+        r.pos.set(pos.x, 0, pos.z);
+        const nose = Math.cos(Math.PI * u) * 0.35;
+        q.setFromEuler(e.set(-nose, r.yaw, Math.sin(T * 23 + r.zigPh) * 0.25, 'YXZ'));
+        M.compose(pos.set(pos.x, 0.004 + h, pos.z), q, sc.setScalar(r.scale));
+        this.mesh.setMatrixAt(r.i, M);
+        const bs = r.scale * Math.max(0.2, 1 - h * 0.5);
+        M.compose(pos.set(r.pos.x, 0.003, r.pos.z), q.setFromEuler(e.set(0, r.yaw, 0)), sc.setScalar(bs)); this.blobs.setMatrixAt(r.i, M);
+        this.iMove.array[r.i] = r.escT < TO ? 1 + r.escT / TO : 2; this.iPhase.array[r.i] += dt * 40;
+        if (u >= 1) { r.state = 'idle'; r.mode = 'scatter'; r.scatterT = 0.4; r.recoilT = 0; r.rdx = Math.sin(r.yaw); r.rdz = Math.cos(r.yaw); r.speed = 2; }
+        continue;
+      }
+      r.escCd -= dt;
       if (r.flipT > 0) {
         r.flipT -= dt; r.speed = 0;
         this.iMove.array[r.i] = 1.5; this.iPhase.array[r.i] += dt * 30;
@@ -344,6 +414,11 @@ export class RoachSwarms {
       const dP = Math.hypot(P.x - r.pos.x, P.z - r.pos.z);
       let dx = 0, dz = 0, want = 0, turn = 10;
       if (!ctx.frozen && cellLit && r.mode !== 'recoil') {
+        // now and then one takes to the air instead of running (never more than two at once)
+        if (r.escCd <= 0 && r !== this.flyer) {
+          r.escCd = 5;
+          if (Math.random() < 0.22 && this.roaches.filter((x) => x.state === 'escape').length < 2 && this.startEscape(r, ctx)) continue;
+        }
         r.mode = 'recoil'; r.recoilT = 0; r.waitT = 0; r.pounceT = 0;
         if (ctx.onFirstFlee) ctx.onFirstFlee();
       }
@@ -402,8 +477,8 @@ export class RoachSwarms {
           else {
             // dart, freeze, dart
             r.burst -= dt;
-            if (r.burst <= 0) { r.burstOn = !r.burstOn; r.burst = r.burstOn ? 0.3 + Math.random() * 0.7 : 0.05 + Math.random() * 0.35; }
-            want = r.burstOn ? 4.0 * r.speedK : 0;
+            if (r.burst <= 0) { r.burstOn = !r.burstOn; r.burst = r.burstOn ? 0.3 + Math.random() * 0.6 : 0.1 + Math.random() * 0.5; }
+            want = r.burstOn ? 3.6 * r.speedK : 0;
           }
         }
       } else if (s.state === 'return') {
@@ -562,7 +637,7 @@ export class RoachSwarms {
 
   centroid(s) {
     let x = 0, z = 0, n = 0;
-    for (const r of this.roaches) if (r.sw === s.idx && r.state !== 'attached' && r.state !== 'off') { x += r.pos.x; z += r.pos.z; n++; }
+    for (const r of this.roaches) if (r.sw === s.idx && r.state !== 'attached' && r.state !== 'off' && r.state !== 'dead' && r.state !== 'escape') { x += r.pos.x; z += r.pos.z; n++; }
     return n ? new V3(x / n, 0, z / n) : new V3(s.x, 0, s.z);
   }
 
@@ -585,10 +660,10 @@ export class RoachSwarms {
     const R = this.roaches, min = 0.26;
     for (let a = 0; a < R.length; a++) {
       const ra = R[a];
-      if (ra.state === 'off' || ra.state === 'attached' || ra.state === 'fly') continue;
+      if (ra.state === 'off' || ra.state === 'attached' || ra.state === 'fly' || ra.state === 'dead' || ra.state === 'escape') continue;
       for (let b = a + 1; b < R.length; b++) {
         const rb = R[b];
-        if (rb.state === 'off' || rb.state === 'attached' || rb.state === 'fly') continue;
+        if (rb.state === 'off' || rb.state === 'attached' || rb.state === 'fly' || rb.state === 'dead' || rb.state === 'escape') continue;
         const dx = rb.pos.x - ra.pos.x, dz = rb.pos.z - ra.pos.z, d2 = dx * dx + dz * dz;
         if (d2 < min * min && d2 > 1e-8) {
           const d = Math.sqrt(d2), push = (min - d) * 0.5;
@@ -605,9 +680,9 @@ export class RoachSwarms {
   sprayHit(origin, dir, range = 3.2, cosHalf = Math.cos(Math.PI / 6)) {
     let n = 0;
     for (const r of this.roaches) {
-      if (r.sw < 0 || r.state === 'attached' || r.state === 'off' || r.state === 'fly' || r.state === 'face') continue;
+      if (r.sw < 0 || r.state === 'attached' || r.state === 'off' || r.state === 'fly' || r.state === 'face' || r.state === 'dead' || r.state === 'escape') continue;
       const vx = r.pos.x - origin.x, vy = 0.1 - origin.y, vz = r.pos.z - origin.z, d = Math.hypot(vx, vy, vz);
-      if (d < range && (vx * dir.x + vy * dir.y + vz * dir.z) / d > cosHalf) { r.flipT = 3; n++; }
+      if (d < range && (vx * dir.x + vy * dir.y + vz * dir.z) / d > cosHalf) { r.state = 'dead'; r.deadT = 0; r.spasm = 0; r.speed = 0; r.mode = 'move'; n++; }
     }
     return n;
   }
