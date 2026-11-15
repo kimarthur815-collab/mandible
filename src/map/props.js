@@ -46,15 +46,21 @@ export class Batch {
 export function mtx(x, y, z, ry = 0, rx = 0, rz = 0, s = 1) {
   return new THREE.Matrix4().compose(new V3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz, 'YXZ')), new V3(s, s, s));
 }
+// Every box and cylinder comes out a hair bigger than asked, by one of a few different amounts in
+// turn, so two parts that were meant to sit flush never put a face in exactly the same plane:
+// coplanar faces flicker through each other (z-fighting). 0.8 to 4.8 mm, invisible otherwise.
+let grow = 0;
+const nextGrow = () => 0.0008 + (grow++ % 6) * 0.0008;
 // box with uvs in metres (scaled) so textures keep their size
 export function box(w, h, d, uvScale = 1) {
-  const g = new THREE.BoxGeometry(w, h, d);
+  const e = nextGrow();
+  const g = new THREE.BoxGeometry(w + 2 * e, h + 2 * e, d + 2 * e);
   const uv = g.attributes.uv, dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
   for (let f = 0; f < 6; f++) for (let k = 0; k < 4; k++) { const i = f * 4 + k; uv.setXY(i, uv.getX(i) * dims[f][0] * uvScale, uv.getY(i) * dims[f][1] * uvScale); }
   return g;
 }
 export function cyl(r0, r1, h, seg = 16, open = false, uvScale = 1) {
-  const g = new THREE.CylinderGeometry(r0, r1, h, seg, 1, open);
+  const g = new THREE.CylinderGeometry(r0, r1, h + 2 * nextGrow(), seg, 1, open);
   const uv = g.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 2 * Math.PI * r0 * uvScale, uv.getY(i) * h * uvScale);
   return g;
@@ -211,7 +217,7 @@ export function rack(B, room, atlas, x, z0, z1, R) {
       for (const sx of [-1, 1]) { const bm = box(0.05, 0.11, span - 0.07, 1.5); bm.translate(x + sx * 0.55, y, zc); B.add('metal', room, bm, ORANGE); }
       const deck = new THREE.PlaneGeometry(1.05, span - 0.1).rotateX(-Math.PI / 2);
       const du = deck.attributes.uv; for (let i = 0; i < du.count; i++) du.setXY(i, du.getX(i) * 6.5, du.getY(i) * (span - 0.1) * 6);
-      deck.translate(x, y + 0.06, zc);
+      deck.translate(x, y + 0.0615, zc);
       B.add('mesh', room, deck, C('#9aa0a6'));
     }
     // the load on each level (ground, two decks, top)
@@ -302,7 +308,7 @@ export function elecPanel(B, room, x, y, z, ry, ceil, R) {
   const body = box(0.6, 0.8, 0.2); body.translate(0, 0, 0.1); B.add('metal', room, body, C('#8f9693'), m);
   const door = box(0.58, 0.78, 0.02); door.translate(-0.29, 0, 0); door.applyMatrix4(new THREE.Matrix4().makeRotationY(-0.6 - R() * 0.6)); door.translate(0.29, 0, 0.21); B.add('metal', room, door, C('#8f9693'), m);
   for (const cx of [-0.18, 0, 0.18]) { const c = cyl(0.022, 0.022, ceil - y - 0.4, 8); c.translate(cx, 0.4 + (ceil - y - 0.4) / 2, 0.1); B.add('metal', room, c, C('#9a9a96'), m); }
-  for (let i = 0; i < 6; i++) { const br = box(0.04, 0.1, 0.06); br.translate(-0.18 + i * 0.07, 0.15, 0.17); B.add('rubber', room, br, C('#222'), m); }
+  for (let i = 0; i < 6; i++) { const br = box(0.04, 0.1, 0.06); br.translate(-0.18 + i * 0.07, 0.15, 0.178); B.add('rubber', room, br, C('#222'), m); }
 }
 // wall vent grille
 export function vent(B, room, x, y, z, ry, w = 0.8, h = 0.5) {
@@ -316,12 +322,14 @@ export function vent(B, room, x, y, z, ry, w = 0.8, h = 0.5) {
 export function doorFrame(B, room, cx, cz, axis, w, h) {
   const col = C('#3d4a44');
   const along = axis === 'z';      // opening runs along x (wall at z)
+  // (the frame stands 12 mm into the opening, so its inner faces never share a plane with the wall's)
+  const k = 0.012;
   for (const s of [-1, 1]) {
-    const j = box(along ? 0.12 : 0.42, h, along ? 0.42 : 0.12);
-    j.translate(along ? cx + s * (w / 2 + 0.06) : cx, h / 2, along ? cz : cz + s * (w / 2 + 0.06));
+    const j = box(along ? 0.12 : 0.42, h - k, along ? 0.42 : 0.12);
+    j.translate(along ? cx + s * (w / 2 + 0.06 - k) : cx, (h - k) / 2, along ? cz : cz + s * (w / 2 + 0.06 - k));
     B.add('metal', room, j, col);
   }
-  const hd = box(along ? w + 0.24 : 0.42, 0.14, along ? 0.42 : w + 0.24); hd.translate(cx, h + 0.07, cz); B.add('metal', room, hd, col);
+  const hd = box(along ? w + 0.24 - 2 * k : 0.42, 0.14, along ? 0.42 : w + 0.24 - 2 * k); hd.translate(cx, h + 0.07 - k, cz); B.add('metal', room, hd, col);
 }
 // fire extinguisher on a bracket
 export function extinguisher(B, room, x, y, z, ry) {
@@ -428,7 +436,7 @@ export function tank(B, room, x, z, r, h, R, ladderAng = 0, color = C('#8a958c')
 export function labBench(B, room, x, z, w, d, ry, R, glassMat = 'glass') {
   const m = mtx(x, 0, z, ry);
   const base = box(w - 0.06, 0.82, d - 0.08); base.translate(0, 0.43, -0.02); B.add('metal', room, base, C('#c9cbc5'), m);
-  const kick = box(w - 0.06, 0.1, d - 0.16); kick.translate(0, 0.05, -0.04); B.add('rubber', room, kick, C('#222'), m);
+  const kick = box(w - 0.1, 0.1, d - 0.16); kick.translate(0, 0.05, -0.04); B.add('rubber', room, kick, C('#222'), m);
   const top = box(w, 0.04, d); top.translate(0, 0.88, 0); B.add('metal', room, top, C('#1d1f20'), m);
   const nDoors = Math.max(2, Math.round(w / 0.6));
   for (let i = 0; i < nDoors; i++) {

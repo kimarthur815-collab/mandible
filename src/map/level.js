@@ -213,11 +213,13 @@ export function buildLevel(scene) {
     const w = r.x1 - r.x0, d = r.z1 - r.z0, cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2;
     add(`floor:${key}`, planeGeom(w, d, cx, 0, cz, false));
     add('ceil', planeGeom(w, d, cx, r.h, cz, true));
+    // the walls along x run the full width and cover the corners; the walls along z fit between
+    // them, so no two wall boxes overlap (overlapping faces would flicker)
     const sides = [
       { axis: 'z', at: r.z0, a: r.x0, b: r.x1, inward: +1 },
       { axis: 'z', at: r.z1, a: r.x0, b: r.x1, inward: -1 },
-      { axis: 'x', at: r.x0, a: r.z0, b: r.z1, inward: +1 },
-      { axis: 'x', at: r.x1, a: r.z0, b: r.z1, inward: -1 },
+      { axis: 'x', at: r.x0, a: r.z0 + T, b: r.z1 - T, inward: +1 },
+      { axis: 'x', at: r.x1, a: r.z0 + T, b: r.z1 - T, inward: -1 },
     ];
     for (const s of sides) {
       const holes = DOORS.filter((dr) => (dr.a === key || dr.b === key) && dr.axis === s.axis && Math.abs(dr.at - s.at) < 1e-6)
@@ -252,7 +254,7 @@ export function buildLevel(scene) {
   for (const [x, z0, z1] of STATIC_PROPS.racks) solid(null, 1.2, 3.2, z1 - z0, x, 1.6, (z0 + z1) / 2);
   solid(null, 1.2, 1.0, 1.0, -4.8, 0.5, 6.5); solid(null, 1.2, 1.6, 1.2, -5.2, 0.8, 3.0);
   solid(null, 1.0, 0.8, 1.0, 4.6, 0.4, 7.2); solid(null, 1.4, 2.0, 2.4, 5.0, 1.0, 3.6);
-  add('dockLip', boxGeom(14, 0.25, 1.2, 0, 0.12, 0.6));
+  add('dockLip', boxGeom(13.38, 0.25, 1.17, 0, 0.12, 0.615));     // (inside the walls, not flush with their faces)
   solid(null, 2.4, 2.2, 1.6, 15.0, 1.1, 12.0); solid(null, 1.4, 3.0, 1.4, 21.0, 1.5, 16.5);
   // crawl spaces: the footprint only blocks you standing up (and the bugs); the legs always do
   const leg = (x, z, r, y1) => colliders.push({ x0: x - r, x1: x + r, z0: z - r, z1: z + r, y1 });

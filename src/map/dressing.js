@@ -283,7 +283,7 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
     // boarded high windows
     for (const x of [0, 6, 18]) {
       g = P.box(2.0, 1.1, 0.02); g.translate(x, 5.6, 69.68); B.add('rubber', rm, g, C('#06080a'));
-      for (let k = 0; k < 3; k++) { g = P.box(2.3, 0.18, 0.04); g.rotateZ((R() - 0.5) * 0.3); g.translate(x, 5.25 + k * 0.35, 69.64); B.add('wood', rm, g, C('#ffffff')); }
+      for (let k = 0; k < 3; k++) { g = P.box(2.3, 0.18, 0.04); g.rotateZ((R() - 0.5) * 0.3); g.translate(x, 5.25 + k * 0.35, 69.64 - k * 0.012); B.add('wood', rm, g, C('#ffffff')); }
     }
     sign(rm, 'z0', 6.0, 3.6, 13, 2.2); sign(rm, 'z0', 0.0, 2.1, 6, 1.1); sign(rm, 'z1', 9.0, 4.2, 0, 1.6); sign(rm, 'x1', 60.0, 2.0, 5, 0.7);
     P.elecPanel(B, rm, 14.6, 1.5, 46.32, 0, ROOMS.hall.h, R); P.elecPanel(B, rm, 23.68, 1.5, 58.0, -Math.PI / 2, ROOMS.hall.h, R);
@@ -329,7 +329,7 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
     // fume hood and sink on the north wall
     g = P.box(1.6, 0.9, 0.8); g.translate(-16.5, 0.45, 63.3); B.add('metal', rm, g, C('#c9cbc5'));
     g = P.box(1.6, 1.0, 0.8); g.translate(-16.5, 1.95, 63.3); B.add('metal', rm, g, C('#d8dad4'));
-    g = P.box(1.6, 0.3, 0.8); g.translate(-16.5, 2.35, 63.3); B.add('metal', rm, g, C('#b8bab4'));
+    g = P.box(1.66, 0.3, 0.86); g.translate(-16.5, 2.38, 63.3); B.add('metal', rm, g, C('#b8bab4'));
     P.quad(B, 'glass', rm, [0, 0, 1, 1], 1.5, 0.9, -16.5, 1.4, 62.89, '+z');
     g = P.box(1.5, 0.02, 0.7); g.translate(-16.5, 0.92, 63.3); B.add('metal', rm, g, C('#1d1f20'));
     col(-17.3, -15.7, 62.9, 63.7);
