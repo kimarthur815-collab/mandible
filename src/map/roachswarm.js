@@ -221,7 +221,7 @@ export class RoachSwarms {
   }
 
   reset() {
-    for (const s of this.swarms) { s.state = 'hide'; s.target.set(s.x, 0, s.z); s.lostT = 0; s.alerted = false; s.tCell = -1; }
+    for (const s of this.swarms) { s.state = 'hide'; s.target.set(s.x, 0, s.z); s.lostT = 0; s.alerted = false; s.tCell = -1; s.bayT = 0; s.calmT = 0; }
     for (const r of this.roaches) {
       if (r === this.flyer) { r.sw = -1; r.state = 'off'; continue; }
       const s = this.swarms[r.sw];
@@ -278,22 +278,32 @@ export class RoachSwarms {
       this.fieldCell = pk; this.fieldAge = 0;
     }
     // ---- swarm level: hearing, being lit, losing track
-    const litNow = new Set();
-    for (const r of this.roaches) if (r.sw >= 0 && r.state !== 'attached' && r.state !== 'off' && nav.lit[nav.idx(r.pos.x, r.pos.z)] === 1) litNow.add(r.sw);
+    const act = this.swarms.map(() => 0), held = this.swarms.map(() => 0);
+    for (const r of this.roaches) {
+      if (r.sw < 0 || r.state === 'attached' || r.state === 'off' || r.state === 'flee') continue;
+      act[r.sw]++;
+      if (r.mode === 'recoil' || r.mode === 'scatter' || r.mode === 'wait') held[r.sw]++;
+    }
     for (const s of this.swarms) {
       let heard = null;
       const c = this.centroid(s), dc = Math.hypot(c.x - P.x, c.z - P.z);
-      if (ctx.player.noise > 0 && dc < ctx.player.noise) heard = P;
+      // kept at bay by light for a while: they give up and leave you alone for a bit
+      // (you standing in a lit lamp counts too: they circle a moment, then lose interest)
+      if (s.state === 'hunt' && ((act[s.idx] && held[s.idx] / act[s.idx] > 0.25) || (ctx.playerSafe && dc < 14))) s.bayT = (s.bayT || 0) + dt * (ctx.playerSafe ? 1.2 : 1);
+      else s.bayT = Math.max(0, (s.bayT || 0) - dt * 0.5);
+      if (s.bayT > 4) { s.state = 'return'; s.target.set(s.x, 0, s.z); s.calmT = 8; s.bayT = 0; }
+      s.calmT = Math.max(0, (s.calmT || 0) - dt);
+      const calm = s.calmT > 0;
+      if (ctx.player.noise > 0 && dc < ctx.player.noise && (!calm || (ctx.player.noise >= 12 && dc < 6))) heard = P;
       for (const e of ctx.events) if (Math.hypot(s.x - e.x, s.z - e.z) < e.r) heard = heard || new V3(e.x, 0, e.z);
-      if (litNow.has(s.idx)) heard = P;          // the beam gives you away
       if (heard && !ctx.frozen) {
         if (s.state !== 'hunt' && ctx.onFirstHunt) ctx.onFirstHunt(s);
         s.state = 'hunt'; s.target.copy(heard); s.lostT = 0; s.alerted = true;
       } else if (s.state === 'hunt') {
         s.lostT += dt;
-        // close by, or your light is on nearby: they keep tracking you
-        if (dc < 4 || (ctx.flash.on && dc < 10)) { s.target.copy(P); s.lostT = Math.min(s.lostT, 2); }
-        if (s.lostT > 7) { s.state = 'return'; s.target.set(s.x, 0, s.z); }
+        // right next to you they keep tracking; otherwise they lose interest fairly soon
+        if (dc < 3) { s.target.copy(P); s.lostT = Math.min(s.lostT, 2); }
+        if (s.lostT > 5) { s.state = 'return'; s.target.set(s.x, 0, s.z); }
       } else if (s.state === 'return') {
         if (Math.hypot(c.x - s.x, c.z - s.z) < 1.2) s.state = 'hide';
       }
@@ -335,7 +345,12 @@ export class RoachSwarms {
         r.recoilT -= dt;
         if (r.recoilT <= 0) { this.pickRecoil(r, ctx); r.recoilT = 0.15; }
         dx = r.rdx; dz = r.rdz; want = 5.5; turn = 16;
-        if (!cellLit) { r.mode = s.state === 'hunt' ? 'wait' : 'move'; r.waitT = 0; }
+        if (!cellLit) { r.mode = 'scatter'; r.scatterT = 0.5 + Math.random() * 0.7; r.waitT = 0; }
+      } else if (r.mode === 'scatter') {
+        r.scatterT -= dt; r.recoilT -= dt;
+        if (r.recoilT <= 0) { this.pickRecoil(r, ctx); r.recoilT = 0.2; }
+        dx = r.rdx; dz = r.rdz; want = 4.4 * r.speedK; turn = 12;
+        if (r.scatterT <= 0) { r.mode = 'move'; r.waitT = 0; r.burstOn = false; r.burst = 0.6 + Math.random() * 0.8; }   // a wary pause before coming again
       } else if (r.state === 'flee') {
         // thrown off: run away from the player, around walls
         r.fleeT -= dt;
@@ -363,6 +378,7 @@ export class RoachSwarms {
           }
           if (r.mode !== 'wait') { r.mode = 'wait'; }
           r.waitT += dt;
+          if (r.waitT > 2.2 + (r.i % 5) * 0.3) { r.mode = 'scatter'; r.scatterT = 0.8 + Math.random() * 0.6; r.waitT = 0; this.pickRecoil(r, ctx); r.recoilT = 0.2; }
           if (r.waitT > 1 && ctx.onFirstWait) ctx.onFirstWait();
           if (found && Math.sin(T * 1.7 + r.zigPh) > -0.2) { want = 1.1; }
           else {

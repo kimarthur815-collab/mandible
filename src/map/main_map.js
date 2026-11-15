@@ -586,7 +586,7 @@ function frame(dtOverride) {
     dt, camera, moving: player.moving && player.speed > 0.3, running: player.running, crouch: player.crouch, speed: player.speed,
     lookDX: dYaw, lookDY: dPitch, flashOn: G.flashOn, flashK: fl, aimWorld: aimS, hitDist: hd,
     lamp: nearLamp ? { k: (1 - nearLamp.d / 9) * (nearLamp.l.light.intensity / 9), dir: new THREE.Vector3(player.pos.x - nearLamp.l.x, 0, player.pos.z - nearLamp.l.z).normalize() } : null,
-    adapt, bright, using: inp.use, shake: G.attached.length ? Math.min(1, 0.3 + lookMag * 10 + shakeKick) : 0,
+    adapt, bright, using: inp.use, faceLit: G.attached.length > 0 || swarms.flyer.state === 'face', shake: G.attached.length ? Math.min(1, 0.3 + lookMag * 10 + shakeKick) : 0,
   });
   arms.lensWorld(camera, hd, lensW);
   flash.position.copy(lensW);
@@ -612,7 +612,7 @@ function frame(dtOverride) {
     player: { pos: player.pos, noise, alive: !G.dead && !G.won },
     flash: { on: G.flashOn && flash.intensity > 20, pos: flash.position, dir: beamDir.subVectors(flash.target.position, flash.position).normalize() },
     lamps: lamps.map((l) => ({ x: l.x, z: l.z, on: l.on })),
-    events: G.events,
+    events: G.events, playerSafe: G.inSafe,
     onAttach,
     onFirstFlee: () => tip('바퀴는 빛을 싫어한다', 'roachlight'),
     onFirstWait: () => tip('바퀴는 빛 밖에서 기다린다. 다른 곳을 비추면 덮친다', 'roachwait'),
