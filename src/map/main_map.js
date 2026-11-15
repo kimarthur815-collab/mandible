@@ -266,21 +266,34 @@ let lastPointer = 'mouse';
 addEventListener('pointerdown', (e) => { lastPointer = e.pointerType; }, { capture: true });
 addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') lastPointer = 'mouse'; }, { capture: true });
 const viaTouch = () => lastPointer !== 'mouse';
+// Tablet browsers (Chrome/Samsung on Android, Safari on iPad) have no pointer lock. If it has never worked here,
+// the mouse looks around just by moving (freeLook), and holding the cursor at the left/right edge keeps turning.
+let everLocked = false, freeLook = false, mouseX = null;
+function requestLock() {
+  const fail = () => { if (!everLocked) freeLook = true; };
+  if (!el.requestPointerLock) { fail(); return; }
+  try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(fail); } catch (err) { fail(); }
+  setTimeout(() => { if (!locked) fail(); }, 1000);
+}
+document.addEventListener('pointerlockerror', () => { if (!everLocked) freeLook = true; });
 el.addEventListener('click', () => {
   if (viaTouch() || !G.started) return;
-  if (!locked) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (err) { /* drag to look instead */ } }
+  if (!locked && !freeLook) requestLock();
   else if (G.grab) mashGrab();
   else toggleFlash();
 });
-document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === el; });
+document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === el; if (locked) { everLocked = true; freeLook = false; } });
 let drag = null;
-el.addEventListener('mousedown', (e) => { if (viaTouch()) return; if (e.button === 2) { useSpray(); return; } if (!locked) drag = { x: e.clientX, y: e.clientY }; });
+el.addEventListener('mousedown', (e) => { if (viaTouch()) return; if (e.button === 2) { useSpray(); return; } if (!locked && !freeLook) drag = { x: e.clientX, y: e.clientY }; });
 addEventListener('mouseup', () => { drag = null; });
 addEventListener('mousemove', (e) => {
+  mouseX = null;
   if (viaTouch()) return;
   if (locked) { input.lookX += e.movementX * 0.0022; input.lookY += e.movementY * 0.0022; }
+  else if (freeLook) { if (e.target === el) { mouseX = e.clientX; input.lookX += e.movementX * 0.004; input.lookY += e.movementY * 0.004; } }
   else if (drag) { input.lookX += (e.clientX - drag.x) * 0.004; input.lookY += (e.clientY - drag.y) * 0.004; drag = { x: e.clientX, y: e.clientY }; }
 });
+document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) mouseX = null; });
 el.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // touch: left side = joystick, right side = look
@@ -327,8 +340,13 @@ document.querySelectorAll('[data-act="map"]').forEach((b) => b.addEventListener(
 document.querySelectorAll('[data-act="bright"]').forEach((b) => b.addEventListener('click', toggleBright));
 document.querySelectorAll('[data-act="marks"]').forEach((b) => b.addEventListener('click', () => { markers.visible = !markers.visible; b.classList.toggle('on', markers.visible); }));
 
-function readInput() {
+function readInput(dt) {
   if (override) return override;
+  if (freeLook && mouseX !== null) {
+    const e = mouseX / innerWidth, edge = 0.08;
+    if (e < edge) input.lookX -= (1 - e / edge) * 2.4 * dt;
+    else if (e > 1 - edge) input.lookX += ((e - (1 - edge)) / edge) * 2.4 * dt;
+  }
   input.mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + joy.x;
   input.mz = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0) - joy.y;
   input.run = !!(keys.ShiftLeft || keys.ShiftRight || hold.run);
@@ -624,7 +642,7 @@ function frame(dtOverride) {
   const dt = dtOverride != null ? dtOverride : Math.min(clock.getDelta(), 1 / 20);
   t += dt;
   if (needRotate) { renderer.render(scene, camera); return; }
-  const inp = readInput();
+  const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
   if (G.started && !G.won && !G.dead && !G.grab) player.update(dt, inp);
   input.lookX = 0; input.lookY = 0;
@@ -1025,13 +1043,13 @@ $('#startBtn').addEventListener('click', () => {
   if (touch && fsOK() && !fsEl() && !standalone) enterFullscreen().catch(() => {});
   G.started = true;
   $('#start').classList.add('hide');
-  if (!viaTouch()) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
+  if (!viaTouch()) requestLock();
   setTimeout(() => tip(touch ? '너무 어둡다. 손전등을 켜자 (손전등 버튼)' : '너무 어둡다. 손전등을 켜자 (좌클릭)', 'start'), 1200);
 });
 $('#againBtn').addEventListener('click', () => {
   sfx.start();
   resetGame(); G.started = true;
-  if (!viaTouch()) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
+  if (!viaTouch()) requestLock();
 });
 
 // ------------------------------------------------------------------ landscape on phones
