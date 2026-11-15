@@ -286,9 +286,10 @@ function definePoses() {
   // The flashlight's aim fixes all but one thing about the right hand: how far it is turned about
   // the barrel. Pick the turn that keeps the wrist straightest for a forearm coming in from the lower
   // right (and still shows the back of the fist), so the hand doesn't look broken at the wrist.
-  const ARM_R = new V3(0.2, -0.06, 1).normalize();          // where the forearm runs, in the hand's frame
+  const ARM_R = new V3(-0.02, -0.06, 1).normalize();          // where the forearm runs, in the hand's frame
   const FPS_R = new V3(0.75, -0.55, 0.35).normalize();      // arms come in from the lower corner
-  const LIKE_R = new V3(-0.45, 0.8, 0.4).normalize();       // the back of the fist we liked the look of
+  // the back of the fist turned up and a little in, so the hand leans the same way the forearm comes in
+  const LIKE_R = new V3(-0.9, 0.35, 0.3).normalize();
   const tanV = Math.tan(THREE.MathUtils.degToRad(27)), tanH = tanV * 1.78;
   const inView = (p) => p.z < -0.02 && Math.abs(p.x / -p.z) < tanH && Math.abs(p.y / -p.z) < tanV;
   const bestRoll = (grip, dir) => {
@@ -299,9 +300,9 @@ function definePoses() {
       const handQ = frameQ(GRIP.axis, new V3(0, 1, 0), d, up);
       const wrist = grip.clone().sub(GRIP.at.clone().applyQuaternion(handQ));
       const neutral = ARM_R.clone().applyQuaternion(handQ);
-      const arm = neutral.clone().lerp(FPS_R, 0.35).normalize();
+      const arm = neutral.clone().lerp(FPS_R, 0.45).normalize();
       const elbow = wrist.clone().addScaledVector(arm, 0.27), mid = wrist.clone().addScaledVector(arm, 0.12);
-      let c = neutral.angleTo(FPS_R);
+      let c = 2.5 * neutral.angleTo(FPS_R);
       if (inView(elbow)) c += 1.0;
       if (arm.y > -0.2) c += 1.0;                               // the forearm must come up from below
       if (arm.z < 0) c += 1.0;                                  // ...and not from beyond the hand
@@ -348,7 +349,7 @@ function definePoses() {
   for (const P of Object.values(POSES)) for (const k of ['R', 'L']) {
     const st = P[k]; if (!st || !st.wrist) continue;
     const sd = k === 'R' ? 1 : -1;
-    if (st.fixedElbow) { st.elbow = st.wrist.clone().addScaledVector(new V3(0.2, -0.06, 1).normalize().applyQuaternion(st.handQ).lerp(new V3(0.75, -0.55, 0.35).normalize(), 0.35).normalize(), 0.27); continue; }
+    if (st.fixedElbow) { st.elbow = st.wrist.clone().addScaledVector(ARM_R.clone().applyQuaternion(st.handQ).lerp(FPS_R, 0.45).normalize(), 0.27); continue; }
     const neutral = new V3(0.2 * sd, -0.06, 1).normalize().applyQuaternion(st.handQ);
     const fps = new V3(0.75 * sd, -0.55, 0.35).normalize();
     st.elbow = st.wrist.clone().addScaledVector(neutral.lerp(fps, 0.55).normalize(), 0.27);
