@@ -263,6 +263,14 @@ export class Arms {
   }
 
   toggleClick() { this.click = 1; }
+  sprayPuff() { this.sprayT = 0.9; }
+
+  // where the spray comes out (world space)
+  nozzleWorld(camera, out) {
+    out.set(0, 0.012, -0.102).applyMatrix4(this.lHand.matrix);
+    out.x = -out.x;                              // the left hand lives in a mirrored frame
+    return camera.localToWorld(out);
+  }
 
   // s: { dt, camera, moving, running, crouch, speed, lookDX, lookDY, flashOn, flashK, aimWorld, hitDist, lamp:{dir,k}, adapt, bright, shake, using }
   update(s) {
@@ -313,13 +321,16 @@ export class Arms {
     this.rHand.updateMatrix();
     this.lensLocal.set(0, 0, -0.112).applyMatrix4(this.rHand.matrix);
 
-    // ---- left hand: can held low, comes up to swat when bugs are on you
+    // ---- left hand: can held low, comes up to swat when bugs are on you, raised and aimed to spray
     const swat = this.shake;
+    this.sprayT = Math.max(0, (this.sprayT || 0) - dt);
+    const spr = this.sprayT > 0 ? Math.min(1, (0.9 - this.sprayT) * 9, this.sprayT * 5) : 0;
     const lp = this.lGrip.clone().add(new V3(-bobX * 0.8 - this.sway.x * 0.8, bobY * 1.1 + this.sway.y + swat * 0.11, swat * -0.02));
     lp.x += Math.sin(this.time * 38) * swat * 0.05;
     if (s.running) lp.add(new V3(0.0, -0.03 + Math.sin(this.bob + Math.PI) * 0.02, 0.02));
+    lp.lerp(new V3(0.12, -0.105, -0.43), spr);
     this.lHand.position.copy(lp);
-    this.lHand.quaternion.setFromEuler(new THREE.Euler(1.25 - swat * 0.5, 0.25, 0.35 + Math.sin(this.time * 41) * swat * 0.3, 'XYZ'));
+    this.lHand.quaternion.setFromEuler(new THREE.Euler(1.25 - swat * 0.5 - spr * 1.05, 0.25 - spr * 0.45, 0.35 + Math.sin(this.time * 41) * swat * 0.3 - spr * 0.2, 'XYZ'));
     this.lHand.updateMatrix();
 
     // ---- forearms

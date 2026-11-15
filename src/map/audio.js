@@ -44,6 +44,7 @@ export class Sound {
     this.buzzBuf = this.makeBuzz(1.0);
     this.genBuf = this.makeGenerator(2.0);
     this.lampBuf = this.makeLampHum(2.0);
+    this.tapBuf = this.makeTaps(2.0);
     this.startAmbience();
     this.startTension();
   }
@@ -148,6 +149,22 @@ export class Sound {
       const hum = Math.sin(2 * Math.PI * 49 * t) * 0.3 + Math.sin(2 * Math.PI * 98 * t) * 0.18 + Math.sin(2 * Math.PI * 147 * t) * 0.06;
       const rattle = (Math.random() * 2 - 1) * Math.pow(Math.max(0, Math.sin(2 * Math.PI * 12.25 * t)), 6) * 0.12;
       d[i] = (hum * 0.6 + firing * 0.7 + lp * 4 + rattle) * 0.45;
+    }
+    this.loopFade(d, sr);
+    return b;
+  }
+
+  // a centipede's feet: hard, rhythmic ticks in waves running down the body
+  makeTaps(sec) {
+    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(sec * sr), b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+    const rate = 16;                        // waves per second at playbackRate 1
+    for (let w = 0; w < sec * rate; w++) {
+      const t0 = w / rate;
+      for (let k = 0; k < 5; k++) {           // each wave is several feet landing in quick succession
+        const i0 = Math.floor((t0 + k * 0.009 + Math.random() * 0.003) * sr), len = Math.floor(0.004 * sr), amp = (0.5 + Math.random() * 0.5) * (k === 0 ? 1 : 0.6);
+        let lp = 0;
+        for (let j = 0; j < len && i0 + j < n; j++) { const wv = Math.random() * 2 - 1; lp = lp * 0.4 + wv * 0.6; d[i0 + j] += lp * amp * Math.exp(-j / (len * 0.3)); }
+      }
     }
     this.loopFade(d, sr);
     return b;
@@ -407,6 +424,82 @@ export class Sound {
     for (let i = 0; i < 4; i++) this.burst({ t: i * 0.07, dur: 0.08, f: rnd(2500, 5000), q: 0.8, gain: 0.25 });
   }
 
+  spray(empty = false) {
+    if (!this.ctx) return;
+    if (empty) { for (let i = 0; i < 3; i++) this.burst({ t: i * 0.09, dur: 0.05, f: 4000, q: 1, gain: 0.2, type: 'highpass' }); this.tone({ f0: 300, f1: 260, dur: 0.05, gain: 0.08 }); return; }
+    this.burst({ dur: 0.012, f: 2500, q: 2, gain: 0.3, pan: -0.3 });                       // valve click
+    const f = this.burst({ t: 0.01, dur: 0.75, f: 5200, q: 0.5, gain: 0.55, attack: 0.03, pan: -0.25 });
+    f.frequency.setValueAtTime(5200, this.ctx.currentTime); f.frequency.linearRampToValueAtTime(3800, this.ctx.currentTime + 0.8);
+    this.burst({ t: 0.02, dur: 0.6, f: 9000, q: 0.7, gain: 0.25, attack: 0.04, type: 'highpass', pan: -0.25 });
+  }
+
+  creak(x, y, z) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, now = ctx.currentTime, p = this.panner(x, y, z, 2, 0.9); p.connect(this.sfx);
+    // a silk line stretching: a thin, grinding squeal that bends in pitch
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(240, now); o.frequency.linearRampToValueAtTime(310, now + 0.25); o.frequency.linearRampToValueAtTime(200, now + 0.6);
+    const vib = ctx.createOscillator(); vib.frequency.value = 23; const vg = ctx.createGain(); vg.gain.value = 18; vib.connect(vg); vg.connect(o.frequency);
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 9;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.5, now + 0.05); g.gain.linearRampToValueAtTime(0.3, now + 0.45); g.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    o.connect(bp); bp.connect(g); g.connect(p);
+    o.start(now); vib.start(now); o.stop(now + 0.75); vib.stop(now + 0.75);
+  }
+
+  grab() {
+    if (!this.ctx) return;
+    this.tone({ f0: 120, f1: 45, dur: 0.3, gain: 0.8 });
+    this.burst({ dur: 0.5, f: 3200, q: 0.8, gain: 0.6, attack: 0.005 });
+    this.burst({ dest: this.mus, dur: 1.2, f: 600, q: 6, gain: 0.35, attack: 0.02, buf: this.brown });
+  }
+  struggle() { if (this.ctx) this.burst({ dur: 0.08, f: 2600 + Math.random() * 1500, q: 1, gain: 0.25 }); }
+
+  webTear(x, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 1.4, z, 1.5, 1); p.connect(this.sfx);
+    for (let i = 0; i < 14; i++) this.burst({ dest: p, t: i * 0.035 + Math.random() * 0.02, dur: 0.03, f: 3000 + Math.random() * 4000, q: 4, gain: 0.25 });
+  }
+  webMelt(x, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 1.4, z, 1.5, 1); p.connect(this.sfx);
+    this.burst({ dest: p, dur: 1.0, f: 7000, q: 0.6, gain: 0.3, attack: 0.05, type: 'highpass' });
+    for (let i = 0; i < 18; i++) this.burst({ dest: p, t: Math.random() * 0.9, dur: 0.02, f: 5000, q: 2, gain: 0.15 });
+  }
+
+  eggBurst(x, y, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, y, z, 2, 0.9); p.connect(this.sfx);
+    this.tone({ dest: p, f0: 90, f1: 40, dur: 0.25, gain: 0.7 });
+    this.burst({ dest: p, dur: 0.35, f: 900, q: 1.5, gain: 0.6, buf: this.brown });
+    this.burst({ dest: p, t: 0.05, dur: 1.4, f: 4500, q: 0.7, gain: 0.35, attack: 0.1 });
+  }
+
+  // the centipede bursting out of the vent: silence first, then this
+  ventBurst(x, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 0.6, z, 3, 0.7); p.connect(this.sfx);
+    this.burst({ dest: p, dur: 0.4, f: 1800, q: 10, gain: 0.9, attack: 0.001 });
+    this.tone({ dest: p, f0: 420, f1: 300, dur: 0.6, gain: 0.25, type: 'square' });
+    this.tone({ dest: this.mus, f0: 60, f1: 28, dur: 1.6, gain: 1.0, attack: 0.01 });
+    for (const f of [622, 659, 932, 988]) this.tone({ dest: this.mus, f0: f, f1: f * 0.9, dur: 1.4, gain: 0.07, type: 'sawtooth', attack: 0.02 });
+    this.centiScreech(x, z, 0.1);
+  }
+  centiScreech(x, z, t = 0) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 0.5, z, 2, 0.9); p.connect(this.sfx);
+    const f = this.burst({ dest: p, t, dur: 0.7, f: 2200, q: 8, gain: 0.6, attack: 0.02 });
+    f.frequency.setValueAtTime(2200, this.ctx.currentTime + t); f.frequency.exponentialRampToValueAtTime(900, this.ctx.currentTime + t + 0.7);
+  }
+  centiHiss(x, z) { if (this.ctx) { const p = this.panner(x, 0.5, z, 2, 0.9); p.connect(this.sfx); this.burst({ dest: p, dur: 0.6, f: 3500, q: 1.2, gain: 0.45, attack: 0.03 }); } }
+
+  // a beat of near-silence before something big
+  silence(sec) {
+    if (!this.ctx || this.muted) return;
+    const now = this.ctx.currentTime;
+    for (const bus of [this.amb, this.mus, this.sfx]) { bus.gain.cancelScheduledValues(now); bus.gain.setTargetAtTime(0.03, now, 0.08); bus.gain.setTargetAtTime(bus === this.amb ? 0.9 : bus === this.mus ? 0.8 : 1.0, now + sec, 0.02); }
+  }
+  death() { if (this.ctx) { this.tone({ dest: this.mus, f0: 55, f1: 25, dur: 2.0, gain: 1.0 }); this.burst({ dest: this.mus, dur: 0.8, f: 300, q: 1, gain: 0.5, buf: this.brown }); } }
+
   // a restart: silence everything that was running in the level
   resetWorld() {
     if (!this.ctx) return;
@@ -459,6 +552,17 @@ export class Sound {
     this.onMe.crinkle.g.gain.setTargetAtTime(a ? 0.35 + a * 0.15 : 0, now, 0.05);
     this.onMe.skit.g.gain.setTargetAtTime(a ? 0.25 + a * 0.1 : 0, now, 0.05);
     if (s.pounce) this.burst({ dur: 0.3, f: 5000, q: 0.7, gain: 0.25, attack: 0.03 });
+    // the centipede: faster ticks the faster it runs, so you can hear how close it is
+    if (!this.tapSrc) { const pn = this.panner(0, 0.3, 0, 1.6, 1.0); pn.connect(this.sfx); this.tapSrc = { ...this.loop(this.tapBuf, pn, 0, 0.6), p: pn }; }
+    if (s.centi) {
+      this.setPos(this.tapSrc.p, s.centi.x, 0.3, s.centi.z);
+      const v = Math.min(1, s.centi.speed / 4.5);
+      this.tapSrc.g.gain.setTargetAtTime(s.centi.speed > 0.2 ? 0.35 + v * 0.75 : 0, now, 0.08);
+      this.tapSrc.s.playbackRate.setTargetAtTime(0.45 + v * 0.9, now, 0.1);
+    } else this.tapSrc.g.gain.setTargetAtTime(0, now, 0.1);
+    if (!this.lingSrc) { const pn = this.panner(0, 0.1, 0, 1.2, 1.2); pn.connect(this.sfx); this.lingSrc = { ...this.loop(this.skitBufs[0], pn, 0, 1.5), p: pn }; }
+    if (s.lings && s.lings.moving) { this.setPos(this.lingSrc.p, s.lings.cx, 0.1, s.lings.cz); this.lingSrc.g.gain.setTargetAtTime(Math.min(1.2, s.lings.moving / 10), now, 0.1); }
+    else this.lingSrc.g.gain.setTargetAtTime(0, now, 0.15);
 
     // chase music follows how close the hunt is
     this.intensity += (s.intensity - this.intensity) * Math.min(1, s.dt * (s.intensity > this.intensity ? 2.5 : 0.5));

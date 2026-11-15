@@ -69,6 +69,7 @@
   #joyHint { position: fixed; left: calc(24px + env(safe-area-inset-left)); bottom: calc(28px + env(safe-area-inset-bottom)); font-size: 11px; color: var(--dim); pointer-events: none; }
   #pad { position: fixed; right: calc(14px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: 64px 64px; gap: 10px; }
   #pad button { width: 64px; height: 64px; border-radius: 50%; border: 1px solid var(--line); background: rgba(12,11,10,.55); color: var(--ink); font: inherit; font-size: 12px; touch-action: none; }
+  #pad button.wide { grid-column: 1 / 3; width: auto; height: 44px; border-radius: 22px; color: #cfe8c8; border-color: rgba(150,200,140,.45); }
   #pad button.on { background: rgba(231,180,106,.22); color: var(--amber); border-color: rgba(231,180,106,.6); }
   body.touch #tip { bottom: calc(170px + env(safe-area-inset-bottom)); }
   body.touch #prompt { bottom: calc(200px + env(safe-area-inset-bottom)); }
@@ -100,6 +101,16 @@
   @keyframes itch { from { opacity: .85; } to { opacity: 1; } }
   #bShake { display: none; position: fixed; left: 50%; bottom: calc(64px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: 120px; height: 56px; border-radius: 28px; border: 0; background: #e05a3a; color: #fff; font: inherit; font-size: 16px; z-index: 4; }
   body.touch #bShake.show { display: block; }
+  /* grabbed by a spider: struggle meter */
+  #grab { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); text-align: center; display: none; z-index: 5; pointer-events: none; }
+  #grab.show { display: block; }
+  #grab .t { font-size: 18px; letter-spacing: .12em; color: #fff; text-shadow: 0 2px 10px #000; }
+  #grab .bar { width: 220px; height: 10px; margin: 10px auto 6px; border: 1px solid rgba(255,255,255,.5); border-radius: 6px; overflow: hidden; background: rgba(0,0,0,.5); }
+  #grab .bar i { display: block; height: 100%; width: 60%; background: linear-gradient(90deg, #e05a3a, #ffb24a); }
+  #grab .s { font-size: 12px; color: rgba(255,255,255,.75); }
+  #bMash { display: none; position: fixed; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: 170px; height: 74px; border-radius: 37px; border: 0; background: #e05a3a; color: #fff; font: inherit; font-size: 18px; z-index: 6; touch-action: none; }
+  body.touch #bMash.show { display: block; }
+  body.grabbed #app { animation: shake .25s linear infinite; }
   /* death */
   #dead { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity .8s; display: grid; place-content: center; text-align: center; z-index: 6; }
   #dead.show { opacity: 1; pointer-events: auto; }
@@ -129,6 +140,7 @@
     body.touch #status { top: calc(54px + env(safe-area-inset-top)); }
     #pad { grid-template-columns: 54px 54px; gap: 8px; bottom: calc(10px + env(safe-area-inset-bottom)); }
     #pad button { width: 54px; height: 54px; font-size: 11px; }
+    #pad button.wide { height: 38px; }
     #minimap { top: calc(46px + env(safe-area-inset-top)); width: 120px; height: 190px; }
     body.touch #tip { bottom: calc(18px + env(safe-area-inset-bottom)); }
     body.touch #prompt { bottom: calc(44px + env(safe-area-inset-bottom)); }
@@ -143,12 +155,14 @@
 <body>
 <div id="app"></div>
 <div id="cross"></div>
-<div class="hud" id="top"><div class="logo">MANDIBLE</div><div class="sub">맵 그레이박스 · 바퀴 떼 · 팔 · 소리</div><div class="row"><span id="obj">발전기 0/3</span><span id="timer">0:00</span></div></div>
+<div class="hud" id="top"><div class="logo">MANDIBLE</div><div class="sub">바퀴 떼 · 천장 거미 · 거미줄 · 알집 · 지네</div><div class="row"><span id="obj">발전기 0/3</span><span id="timer">0:00</span></div></div>
 <div id="tools"><button data-act="snd" class="on">소리</button><button data-act="fs">전체화면</button><button data-act="dev">개발</button><button data-act="map">지도</button><button data-act="marks" class="on">벌레 위치</button><button data-act="bright">밝게</button></div>
 <div id="minimap"><canvas></canvas></div>
 <div id="hurt"></div><div id="hit"></div>
 <div id="crawl"></div>
 <button id="bShake">털기!</button>
+<div id="grab"><div class="t">거미에게 붙잡혔다</div><div class="bar"><i></i></div><div class="s only-desk">클릭 연타로 버텨라 · 우클릭 스프레이</div></div>
+<button id="bMash">버텨! 연타</button>
 <div id="devinfo"></div>
 <div id="dev">
   <h4>순간이동 · 방</h4>
@@ -159,6 +173,8 @@
   <div class="g"><button data-dev="god">무적</button><button data-dev="battery">배터리 무한</button><button data-dev="noclip">벽 통과</button><button data-dev="fast">속도 2배</button><button data-dev="freeze">벌레 멈춤</button><button data-dev="bright">밝게</button><button data-dev="marks" class="on">벌레 위치</button><button data-dev="info">정보 표시</button></div>
   <h4>바퀴 떼 시험</h4>
   <div class="g"><button data-do="call">가까운 떼 부르기</button><button data-do="scare">날아오는 바퀴</button><button data-do="attach">몸에 붙이기</button></div>
+  <h4>거미 · 지네 시험</h4>
+  <div class="g"><button data-do="drop">거미 떨어뜨리기</button><button data-do="eggs">알집 터뜨리기</button><button data-do="centi">지네 깨우기</button><button data-do="centichase">지네 추격</button><button data-do="sprayfill">스프레이 +3</button></div>
   <h4>진행</h4>
   <div class="g"><button data-do="gens">발전기 모두 켜기</button><button data-do="restart">처음부터</button></div>
 </div>
@@ -171,13 +187,13 @@
 <div id="touch">
   <div id="joy"><i></i></div>
   <div id="joyHint">왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기</div>
-  <div id="pad"><button id="bFlash">손전등</button><button id="bUse">손</button><button id="bCrouch">웅크리기</button><button id="bRun">달리기</button></div>
+  <div id="pad"><button id="bSpray" class="wide">스프레이</button><button id="bFlash">손전등</button><button id="bUse">손</button><button id="bCrouch">웅크리기</button><button id="bRun">달리기</button></div>
 </div>
 <div class="overlay" id="start">
   <div class="t">MANDIBLE</div>
   <div class="s">맵 그레이박스 · 동선과 공간 확인용</div>
-  <div class="help only-desk">WASD 이동 · 마우스 시점 · 좌클릭 손전등<br>Shift 달리기 · C 웅크리기 · E 상호작용(발전기는 꾹)<br>M 지도 · B 밝게 보기 · ` 개발자 모드 · Esc 마우스 풀기<br>오른쪽 위 전체화면 버튼 또는 F11로 전체화면</div>
-  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용(발전기는 꾹 누르기)<br>위 버튼: 소리 · 전체화면 · 개발자 모드 · 지도 · 벌레 위치 · 밝게 보기</div>
+  <div class="help only-desk">WASD 이동 · 마우스 시점 · 좌클릭 손전등 · 우클릭(또는 Q) 스프레이<br>Shift 달리기 · C 웅크리기 · E 상호작용(발전기는 꾹)<br>M 지도 · B 밝게 보기 · ` 개발자 모드 · Esc 마우스 풀기<br>오른쪽 위 전체화면 버튼 또는 F11로 전체화면</div>
+  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용(발전기는 꾹 누르기) · 스프레이 버튼: 앞쪽 3m에 뿌리기<br>위 버튼: 소리 · 전체화면 · 개발자 모드 · 지도 · 벌레 위치 · 밝게 보기</div>
   <div class="help" id="iosHint">아이폰에서 전체화면으로 하려면<br>Safari로 열고 공유 버튼 → 홈 화면에 추가 → 홈 화면의 MANDIBLE 아이콘으로 실행하세요.</div>
   <div class="help">발전기 3개를 켜고 처음 들어온 셔터로 탈출하세요.<br>이어폰을 끼면 벌레 소리가 어느 쪽에서 나는지 들려요.</div>
   <div><button id="startBtn">시작하기</button></div>

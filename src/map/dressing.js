@@ -272,10 +272,10 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
     col(21.7, 23.7, 49.4, 54.0);
     P.pallet(B, rm, P.mtx(-4.9, 0, 53.5, Math.PI / 2), R); for (let s = 0; s < 8; s++) P.sack(B, rm, P.mtx(-4.9 + (R() - 0.5) * 0.25, 0.15 + Math.floor(s / 2) * 0.13, 53.5 + ((s % 2) - 0.5) * 0.5, Math.PI / 2 + (R() - 0.5) * 0.4), R);
     col(-5.6, -4.2, 52.8, 54.2); floorDecal(rm, 14, -4.0, 54.6, 1.4);
-    P.pallet(B, rm, P.mtx(14.0, 0, 66.8, 0.3), R); P.pallet(B, rm, P.mtx(0.9, 0, 58.0, 2.1), R, true); P.pallet(B, rm, P.mtx(22.9, 0, 60.5, 1.2), R, true);
-    P.boxStack(B, rm, card, 14.0, 0.145, 66.8, 0.3, R, 2, 1.2); col(13.3, 14.7, 66.3, 67.3);
+    P.pallet(B, rm, P.mtx(0.9, 0, 58.0, 2.1), R, true); P.pallet(B, rm, P.mtx(22.9, 0, 60.5, 1.2), R);
+    P.boxStack(B, rm, card, 22.9, 0.145, 60.5, 1.2, R, 2, 1.2); col(22.3, 23.6, 59.9, 61.1);
     // centipede vent: big, slats bent
-    P.vent(B, rm, 15, 0.55, 69.68, Math.PI, 1.4, 0.8);
+    { const g = P.box(1.4, 0.8, 0.02); g.translate(15, 0.55, 69.69); B.add('rubber', rm, g, C('#030303')); }   // the vent itself: its cover belongs to the centipede
     wallDecal(rm, 'z1', 15, 0.6, 3, 1.8, 1.2); wallDecal(rm, 'z1', 15.2, 0.25, 11, 2.6, 0.6);
     // boarded high windows
     for (const x of [0, 6, 18]) {

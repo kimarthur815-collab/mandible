@@ -329,7 +329,7 @@ export class Spider {
     if (this.whirl > 0) this.whirl -= dt;
 
     // body pose
-    const air = this.state === 'drop' || this.state === 'hang' || this.state === 'swing' || this.state === 'retract';
+    const air = this.state === 'drop' || this.state === 'hang' || this.state === 'swing' || this.state === 'retract' || this.state === 'fallen';
     const wh = Math.max(0, this.whirl) > 0 ? sstep(0, 0.3, this.whirl) : 0;
     this.body.position.set(
       0.03 * wh * Math.sin(t * 70),
@@ -387,7 +387,7 @@ export class Spider {
   setBodyAt(world, q) {
     // place root so that the body centre lands on `world`
     this.root.quaternion.copy(q);
-    const off = new V3(0, this.P.H, 0).applyQuaternion(q);
+    const off = new V3(0, this.P.H * this.root.scale.y, 0).applyQuaternion(q);
     this.root.position.copy(world).sub(off);
   }
 
@@ -412,9 +412,11 @@ export class Spider {
     } else if (this.state === 'swing') {
       const u = clamp(this.st / 0.32, 0, 1);
       const e = u * u;
-      const target = cam.clone().add(new V3(0, -0.05, 0));
       const from = new V3(this.anchor.x, this.hangY, this.anchor.z);
-      P.lerpVectors(from, target, e * 0.88);
+      // stop just in front of the face (grabDist), so its fangs and eyes fill the view
+      const toFrom = from.clone().sub(cam), stop = this.grabDist || 0.12;
+      const target = cam.clone().add(toFrom.setLength(Math.min(toFrom.length(), stop))).add(new V3(0, -0.05, 0));
+      P.lerpVectors(from, target, this.grabDist ? e : e * 0.88);
       P.y += 0.25 * Math.sin(Math.PI * e) * (1 - e);
       this.setBodyAt(P, this.hangQ);
       if (u >= 1 && !this.caught) { this.caught = true; this.state = 'caught'; this.onCatch && this.onCatch(); }
@@ -432,6 +434,14 @@ export class Spider {
         this.state = 'ceiling'; this.cooldown = 3.5; this.litTime = 0;
       }
     }
+  }
+
+  // crawl across the ceiling to a spot (e.g. a web that was touched)
+  callTo(x, z, bounds) {
+    if (this.state !== 'ceiling' && this.state !== 'crawl') return false;
+    this.crawlTarget = new THREE.Vector2(clamp(x, bounds.x0, bounds.x1), clamp(z, bounds.z0, bounds.z1));
+    this.state = 'crawl';
+    return true;
   }
 
   startRetract() {

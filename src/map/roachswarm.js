@@ -227,7 +227,7 @@ export class RoachSwarms {
       const s = this.swarms[r.sw];
       const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * s.spread;
       r.pos.set(s.x + Math.cos(a) * d, 0, s.z + Math.sin(a) * d);
-      r.yaw = Math.random() * Math.PI * 2; r.speed = 0; r.state = 'idle'; r.fleeT = 0; r.mode = 'move'; r.waitT = 0; r.pounceT = 0;
+      r.yaw = Math.random() * Math.PI * 2; r.speed = 0; r.state = 'idle'; r.fleeT = 0; r.mode = 'move'; r.waitT = 0; r.pounceT = 0; r.flipT = 0;
       r.off.set((Math.random() - 0.5) * 1.6, 0, (Math.random() - 0.5) * 1.6);
     }
     this.scared = false;
@@ -311,6 +311,15 @@ export class RoachSwarms {
     for (const r of this.roaches) {
       if (r.state === 'off' || r.state === 'attached') { this.hide(r); continue; }
       if (r.state === 'fly' || r.state === 'face') { this.updateFlyer(r, ctx); continue; }
+      if (r.flipT > 0) {
+        r.flipT -= dt; r.speed = 0;
+        this.iMove.array[r.i] = 1.5; this.iPhase.array[r.i] += dt * 30;
+        q.setFromEuler(e.set(0, r.yaw, Math.PI));
+        M.compose(pos.set(r.pos.x, 0.09 * r.scale, r.pos.z), q, sc.setScalar(r.scale));
+        this.mesh.setMatrixAt(r.i, M);
+        M.makeScale(0, 0, 0); this.blobs.setMatrixAt(r.i, M);
+        continue;
+      }
       const s = this.swarms[r.sw];
       const k = nav.idx(r.pos.x, r.pos.z);
       const cellLit = k >= 0 ? nav.lit[k] : 0;
@@ -568,6 +577,17 @@ export class RoachSwarms {
   }
 
   states() { return this.swarms.map((s) => s.state); }
+
+  // spray: everything in the cone flips over
+  sprayHit(origin, dir, range = 3.2, cosHalf = Math.cos(Math.PI / 6)) {
+    let n = 0;
+    for (const r of this.roaches) {
+      if (r.sw < 0 || r.state === 'attached' || r.state === 'off' || r.state === 'fly' || r.state === 'face') continue;
+      const vx = r.pos.x - origin.x, vy = 0.1 - origin.y, vz = r.pos.z - origin.z, d = Math.hypot(vx, vy, vz);
+      if (d < range && (vx * dir.x + vy * dir.y + vz * dir.z) / d > cosHalf) { r.flipT = 3; n++; }
+    }
+    return n;
+  }
 
   // where the noise is: moving roaches per swarm, the closest one, and whether some just rushed in
   audioInfo(P) {

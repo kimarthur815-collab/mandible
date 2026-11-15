@@ -20,8 +20,8 @@ function tergiteR(phi) {
 }
 const TBBOX = { minx: -0.21, maxx: 0.21, minz: -0.072, maxz: 0.08 };
 
-function unitCyl(radial = 10, taper = 0.8) {
-  const g = new THREE.CylinderGeometry(1, 1, 1, radial, 6, false);
+function unitCyl(radial = 10, taper = 0.8, rows = 6) {
+  const g = new THREE.CylinderGeometry(1, 1, 1, radial, rows, false);
   g.translate(0, 0.5, 0);
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) {
@@ -63,7 +63,8 @@ function segMatrix(out, p0, p1, up, r) {
 
 // ============================================================ Centipede
 export class Centipede {
-  constructor(T) {
+  constructor(T, opt = {}) {
+    const lite = !!opt.lite;          // in-game: far fewer triangles, thin parts cast no shadow
     this.group = new THREE.Group();
     this.time = 0;
     this.mode = 'idle';
@@ -98,8 +99,8 @@ export class Centipede {
     // trunk
     const top = (rho) => 0.045 * Math.pow(Math.max(0, 1 - rho * rho), 0.6) + 0.006 * sstep(0.85, 1, rho);
     const bottom = (rho) => top(rho) - 0.035 * Math.pow(Math.max(0, 1 - rho * rho), 0.7);
-    this.terg = inst(buildShell(tergiteR, top, bottom, TBBOX, 16, 72), m.terg, N_SEG);
-    const stern = new THREE.SphereGeometry(1, 22, 14);
+    this.terg = inst(buildShell(tergiteR, top, bottom, TBBOX, lite ? 8 : 16, lite ? 30 : 72), m.terg, N_SEG);
+    const stern = lite ? new THREE.SphereGeometry(1, 12, 7) : new THREE.SphereGeometry(1, 22, 14);
     stern.scale(0.15, 0.06, 0.07);
     colorize(stern, (c, x, y) => c.set('#b9a684').lerp(new THREE.Color('#5a4a40'), sstep(0.06, 0.12, Math.abs(x)) * 0.6 + sstep(0.0, 0.05, y) * 0.3));
     this.stern = inst(stern, m.body, N_SEG);
@@ -115,14 +116,14 @@ export class Centipede {
 
     // legs (instanced)
     const NL = N_SEG * 2;
-    const cyl = unitCyl(10, 0.78);
+    const cyl = lite ? unitCyl(5, 0.78, 1) : unitCyl(10, 0.78);
     this.iCoxa = inst(cyl, m.leg, NL);
     this.iFem = inst(cyl, m.leg, NL);
-    this.iTib = inst(cyl, m.leg, NL);
-    this.iT1 = inst(cyl, m.leg, NL);
-    this.iT2 = inst(cyl, m.leg, NL);
-    this.iT3 = inst(cyl, m.leg, NL);
-    this.iJoint = inst(new THREE.SphereGeometry(1, 10, 8), m.joint, NL * 3);
+    this.iTib = inst(cyl, m.leg, NL, !lite);
+    this.iT1 = inst(cyl, m.leg, NL, !lite);
+    this.iT2 = inst(cyl, m.leg, NL, !lite);
+    this.iT3 = inst(cyl, m.leg, NL, !lite);
+    this.iJoint = inst(lite ? new THREE.SphereGeometry(1, 6, 4) : new THREE.SphereGeometry(1, 10, 8), m.joint, NL * 3, !lite);
 
     this.legs = [];
     for (let i = 0; i < N_SEG; i++) for (const s of [-1, 1]) {
@@ -323,6 +324,8 @@ export class Centipede {
         b.hits++; b.lastHit = this.time;
         b.curlSide = Math.random() < 0.5 ? -1 : 1;
         this.onStun && this.onStun(b.hits, b.hold);
+      } else if (this.mode === 'drive') {
+        desired = this.driveSpeed || 0;
       } else if (this.mode === 'chase' && cam) {
         b.target.set(cam.x, cam.z);
         desired = 3.3;
@@ -375,7 +378,7 @@ export class Centipede {
       dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       const tr = 2.4 + this.speed * 0.5;
       this.yaw += clamp(dy, -tr * dt, tr * dt);
-      desired *= Math.max(this.mode === 'chase' ? 0.45 : 0.15, Math.cos(dy));
+      desired *= Math.max(this.mode === 'chase' || this.mode === 'drive' ? 0.45 : 0.15, Math.cos(dy));
     }
     this.speed += clamp(desired - this.speed, -9 * dt, 6 * dt);
     this.headXZ.x += Math.sin(this.yaw) * this.speed * dt;
