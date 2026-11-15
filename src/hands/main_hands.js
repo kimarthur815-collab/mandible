@@ -234,7 +234,7 @@ function makeDust() {
 // right hand power grip on the flashlight: the barrel runs obliquely across the palm, head out
 // past the thumb and index finger
 const GRIP = {
-  axis: new V3(-0.93, 0, -0.37).normalize(),       // tail -> lens, in the right hand's frame
+  axis: new V3(-0.72, 0, -0.69).normalize(),       // tail -> lens, in the right hand's frame (a diagonal power grip)
   at: new V3(0.004, -0.0315, -0.069),             // barrel axis point under the fingers' base
   zf: -0.03,                                       // where on the flashlight (its own z) that point is
 };
@@ -286,16 +286,27 @@ function definePoses() {
   // the fist. The forearm comes up from the lower right and runs straight into the hand.
   const ARM_R = new V3(-0.02, -0.06, 1).normalize();          // where the forearm runs, in the hand's frame
   const FPS_R = new V3(0.75, -0.55, 0.35).normalize();      // arms come in from the lower corner
-  const rightHand = (grip, long, back) => {
-    const handQ = frameQ(new V3(0, 0, -1), new V3(0, 1, 0), long.clone().normalize(), back.clone().normalize());
-    const wrist = grip.clone().sub(GRIP.at.clone().applyQuaternion(handQ));
-    return { wrist, handQ, elbow: new V3(), held: 'flash', ang: rightAng, fixedElbow: true };
+  const rightHand = (grip, long, back, lift = 0.14, maxTip = 40) => {
+    const q0 = frameQ(new V3(0, 0, -1), new V3(0, 1, 0), long.clone().normalize(), back.clone().normalize());
+    const wrist = grip.clone().sub(GRIP.at.clone().applyQuaternion(q0));
+    // the forearm runs straight into the untipped hand
+    const arm = ARM_R.clone().applyQuaternion(q0).lerp(FPS_R, 0.3).normalize();
+    // then the wrist tips down (toward the little finger) until the flashlight points ahead
+    const axis = new V3(0, 1, 0).applyQuaternion(q0);
+    let best = null;
+    for (let d = 0; d <= maxTip; d += 1) for (const sg of [-1, 1]) {
+      const q = new Q().setFromAxisAngle(axis, sg * THREE.MathUtils.degToRad(d)).multiply(q0);
+      const beam = GRIP.axis.clone().applyQuaternion(q);
+      const c = Math.abs(beam.y - lift) + (beam.z > 0 ? 2 : 0) + d * 0.002;
+      if (!best || c < best.c) best = { c, q, d };
+    }
+    return { wrist, handQ: best.q, elbow: wrist.clone().addScaledVector(arm, 0.27), held: 'flash', ang: rightAng, tip: best.d };
   };
   const leftRelaxed = { wrist: new V3(-0.17, -0.15, -0.41), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.32, 0.02, -1), new V3(-0.25, 0.9, 0.35)), elbow: new V3(-0.3, -0.62, 0.0), held: null, ang: presetAngles('relaxed') };
-  const holding = () => rightHand(new V3(0.17, -0.12, -0.42), new V3(-0.4, 0.2, -0.9), new V3(0.95, 0.25, 0.2));
+  const holding = () => rightHand(new V3(0.17, -0.12, -0.42), new V3(-0.08, -0.05, -1), new V3(0.95, 0.25, 0.25), 0.1, 25);
   POSES.default = { R: holding(), L: leftRelaxed, light: true };
   // light off: the hand drops a little and the flashlight tips forward
-  POSES.off = { R: rightHand(new V3(0.18, -0.16, -0.42), new V3(-0.35, -0.12, -0.93), new V3(0.95, 0.25, 0.2)), L: { ...leftRelaxed, wrist: new V3(-0.19, -0.185, -0.38) }, light: false };
+  POSES.off = { R: rightHand(new V3(0.18, -0.16, -0.42), new V3(-0.08, -0.2, -1), new V3(0.95, 0.25, 0.25), -0.3, 25), L: { ...leftRelaxed, wrist: new V3(-0.19, -0.185, -0.38) }, light: false };
   // left hand open, reaching to take hold of something
   POSES.use = {
     R: holding(),
@@ -321,7 +332,7 @@ function definePoses() {
   for (const [name, P] of Object.entries(POSES)) {
     if (!P || !P.R || !P.R.wrist) continue;
     const dR = P.R.wrist.clone().multiplyScalar(NEAR - 1);
-    if (!done.has(P.R)) { P.R.wrist.add(dR); done.add(P.R); }
+    if (!done.has(P.R)) { P.R.wrist.add(dR); if (P.R.held === 'flash') P.R.elbow.add(dR); done.add(P.R); }
     if (done.has(P.L)) continue;
     done.add(P.L);
     if (name === 'both') P.L.wrist.add(dR); else P.L.wrist.multiplyScalar(NEAR);
@@ -329,7 +340,7 @@ function definePoses() {
   for (const P of Object.values(POSES)) for (const k of ['R', 'L']) {
     const st = P[k]; if (!st || !st.wrist) continue;
     const sd = k === 'R' ? 1 : -1;
-    if (st.fixedElbow) { st.elbow = st.wrist.clone().addScaledVector(ARM_R.clone().applyQuaternion(st.handQ).lerp(FPS_R, 0.3).normalize(), 0.27); continue; }
+    if (st.held === 'flash') continue;            // the flashlight hand has its forearm already
     const neutral = new V3(0.2 * sd, -0.06, 1).normalize().applyQuaternion(st.handQ);
     const fps = new V3(0.75 * sd, -0.55, 0.35).normalize();
     st.elbow = st.wrist.clone().addScaledVector(neutral.lerp(fps, 0.55).normalize(), 0.27);
@@ -433,7 +444,7 @@ addEventListener('pointerup', () => { drag = null; });
 let t = 0, autoT = 0, auto = false;
 const ORDER = ['default', 'use', 'off', 'spray'];
 const tmpQ = new Q(), rayc = new THREE.Raycaster();
-const AIM = new V3(0.35, 0.3, -4.0);          // where the light lands, in view space
+const AIM = new V3(0.5, -0.1, -4.0);          // where the light is nudged toward, in view space
 function frame(dt) {
   t += dt;
   if (auto) { autoT += dt; if (autoT > 3.2) { autoT = 0; setPose(ORDER[(ORDER.indexOf(poseName) + 1) % ORDER.length]); } }
@@ -478,9 +489,9 @@ function frame(dt) {
   // where you are looking (a little right of and above centre), as in the photo
   const lens = new V3(0, 0, 0.0845).applyMatrix4(flash.matrixWorld);
   const aim = rig.localToWorld(AIM.clone());
-  const dir = aim.clone().sub(lens).normalize();
+  const dir = new V3(0, 0, 1).transformDirection(flash.matrixWorld).lerp(aim.clone().sub(lens).normalize(), 0.5).normalize();
   // (the light starts just past the head, so it doesn't light the flashlight's own reflector and bezel)
-  spot.position.copy(lens).addScaledVector(dir, 0.07); spot.target.position.copy(aim); spot.target.updateMatrixWorld();
+  spot.position.copy(lens).addScaledVector(dir, 0.07); spot.target.position.copy(lens).addScaledVector(dir, 4); spot.target.updateMatrixWorld();
   cone.position.copy(lens); cone.quaternion.setFromUnitVectors(new V3(0, 0, 1), dir);
   cone.material.uniforms.uK.value = (lightOn ? LEVELS[level].cone : 0) * beamK * fl * (view === 'game' ? 1 : 0.5);
   cone.visible = cone.material.uniforms.uK.value > 0.01;
@@ -501,7 +512,7 @@ function frame(dt) {
   } else bounce.intensity = 0;
   armFill.intensity = view === 'game' ? 0.05 + I * 0.0011 : 0;
   armTop.intensity = view === 'game' ? 0.06 + I * 0.0003 : 0;
-  nightAmb.intensity = 0.22;
+  nightAmb.intensity = 0.3;
   grain.uniforms.uT.value = t;
 }
 
