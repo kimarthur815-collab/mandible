@@ -60,7 +60,7 @@ const nightEye = new THREE.PointLight(0x9db0cc, 0, 6.5, 1.6);
 scene.add(nightEye);
 const NIGHT_K = 0.75;
 const FLASH_I = 200;          // the flashlight's strength (turned down on close walls, see beamNear)
-let adapt = 0, prevYaw = 0, prevPitch = 0, shakeKick = 0;
+let adapt = 0, prevYaw = 0, prevPitch = 0, shakeKick = 0, prevCrouch = false, battK = 1, beamPow = 0;
 const lensW = new THREE.Vector3();
 
 // outside the shutter (seen once it opens)
@@ -379,6 +379,8 @@ function useSpray() {
   if (sp.webs) { tip('거미줄이 녹았다', 'webmelt'); for (const w of spiders.webs) if (w.state === 'melting') sfx.webMelt(w.x, w.z); }
   if (G.grab && sp.spiders.includes(G.grab.sp)) endGrab(true);
   if (c) sfx.centiHiss(centi.head.x, centi.head.z);
+  if (hitR + lings > 0) sfx.roachDie(hitR + lings);
+  for (const s2 of sp.spiders) { const p = s2.s.bodyWorld; sfx.spiderFlinch(p.x, p.y, p.z); }
   if (hitR + lings + sp.spiders.length + (c ? 1 : 0) === 0 && !sp.webs) { /* missed */ }
 }
 
@@ -399,6 +401,7 @@ function endGrab(sprayed) {
   G.grab = null;
   document.body.classList.remove('grabbed');
   $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
+  { const p = g.sp.s.bodyWorld; sfx.escape(p.x, p.y, p.z); }
   if (sprayed) { msg('스프레이로 떼어냈다'); return; }
   spiders.release(g.sp);
   msg('겨우 빠져나왔다');
@@ -408,7 +411,6 @@ function endGrab(sprayed) {
 // ------------------------------------------------------------------ actions
 function toggleFlash() {
   if (!G.started) return;
-  if (G.locked) { tip('배터리가 바닥났다. 잠시 기다려라', 'empty'); return; }
   G.flashOn = !G.flashOn;
   $('#bFlash').classList.toggle('on', G.flashOn);
   arms.toggleClick();
@@ -492,12 +494,14 @@ function respawnAtLamp(l) {
   // the bugs go back where they started
   swarms.regroup(); spiders.regroup(); eggs.clearYoung(); brood.reset(); centi.regroup(l);
   G.started = true;
+  sfx.respawn();
   msg('전등 아래에서 다시 일어났다');
 }
 
 function hurt(reason = '달리는 소리가 바퀴를 부른다') {
   if (dev.god || G.dead) return;
   G.hp--;
+  sfx.hurt();
   const f = $('#hit'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
   $('#hurt').style.opacity = (3 - G.hp) * 0.28;
   if (G.hp <= 0) die(reason);
@@ -595,14 +599,27 @@ function frame(dtOverride) {
   if (G.flashOn) G.battery -= dt / 30;
   else G.battery += dt * 0.02 * (G.inSafe ? 2 : 1);
   G.battery = Math.min(1, G.battery);
-  if (G.battery <= 0) { G.battery = 0; G.flashOn = false; G.locked = true; $('#bFlash').classList.remove('on'); }
-  if (G.locked && G.battery >= 0.15) G.locked = false;
-  if (G.flashOn && G.battery < 0.2) tip('손전등을 끄면 배터리가 충전된다', 'battery');
+  // an empty battery doesn't switch the light off: it sinks to a faint glow (too weak to keep bugs off)
+  if (G.battery <= 0) {
+    G.battery = 0;
+    if (G.flashOn && !G.drained) { G.drained = true; sfx.batteryDie(); tip('배터리가 다 됐다. 끄고 있으면 다시 충전된다', 'empty'); }
+  }
+  if (G.battery > 0.03) G.drained = false;
+  if (G.flashOn && G.battery < 0.3) tip('불빛이 약해진다. 손전등을 끄면 배터리가 충전된다', 'battery');
   flickT -= dt;
-  if (flickT < 0) { flickT = 5 + Math.random() * 8; flick = 0; }
+  if (flickT < 0) {
+    // it stutters more often as the battery runs down
+    flickT = G.battery < 0.3 ? 1.2 + Math.random() * 3 : 5 + Math.random() * 8; flick = 0;
+    if (G.flashOn && G.battery < 0.3) sfx.flashCrackle();
+  }
   flick = Math.min(1, flick + dt * (flick < 0.5 ? 6 : 2));
   let fl = flick < 1 ? 0.6 + 0.4 * Math.abs(Math.sin(t * 60)) : 1;
-  if (G.battery < 0.2) fl *= (0.45 + G.battery * 2.5) * (Math.random() < 0.06 ? 0.15 : 1);
+  if (G.battery < 0.15 && G.battery > 0) fl *= Math.random() < 0.05 ? 0.4 : 1;
+  // the brightness tells you what is left: full when charged, dimming as it drains, a faint glow when empty
+  const b = G.battery;
+  battK += ((b <= 0 ? 0.09 : 0.09 + 0.91 * Math.pow(b, 1.3)) - battK) * Math.min(1, dt * 3);
+  fl *= battK;
+  flash.color.setRGB(1, 0.93 - (1 - Math.min(1, b / 0.35)) * 0.17, 0.87 - (1 - Math.min(1, b / 0.35)) * 0.38);
   player.forward(fwd);
   ray.set(camera.position, fwd);
   const hit = ray.intersectObjects(levelMeshes, false)[0];
@@ -627,6 +644,8 @@ function frame(dtOverride) {
   // a wall right in front of you would go white: the beam is turned down the closer the wall is
   nearK += (beamNear(hd) - nearK) * Math.min(1, dt * 10);
   flash.intensity = G.flashOn ? FLASH_I * fl * nearK : 0;
+  // what the bugs react to is the beam itself, not how much a close wall turned it down
+  beamPow = G.flashOn ? FLASH_I * fl : 0;
   spill.position.copy(flash.position); spill.intensity = G.flashOn ? 0.2 * fl : 0;
   shaft.position.copy(flash.position);
   shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), beamDir.subVectors(aimS, flash.position).normalize());
@@ -649,7 +668,7 @@ function frame(dtOverride) {
   swarms.update({
     dt, t, camera, frozen: dev.freeze || !G.started,
     player: { pos: player.pos, noise, alive: !G.dead && !G.won },
-    flash: { on: G.flashOn && flash.intensity > 20, pos: flash.position, dir: beamDir.subVectors(flash.target.position, flash.position).normalize() },
+    flash: { on: beamPow > 20, pos: flash.position, dir: beamDir.subVectors(flash.target.position, flash.position).normalize() },
     lamps: lamps.map((l) => ({ x: l.x, z: l.z, on: l.on })),
     events: G.events, playerSafe: G.inSafe,
     onAttach,
@@ -662,16 +681,19 @@ function frame(dtOverride) {
       sfx.scareHit(); shakeScreen(); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
   });
   // ---- spiders, webs, egg sacs, centipede
-  const light = { on: G.flashOn && flash.intensity > 20, pos: flash.position.clone(), dir: beamDir.clone() };
+  const light = { on: beamPow > 20, pos: flash.position.clone(), dir: beamDir.clone() };
   const frozen = dev.freeze || !G.started;
   let safeLamp = null;
   for (const l of lamps) if (l.on && Math.hypot(player.pos.x - l.x, player.pos.z - l.z) < 4.2) safeLamp = { x: l.x, z: l.z, r: 4.2 };
   spiders.update({
     dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god,
+    nav: swarms.nav, field: swarms.fPlayer,
+    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽의 늑대거미가 내려온다. 빛을 비추면 벽으로 물러난다', 'wolfwake'); },
+    onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드리면 거미가 깬다', 'tripwake'); },
-    onCower: () => tip('빛을 비추면 잠깐 움츠린다', 'ghostlit'),
+    onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추면 잠깐 움츠린다', 'ghostlit'); },
     onThreadLit: () => tip('실이 쳐져 있다. 웅크려서 지나가라', 'trip'),
-    onSacBurst: (p) => { brood.burst(p); sfx.eggBurst(p.x, 0.2, p.z); },
+    onSacBurst: (p) => { brood.burst(p); sfx.sacDrop(p.x, p.z); sfx.eggBurst(p.x, 0.2, p.z); },
     onFirstLit: () => tip('거미는 위에서 기다린다. 천장을 비춰라', 'spiderlit'),
     onDrop: (sp) => sfx.creak(sp.s.root.position.x, sp.ceil - 0.3, sp.s.root.position.z),
     onCatch: (sp) => startGrab(sp),
@@ -732,6 +754,7 @@ function frame(dtOverride) {
   mist.update(dt, 0.08 + (G.flashOn ? 0.55 * fl : 0) + (bright ? 0.6 : 0), renderer.domElement.height * 1.4);
 
   // ---- sound
+  if (G.started && !G.dead && player.crouch !== prevCrouch) { prevCrouch = player.crouch; sfx.rustle(player.crouch); }
   if (G.started && !G.won && player.moving && player.speed > 0.3) {
     stepAcc += player.speed * dt;
     const stride = player.running ? 1.0 : player.crouch ? 0.55 : 0.78;
@@ -805,7 +828,7 @@ function frame(dtOverride) {
   }
   shutterGlow.color.set(G.gens === 3 ? 0x30ff60 : 0xff2010);
   if (!G.won && G.shutter > 0.55 && player.pos.z < -1.0) {
-    G.won = true; G.timing = false;
+    G.won = true; G.timing = false; sfx.win();
     $('#winTime').textContent = fmt(G.time);
     $('#win').classList.add('show');
     if (document.pointerLockElement) document.exitPointerLock();
@@ -835,7 +858,7 @@ function frame(dtOverride) {
       if (pressed) { o.read = true; o.m.visible = false; note(o.text); sfx.paper(); }
     } else if (target.kind === 'refill') {
       prompt = `${useLabel()} · 스프레이 리필 줍기`;
-      if (pressed) { refill.taken = true; refill.m.visible = false; G.spray += 2; msg('스프레이 +2회'); }
+      if (pressed) { refill.taken = true; refill.m.visible = false; G.spray += 2; sfx.canRattle(); msg('스프레이 +2회'); }
     }
   } else G.holdT = 0;
   promptEl.classList.toggle('show', !!prompt);
@@ -847,7 +870,7 @@ function frame(dtOverride) {
   document.querySelectorAll('#battery i').forEach((n, i) => {
     n.className = i < segs ? (G.battery < 0.2 ? 'low' : 'on') : '';
   });
-  $('#battery').classList.toggle('dead', G.locked);
+  $('#battery').classList.toggle('dead', G.battery <= 0);
   $('#stamina').style.opacity = player.stamina < 0.999 ? 1 : 0;
   $('#stamina i').style.width = `${player.stamina * 100}%`;
   $('#stamina').classList.toggle('tired', player.exhausted);

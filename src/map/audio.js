@@ -521,6 +521,96 @@ export class Sound {
     o.start(now); vib.start(now); o.stop(now + 0.75); vib.stop(now + 0.75);
   }
 
+  // ---- sounds that were missing
+  // taking damage: a dull blow, the suit crumpling, a caught breath
+  hurt() {
+    if (!this.ctx) return;
+    this.tone({ f0: 95, f1: 38, dur: 0.22, gain: 0.75, attack: 0.004 });
+    this.burst({ dur: 0.16, f: 700, q: 0.7, gain: 0.45, buf: this.brown });
+    this.burst({ t: 0.02, dur: 0.22, f: 3600, q: 0.6, gain: 0.16, attack: 0.01 });
+    this.burst({ t: 0.12, dur: 0.32, f: 1400, q: 2.2, gain: 0.16, attack: 0.04 });   // gasp
+  }
+  // getting up again under the lamp: a deep, shaky breath in and out
+  respawn() {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.9, f: 1100, q: 1.4, gain: 0.2, attack: 0.35 });
+    this.burst({ t: 1.1, dur: 1.0, f: 800, q: 1.2, gain: 0.16, attack: 0.08 });
+    this.tone({ dest: this.mus, f0: 110, f1: 104, dur: 2.2, gain: 0.18, attack: 0.4 });
+  }
+  // shaking the new can: the mixing ball rattling
+  canRattle() {
+    if (!this.ctx) return;
+    for (let i = 0; i < 7; i++) {
+      const t = i * 0.085 + rnd(-0.01, 0.01);
+      this.tone({ t, f0: rnd(2300, 2700), f1: rnd(1900, 2200), dur: 0.035, gain: 0.12 });
+      this.burst({ t, dur: 0.03, f: 5200, q: 3, gain: 0.1 });
+    }
+    this.burst({ t: 0.65, dur: 0.12, f: 900, q: 1, gain: 0.12, buf: this.brown });
+  }
+  // tearing loose from a spider: a shove, legs scraping off the suit, it lands and scuttles away
+  escape(x, y, z) {
+    if (!this.ctx) return;
+    this.tone({ f0: 150, f1: 60, dur: 0.12, gain: 0.45 });
+    this.burst({ dur: 0.25, f: 4200, q: 0.8, gain: 0.25, attack: 0.01 });
+    const p = this.panner(x, y, z, 1.5, 1); p.connect(this.sfx);
+    this.tone({ dest: p, t: 0.25, f0: 110, f1: 50, dur: 0.1, gain: 0.4 });
+    for (let i = 0; i < 12; i++) this.burst({ dest: p, t: 0.3 + i * 0.045, dur: 0.012, f: rnd(700, 1400), q: 2, gain: 0.22 * (1 - i / 14) });
+  }
+  // a big spider waking: legs scraping against the wall, then a dry, rising chitter
+  spiderWake(x, y, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, y, z, 2.2, 0.9); p.connect(this.sfx);
+    for (let i = 0; i < 9; i++) this.burst({ dest: p, t: i * 0.06 + rnd(0, 0.02), dur: 0.05, f: rnd(500, 1100), q: 1.5, gain: 0.3, buf: this.brown });
+    const ctx = this.ctx, now = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'square';
+    o.frequency.setValueAtTime(38, now + 0.4); o.frequency.linearRampToValueAtTime(70, now + 1.1);
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 3;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, now + 0.4); g.gain.linearRampToValueAtTime(0.22, now + 0.7); g.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
+    o.connect(bp); bp.connect(g); g.connect(p);
+    o.start(now + 0.4); o.stop(now + 1.35);
+    this.tone({ dest: this.mus, f0: 62, f1: 48, dur: 1.4, gain: 0.35, attack: 0.05 });
+  }
+  // a spider recoiling from the beam: a sharp hiss and a burst of steps
+  spiderFlinch(x, y, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, y, z, 2, 1); p.connect(this.sfx);
+    this.burst({ dest: p, dur: 0.35, f: 5200, q: 0.7, gain: 0.3, attack: 0.008, type: 'highpass' });
+    for (let i = 0; i < 8; i++) this.burst({ dest: p, t: 0.05 + i * 0.04, dur: 0.012, f: rnd(800, 1500), q: 2, gain: 0.2 });
+  }
+  // roaches caught in the spray: little crackles and a wet hiss
+  roachDie(n = 1) {
+    if (!this.ctx) return;
+    for (let i = 0; i < Math.min(6, n * 2); i++) this.burst({ t: 0.15 + Math.random() * 0.5, dur: 0.015, f: rnd(2500, 4500), q: 3, gain: 0.12 });
+  }
+  // the egg sac hitting the floor
+  sacDrop(x, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 0.2, z, 1.5, 1); p.connect(this.sfx);
+    this.tone({ dest: p, f0: 140, f1: 70, dur: 0.12, gain: 0.35 });
+    this.burst({ dest: p, dur: 0.18, f: 1200, q: 1.2, gain: 0.3, buf: this.brown });
+  }
+  // the flashlight: a faint electrical crackle when it stutters, and a dying fizzle when it gives out
+  flashCrackle() { if (this.ctx) for (let i = 0; i < 3; i++) this.burst({ t: i * 0.03 + Math.random() * 0.02, dur: 0.008, f: rnd(5000, 8000), q: 2, gain: 0.07, pan: 0.3 }); }
+  batteryDie() {
+    if (!this.ctx) return;
+    this.tone({ f0: 1900, f1: 600, dur: 0.35, gain: 0.05, type: 'sawtooth', pan: 0.3 });
+    for (let i = 0; i < 5; i++) this.burst({ t: i * 0.06, dur: 0.01, f: 6000, q: 2, gain: 0.08, pan: 0.3 });
+    this.burst({ t: 0.32, dur: 0.012, f: 3200, q: 3, gain: 0.25, pan: 0.3 });
+  }
+  // crouching / standing: the suit rustling
+  rustle(down) {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.28, f: down ? 2600 : 3200, q: 0.6, gain: 0.09, attack: 0.05 });
+    this.burst({ t: 0.05, dur: 0.12, f: 500, q: 0.8, gain: 0.08, buf: this.brown });
+  }
+  // out through the shutter: wind and open air swell in
+  win() {
+    if (!this.ctx) return;
+    this.burst({ dest: this.mus, dur: 4.0, f: 500, q: 0.5, gain: 0.35, attack: 1.5, buf: this.brown });
+    this.burst({ dest: this.mus, t: 0.5, dur: 3.5, f: 2200, q: 0.4, gain: 0.08, attack: 1.2 });
+    for (const [f, t] of [[220, 0.4], [277, 0.9], [330, 1.4]]) this.tone({ dest: this.mus, t, f0: f, f1: f, dur: 3.2, gain: 0.05, attack: 0.6, type: 'triangle' });
+  }
+
   grab() {
     if (!this.ctx) return;
     this.tone({ f0: 120, f1: 45, dur: 0.3, gain: 0.8 });

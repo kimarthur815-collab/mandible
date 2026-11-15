@@ -16,9 +16,26 @@ const V3 = THREE.Vector3;
 const CORR = { wx0: 16.8, wx1: 20.2, z0: 20.4, z1: 45.6, ceil: 4.0 };
 const TRIP_Z = [23.6, 27.2, 30.8, 34.2, 37.6, 42.6];
 const GR = 0.38;   // how far the ghost's body sits from an edge when it rolls around it
+
+// The wolf spider lives on the walls of the production hall. It waits there, head down; light it or
+// come within 6 m and it comes down and runs you down across the floor, now and then taking to a wall
+// alongside you. Put the beam on it while it hunts and it bolts for the nearest wall, climbs out of
+// reach for a few seconds, then comes back. Leave the hall (or get far away) and it goes back to a wall.
+const HALL = { x0: -5.7, x1: 23.7, z0: 46.3, z1: 69.7, h: 8 };
+const WR = 0.42;  // the wolf's body distance from an edge when it rolls between floor and wall
+// the hall's walls: origin at floor level, T along the wall, N into the room; door gaps to stay off
+const HALL_WALLS = [
+  { name: 'W', O: new V3(HALL.x0, 0, HALL.z0), T: new V3(0, 0, 1), N: new V3(1, 0, 0), len: HALL.z1 - HALL.z0, gaps: [[56 - HALL.z0 - 0.6, 59 - HALL.z0 + 0.6]] },
+  { name: 'E', O: new V3(HALL.x1, 0, HALL.z1), T: new V3(0, 0, -1), N: new V3(-1, 0, 0), len: HALL.z1 - HALL.z0, gaps: [] },
+  { name: 'S', O: new V3(HALL.x1, 0, HALL.z0), T: new V3(-1, 0, 0), N: new V3(0, 0, 1), len: HALL.x1 - HALL.x0, gaps: [[HALL.x1 - 20.5 - 0.6, HALL.x1 - 16.5 + 0.6]] },
+  { name: 'N', O: new V3(HALL.x0, 0, HALL.z1), T: new V3(1, 0, 0), N: new V3(0, 0, -1), len: HALL.x1 - HALL.x0, gaps: [[15 - HALL.x0 - 1.2, 15 - HALL.x0 + 1.2]] },
+];
+// where it waits: wall index, distance along the wall, height
+const WOLF_PERCH = [[1, 13.5, 2.5], [3, 10.0, 2.7], [0, 6.0, 2.4], [1, 4.5, 2.6]];
+const inHall = (p, m = 0) => p.x > HALL.x0 - m && p.x < HALL.x1 + m && p.z > HALL.z0 - m && p.z < HALL.z1 + m;
 const ZONES = [
   { type: 'ghost', mode: 'trip', scale: 2.05, ceil: 4.0, bounds: { x0: 17.0, x1: 20.0, z0: 20.8, z1: 45.2 }, spots: [[18.5, 29.0, 0.2], [18.3, 32.4, 3.0], [18.7, 35.8, 1.4]] },
-  { type: 'wolf', scale: 2.35, ceil: 8.0, bounds: { x0: -5.2, x1: 23.2, z0: 46.8, z1: 69.2 }, spots: [[7.2, 55.5, 0.4], [7.2, 61.0, 2.6], [-3.6, 58.0, 1.6], [12.4, 49.3, 4.2]] },
+  { type: 'wolf', mode: 'wall', scale: 2.35, ceil: 8.0, bounds: { x0: -5.2, x1: 23.2, z0: 46.8, z1: 69.2 }, spots: [[7.2, 55.5, 0.4]] },
 ];
 
 export class MapSpiders {
@@ -33,10 +50,11 @@ export class MapSpiders {
       scene.add(s.root);
       const th = new Thread(silk);
       scene.add(th.line);
-      if (z.mode === 'trip') s.noAmbush = true;
+      if (z.mode === 'trip' || z.mode === 'wall') s.noAmbush = true;
       return { ...z, s, th, grabbed: false, fallT: 0, g: null };
     });
     this.ghost = this.spiders.find((sp) => sp.mode === 'trip');
+    this.wolf = this.spiders.find((sp) => sp.mode === 'wall');
     // the ghost carries its egg sac in its jaws, like a real pholcid
     if (this.ghost) {
       const geo = eggSacGeometry();
@@ -90,6 +108,7 @@ export class MapSpiders {
       t.state = 'whole'; t.seen = false;
       this.setThreadGeo(t);
     }
+    if (this.wolf) this.perchWolf(this.wolf, WOLF_PERCH[0]);
     const gh = this.ghost;
     if (gh) {
       gh.g = null; gh.s.state = 'ceiling';
@@ -105,15 +124,18 @@ export class MapSpiders {
       sp.s.caught = false; sp.grabbed = false; sp.g = null; sp.fallT = 0;
       sp.s.placeOnCeiling(sp.home.x, sp.home.z, sp.home.yaw, sp.ceil);
       sp.s.cooldown = 4;
+      if (sp.mode === 'wall') this.perchWolf(sp, WOLF_PERCH[0]);
     }
   }
 
   // walls, floor, ceiling and anything standing in the corridor, for the ghost's feet to grab
   setColliders(cols) {
-    const sp = this.ghost;
-    if (!sp) return;
-    const boxes = cols.filter((c) => c.x1 > CORR.wx0 - 2.5 && c.x0 < CORR.wx1 + 2.5 && c.z1 > CORR.z0 - 2.5 && c.z0 < CORR.z1 + 2.5);
-    const floorY = 0, ceilY = CORR.ceil, UP = new V3(0, 1, 0), DN = new V3(0, -1, 0), NX = [new V3(-1, 0, 0), new V3(1, 0, 0)], NZ = [new V3(0, 0, -1), new V3(0, 0, 1)];
+    if (this.ghost) this.setFeetSurfaces(this.ghost, cols, { x0: CORR.wx0, x1: CORR.wx1, z0: CORR.z0, z1: CORR.z1 }, CORR.ceil);
+    if (this.wolf) this.setFeetSurfaces(this.wolf, cols, HALL, HALL.h);
+  }
+  setFeetSurfaces(sp, cols, R, ceil) {
+    const boxes = cols.filter((c) => c.x1 > R.x0 - 2.5 && c.x0 < R.x1 + 2.5 && c.z1 > R.z0 - 2.5 && c.z0 < R.z1 + 2.5);
+    const floorY = 0, ceilY = ceil, UP = new V3(0, 1, 0), DN = new V3(0, -1, 0), NX = [new V3(-1, 0, 0), new V3(1, 0, 0)], NZ = [new V3(0, 0, -1), new V3(0, 0, 1)];
     // first surface the segment a -> b runs into (entering from outside), or null
     sp.s.surf = (a, b) => {
       const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
@@ -350,6 +372,232 @@ export class MapSpiders {
     if (!g.giveup && g.cowerT <= 0 && dCam < 1.3 && ctx.alive && !ctx.god && !ctx.safe) { s.caught = true; sp.grabbed = true; sp.grabK = 0; ctx.onCatch && ctx.onCatch(sp); }
   }
 
+  // ---------------------------------------------------------------- the wolf spider on the walls
+  wallPoint(w, u, h) { return w.O.clone().addScaledVector(w.T, u).addScaledVector(new V3(0, 1, 0), h); }
+  // nearest usable spot on a hall wall to (x, z): { wi, u, d }
+  nearestWall(x, z) {
+    let best = null;
+    HALL_WALLS.forEach((w, wi) => {
+      const rx = x - w.O.x, rz = z - w.O.z;
+      let u = THREE.MathUtils.clamp(rx * w.T.x + rz * w.T.z, 0.8, w.len - 0.8);
+      for (const [a, b] of w.gaps) if (u > a && u < b) u = u - a < b - u ? a : b;
+      const p = this.wallPoint(w, u, 0), d = Math.hypot(p.x - x, p.z - z);
+      if (!best || d < best.d) best = { wi, u, d };
+    });
+    return best;
+  }
+  perchWolf(sp, [wi, u, h]) {
+    const w = HALL_WALLS[wi], s = sp.s;
+    sp.grabbed = false; s.caught = false; s.state = 'chase'; s.speed = 0;
+    sp.g = { phase: 'perch', surf: wi, u, h, hT: h, t: 0, pos: new V3(), yaw: 0, q: null, holdT: 0, graceT: 0, chaseT: 0, outT: 0, burst: 0, go: true, wallRun: 0, cn: null, seed: Math.random() * 10, perch: [wi, u, h] };
+    this.poseWolf(sp, 0);
+  }
+  // put the body where the state says, facing fwd (world), then run the leg rig
+  poseWolf(sp, dt, ctx) {
+    const s = sp.s, g = sp.g;
+    let P, n, fwd;
+    if (g.surf === 'floor') {
+      P = new V3(g.pos.x, 0, g.pos.z); n = new V3(0, 1, 0); fwd = new V3(Math.sin(g.yaw), 0, Math.cos(g.yaw));
+    } else if (g.surf === 'corner') {
+      const c = g.cn, w = HALL_WALLS[c.wi], Y = new V3(0, 1, 0);
+      const C = this.wallPoint(w, c.u, WR).addScaledVector(w.N, WR);
+      const cs = Math.cos(c.th), sn = Math.sin(c.th);
+      P = C.clone().addScaledVector(Y, -WR * cs).addScaledVector(w.N, -WR * sn);
+      n = Y.clone().multiplyScalar(cs).addScaledVector(w.N, sn);
+      fwd = Y.clone().multiplyScalar(sn * c.dir).addScaledVector(w.N, -cs * c.dir).normalize();
+    } else {
+      const w = HALL_WALLS[g.surf];
+      P = this.wallPoint(w, g.u, g.h); n = w.N.clone();
+      fwd = w.T.clone().multiplyScalar(Math.sin(g.yaw)).addScaledVector(new V3(0, 1, 0), Math.cos(g.yaw));
+    }
+    const q = this.surfQuat(n, fwd);
+    g.q = !g.q || g.surf === 'corner' ? q : g.q.clone().slerp(q, 1 - Math.exp(-dt * 10));
+    s.root.position.copy(P);
+    s.root.quaternion.copy(g.q);
+    s.state = 'chase';
+    s.update(dt, { light: ctx ? ctx.light : { on: false }, cam: ctx ? ctx.cam : new V3(), bounds: sp.bounds });
+    sp.th.set(s.root.position, s.root.position, false);
+  }
+  wakeWolf(sp) {
+    const g = sp.g;
+    if (!g || (g.phase !== 'perch' && g.phase !== 'home')) return false;
+    g.phase = 'chase'; g.graceT = 2.2; g.chaseT = 0; g.hT = WR; g.want = 'floor';
+    this.onWolfWake && this.onWolfWake(sp);
+    return true;
+  }
+  lazyWolfFields(nav) {
+    if (this._wolfNav === nav) return;
+    this._wolfNav = nav;
+    // a field that runs to the nearest stretch of wall (for bolting out of the light)
+    const goals = [];
+    HALL_WALLS.forEach((w) => {
+      for (let u = 0.8; u < w.len - 0.8; u += 0.5) {
+        if (w.gaps.some(([a, b]) => u > a && u < b)) continue;
+        const p = this.wallPoint(w, u, 0).addScaledVector(w.N, WR + 0.15);
+        if (nav.free(p.x, p.z)) goals.push([p.x, p.z]);
+      }
+    });
+    this.fWall = nav.field(goals, {});
+    this.fPerch = WOLF_PERCH.map(([wi, u]) => {
+      const p = this.wallPoint(HALL_WALLS[wi], u, 0).addScaledVector(HALL_WALLS[wi].N, WR + 0.15);
+      return nav.field([[p.x, p.z]], {});
+    });
+  }
+  // step across the floor down a distance field (or straight at a point)
+  wolfFloorStep(g, nav, field, target, speed, dt) {
+    const D = { x: 0, z: 0 };
+    if (!nav.free(g.pos.x, g.pos.z)) {
+      // landed in the strip along a wall the nav grid keeps clear: step out to open floor first
+      const k = nav.nearestFree(g.pos.x, g.pos.z, 24);
+      if (k >= 0) {
+        const tx = nav.cx(k), tz = nav.cz(k), dx = tx - g.pos.x, dz = tz - g.pos.z, L = Math.hypot(dx, dz) || 1;
+        const st = Math.min(L, Math.max(1.5, speed) * dt);
+        g.pos.x += dx / L * st; g.pos.z += dz / L * st;
+        let dy = Math.atan2(dx, dz) - g.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        g.yaw += THREE.MathUtils.clamp(dy, -9 * dt, 9 * dt);
+        return;
+      }
+    }
+    let ok = field ? nav.descend(field, g.pos.x, g.pos.z, D, 1) : false;
+    if (!ok && target) { const dx = target.x - g.pos.x, dz = target.z - g.pos.z, L = Math.hypot(dx, dz) || 1; D.x = dx / L; D.z = dz / L; ok = true; }
+    if (!ok) return;
+    let want = Math.atan2(D.x, D.z) + Math.sin(g.t * 7 + g.seed) * 0.12;
+    let dy = want - g.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    g.yaw += THREE.MathUtils.clamp(dy, -9 * dt, 9 * dt);
+    const nx = g.pos.x + Math.sin(g.yaw) * speed * dt, nz = g.pos.z + Math.cos(g.yaw) * speed * dt;
+    if (nav.free(nx, nz)) { g.pos.x = nx; g.pos.z = nz; }
+    else if (nav.free(nx, g.pos.z)) g.pos.x = nx;
+    else if (nav.free(g.pos.x, nz)) g.pos.z = nz;
+    g.pos.x = THREE.MathUtils.clamp(g.pos.x, HALL.x0 + WR, HALL.x1 - WR); g.pos.z = THREE.MathUtils.clamp(g.pos.z, HALL.z0 + WR, HALL.z1 - WR);
+  }
+  // start climbing onto wall wi at u
+  // keep a spot on the wall off the doorways
+  wallU(w, u) {
+    u = THREE.MathUtils.clamp(u, 0.6, w.len - 0.6);
+    for (const [a, b] of w.gaps) if (u > a && u < b) u = u - a < b - u ? a : b;
+    return u;
+  }
+  // the floor at the foot of the wall at u is open (not behind barrels or machines)
+  footFree(nav, w, u) { const p = this.wallPoint(w, u, 0).addScaledVector(w.N, 0.8); return nav.free(p.x, p.z); }
+  freeFootU(nav, w, u) {
+    if (this.footFree(nav, w, u)) return u;
+    for (let d = 0.5; d < 8; d += 0.5) for (const sg of [1, -1]) { const v = this.wallU(w, u + sg * d); if (this.footFree(nav, w, v)) return v; }
+    return u;
+  }
+  wolfToWall(g, wi, hT) {
+    const w = HALL_WALLS[wi];
+    const rx = g.pos.x - w.O.x, rz = g.pos.z - w.O.z;
+    const u = rx * w.T.x + rz * w.T.z;
+    if (this.wallU(w, u) !== THREE.MathUtils.clamp(u, 0.6, w.len - 0.6)) return false;     // that's a doorway
+    g.cn = { wi, u: THREE.MathUtils.clamp(u, 0.6, w.len - 0.6), th: 0, dir: 1 };
+    g.surf = 'corner'; g.hT = hT;
+    return true;
+  }
+  updateWolf(sp, ctx) {
+    const s = sp.s, g = sp.g, dt = ctx.dt, P = ctx.player, nav = ctx.nav;
+    if (!nav) { this.poseWolf(sp, dt, ctx); return; }
+    this.lazyWolfFields(nav);
+    g.t += dt; g.graceT -= dt; g.holdT -= dt;
+    const body = s.bodyWorld, dCam = body.distanceTo(ctx.cam), dP = Math.hypot(P.x - body.x, P.z - body.z);
+    const playerIn = inHall(P, 0.2);
+    let lit = false;
+    if (ctx.light.on) { const v = body.clone().sub(ctx.light.pos), d = v.length(); lit = d < 14 && v.dot(ctx.light.dir) / d > Math.cos(0.36); }
+    // what it wants to do
+    if (g.phase === 'perch') {
+      g.yaw = Math.sin(g.t * 0.4 + g.seed) * 0.25;            // head down, swaying a little
+      if (ctx.alive && playerIn && !ctx.safe && g.wakeCd <= 0 && (lit || dP < 6)) this.wakeWolf(sp);
+    }
+    if (g.phase === 'chase') {
+      g.chaseT += dt;
+      g.outT = playerIn ? 0 : g.outT + dt;
+      if (!ctx.alive || g.outT > 3 || dP > 18 || ctx.safe) g.phase = 'home';
+      else if (lit && g.graceT <= 0) {
+        // the beam: bolt for the nearest wall and get up out of reach
+        g.phase = 'bolt'; g.holdT = 2.5 + Math.random() * 1.5;
+        this.onWolfLit && this.onWolfLit(sp);
+      }
+    }
+    // after a grab it gives up for a while and goes back to its wall; otherwise it comes back for you
+    if (g.phase === 'hold' && g.holdT <= 0) {
+      if (g.afterGrab) { g.phase = 'home'; g.afterGrab = false; g.wakeCd = 6; }
+      else { g.phase = 'chase'; g.graceT = 1.6; g.want = 'floor'; g.hT = WR; }
+    }
+    g.wakeCd = (g.wakeCd || 0) - dt;
+    // jerky rhythm
+    g.burst -= dt;
+    if (g.burst <= 0) { g.go = Math.random() < 0.82; g.burst = g.go ? 0.5 + Math.random() * 0.9 : 0.12 + Math.random() * 0.3; }
+    let speed = g.phase === 'perch' || g.phase === 'hold' ? 0 : g.phase === 'bolt' ? 5.2 : g.phase === 'home' ? 2.6 : g.go ? 4.6 : 0.4;
+
+    if (g.surf === 'floor') {
+      if (g.phase === 'chase') {
+        // sometimes run along a wall beside you
+        const nw = this.nearestWall(g.pos.x, g.pos.z), pw = this.nearestWall(P.x, P.z);
+        if (g.wallRun <= 0 && nw.d < 1.2 && pw.wi === nw.wi && pw.d < 3 && dP > 3.5 && Math.random() < dt * 0.8) { this.wolfToWall(g, nw.wi, 1.1 + Math.random() * 0.8); g.wallRun = 1; }
+        else this.wolfFloorStep(g, nav, ctx.field, P, speed, dt);
+      } else if (g.phase === 'bolt' || g.phase === 'home') {
+        const nw = g.phase === 'bolt' ? this.nearestWall(g.pos.x, g.pos.z) : null;
+        const pi = g.perch ? WOLF_PERCH.indexOf(g.perch) : -1;
+        const home = g.phase === 'home' ? WOLF_PERCH.reduce((b, pr, i) => { const p = this.wallPoint(HALL_WALLS[pr[0]], pr[1], 0); const d = Math.hypot(p.x - g.pos.x, p.z - g.pos.z); return !b || d < b.d ? { i, d, pr } : b; }, null) : null;
+        const F = g.phase === 'bolt' ? this.fWall : this.fPerch[home.i];
+        const left = nav.at(F, g.pos.x, g.pos.z);       // metres of floor still to cover (0 at the wall's foot)
+        let up = false;
+        if (g.phase === 'bolt' && (nw.d < 1.0 || (left < 0.6 && nw.d < 1.8))) up = this.wolfToWall(g, nw.wi, 2.4 + Math.random() * 0.6);
+        else if (g.phase === 'home' && (home.d < 1.0 || (left < 0.6 && home.d < 1.8))) { up = this.wolfToWall(g, home.pr[0], home.pr[2]); if (up) g.perch = home.pr; }
+        if (!up) this.wolfFloorStep(g, nav, F, null, speed, dt);
+      }
+      if (g.phase === 'chase' && g.surf === 'floor' && g.graceT < 1.5 && dCam < 1.35 && ctx.alive && !ctx.god) {
+        s.caught = true; sp.grabbed = true; sp.grabK = 0; ctx.onCatch && ctx.onCatch(sp); return;
+      }
+    } else if (g.surf === 'corner') {
+      const c = g.cn;
+      c.th = THREE.MathUtils.clamp(c.th + c.dir * Math.max(2.2, speed) * 0.8 * dt / WR, 0, Math.PI / 2);
+      if (c.dir > 0 && c.th >= Math.PI / 2) { g.surf = c.wi; g.u = c.u; g.h = WR; g.yaw = 0; }
+      else if (c.dir < 0 && c.th <= 0) {
+        const w = HALL_WALLS[c.wi], p = this.wallPoint(w, c.u, 0).addScaledVector(w.N, WR);
+        g.surf = 'floor'; g.pos.set(p.x, 0, p.z); g.yaw = Math.atan2(w.N.x, w.N.z);
+      }
+    } else {
+      // on a wall: (u, h) with yaw 0 = straight up
+      const w = HALL_WALLS[g.surf];
+      let uT = g.u, hT = g.hT;
+      if (g.phase === 'chase') {
+        const rx = P.x - w.O.x, rz = P.z - w.O.z;
+        uT = this.wallU(w, rx * w.T.x + rz * w.T.z);
+        g.wallRun -= dt * 0.35;
+        // come down for the last few metres, or when the run is over, somewhere the floor is open
+        if (Math.abs(uT - g.u) < 2.5 || g.wallRun <= 0) {
+          uT = this.freeFootU(nav, w, Math.abs(uT - g.u) < 2.5 ? uT : g.u);
+          hT = Math.abs(uT - g.u) < 0.3 ? WR : Math.max(g.h, 1.2);
+        }
+      } else if (g.phase === 'down') hT = WR;
+      else if (g.phase === 'perch' || g.phase === 'hold') hT = g.h;
+      const du = uT - g.u, dh = hT - g.h, L = Math.hypot(du, dh);
+      if (L > 0.02 && speed > 0) {
+        const st = Math.min(L, speed * 0.85 * dt);
+        g.u += du / L * st; g.h += dh / L * st;
+        g.yaw = Math.atan2(du, dh);
+      } else if (g.phase !== 'perch') g.yaw *= 1 - Math.min(1, dt * 4);
+      if (g.phase === 'perch') g.yaw = Math.PI + Math.sin(g.t * 0.4 + g.seed) * 0.3;          // head down
+      if (g.phase === 'bolt' && L <= 0.05) { g.phase = 'hold'; g.yaw = Math.PI; }
+      if (g.phase === 'home' && L <= 0.05) { g.phase = 'perch'; }
+      if (g.phase === 'hold') g.yaw = Math.PI + Math.sin(g.t * 3) * 0.15;
+      // back down to the floor
+      if ((g.phase === 'chase' || g.phase === 'down') && hT <= WR && g.h <= WR + 0.02) { g.cn = { wi: g.surf, u: g.u, th: Math.PI / 2, dir: -1 }; g.surf = 'corner'; }
+      if (g.phase === 'chase' && dCam < 1.35 && g.graceT < 1.5 && ctx.alive && !ctx.god) { s.caught = true; sp.grabbed = true; sp.grabK = 0; ctx.onCatch && ctx.onCatch(sp); return; }
+    }
+    if (g.phase === 'chase' && g.surf !== 'floor' && g.surf !== 'corner' && g.h > WR + 0.05 && g.wallRun <= 0 && g.hT > WR) g.hT = WR;
+    s.speed = speed;
+    this.poseWolf(sp, dt, ctx);
+  }
+  // after a grab or a spray it puts its body on the floor and bolts for a wall
+  wolfRetreat(sp) {
+    const s = sp.s, b = s.bodyWorld, g = sp.g;
+    sp.grabbed = false; s.caught = false;
+    g.surf = 'floor'; g.pos.set(THREE.MathUtils.clamp(b.x, HALL.x0 + WR, HALL.x1 - WR), 0, THREE.MathUtils.clamp(b.z, HALL.z0 + WR, HALL.z1 - WR));
+    g.phase = 'bolt'; g.holdT = 3; g.afterGrab = true; g.q = null; g.yaw = Math.random() * 6.28;
+    if (this._wolfNav && !this._wolfNav.free(g.pos.x, g.pos.z)) { const k = this._wolfNav.nearestFree(g.pos.x, g.pos.z); if (k >= 0) g.pos.set(this._wolfNav.cx(k), 0, this._wolfNav.cz(k)); }
+  }
+
   // after a grab or a spray knock-down the ghost scurries off and climbs back to sleep
   ghostRetreat(sp) {
     const s = sp.s, b = s.bodyWorld;
@@ -381,12 +629,17 @@ export class MapSpiders {
   // ctx: { dt, cam, light, safe, frozen, onFirstLit, onDrop, onCatch, onWebHit, onWebLit, onRetract }
   update(ctx) {
     const { dt } = ctx;
-    this.onWake = ctx.onWake; this.onCower = ctx.onCower; this.onSacBurst = ctx.onSacBurst;
+    this.onWake = ctx.onWake; this.onCower = ctx.onCower; this.onSacBurst = ctx.onSacBurst; this.onWolfWake = ctx.onWolfWake; this.onWolfLit = ctx.onWolfLit;
     if (!ctx.frozen) this.updateSac(ctx.dt);
     for (const sp of this.spiders) {
       const s = sp.s;
       if (sp.mode === 'trip' && sp.g && !sp.grabbed && s.state !== 'fallen') {
         if (!ctx.frozen) this.updateGhost(sp, { ...ctx, player: ctx.playerPos });
+        continue;
+      }
+      if (sp.mode === 'wall' && sp.g && !sp.grabbed && s.state !== 'fallen') {
+        if (!ctx.frozen) this.updateWolf(sp, { ...ctx, player: ctx.playerPos });
+        else this.poseWolf(sp, 0, ctx);
         continue;
       }
       if (ctx.frozen && (s.state === 'ceiling' || s.state === 'crawl')) { s.cooldown = Math.max(s.cooldown, 0.3); }
@@ -401,9 +654,10 @@ export class MapSpiders {
         s.updateGait(dt, true); s.updateLegs(s.time, true);
         if (sp.fallT <= 0) {
           if (sp.mode === 'trip') { this.ghostRetreat(sp); continue; }
+          if (sp.mode === 'wall') { this.wolfRetreat(sp); continue; }
           s.state = 'retract'; s.st = 0; s.retractFrom = s.bodyWorld; s.retractQ = s.root.quaternion.clone(); s.caught = false;
         }
-        sp.th.set(s.anchor, s.spinneretWorld(), sp.mode !== 'trip');
+        sp.th.set(s.anchor, s.spinneretWorld(), !sp.mode);
         continue;
       }
       if (!s.onCatch) {
@@ -459,7 +713,8 @@ export class MapSpiders {
   hitWeb(w, playerPos) {
     w.state = 'torn'; w.shake = 1.5;
     const sp = this.nearestSpider(w.x, w.z);
-    if (sp) sp.s.callTo(playerPos.x, playerPos.z, sp.bounds);
+    if (sp && sp.mode === 'wall') this.wakeWolf(sp);
+    else if (sp) sp.s.callTo(playerPos.x, playerPos.z, sp.bounds);
     return sp;
   }
 
@@ -502,6 +757,7 @@ export class MapSpiders {
   // you broke free by struggling: it lets go and pulls itself back up
   release(sp) {
     if (sp.mode === 'trip') { this.dropSac(sp); this.ghostRetreat(sp); return; }
+    if (sp.mode === 'wall') { this.wolfRetreat(sp); return; }
     sp.grabbed = false; sp.s.caught = false;
     sp.s.startRetract();
     sp.s.cooldown = 5;
@@ -512,19 +768,20 @@ export class MapSpiders {
     const sp = this.nearestSpider(cam.x, cam.z);
     if (!sp) return;
     if (sp.mode === 'trip') { this.wakeGhost(sp); return; }
+    if (sp.mode === 'wall') { this.wakeWolf(sp); return; }
     const s = sp.s;
     if (s.state !== 'ceiling') s.placeOnCeiling(s.root.position.x, s.root.position.z, s.yaw, sp.ceil);
     s.root.position.x = cam.x + 0.6; s.root.position.z = cam.z + 0.6;
     s.startDrop(cam);
   }
 
-  states() { return this.spiders.map((sp) => (sp.grabbed ? 'grab' : sp.mode === 'trip' && sp.g ? sp.g.phase : sp.s.state)); }
+  states() { return this.spiders.map((sp) => (sp.grabbed ? 'grab' : sp.s.state === 'fallen' ? 'fallen' : sp.g ? sp.g.phase : sp.s.state)); }
   // spiders crawling across the ceiling (for their footsteps)
   emitters(P) {
     const out = [];
     this.spiders.forEach((sp, i) => {
       const s = sp.s;
-      if (s.state !== 'crawl' || !(s.speed > 0.05)) return;
+      if (!(s.state === 'crawl' || (sp.mode === 'wall' && s.state === 'chase')) || !(s.speed > 0.05)) return;
       const p = s.root.position, d = Math.hypot(p.x - P.x, p.z - P.z);
       if (d < 16) out.push({ key: 's' + i, kind: 'big', x: p.x, y: p.y, z: p.z, d, sp: Math.min(1, 0.4 + s.speed) });
     });
