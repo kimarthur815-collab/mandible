@@ -235,7 +235,7 @@ function makeDust() {
 // past the thumb and index finger
 const GRIP = {
   axis: new V3(-0.72, 0, -0.69).normalize(),       // tail -> lens, in the right hand's frame (a diagonal power grip)
-  at: new V3(0.004, -0.0315, -0.069),             // barrel axis point under the fingers' base
+  at: new V3(0.004, -0.029, -0.069),              // barrel axis point, snug under the palm at the fingers' base
   zf: -0.03,                                       // where on the flashlight (its own z) that point is
 };
 function gripFrame(mir, axisZ, at, zf) {
@@ -256,7 +256,7 @@ function solveGrip(hand, objQ, objPos, fn, opt = {}) {
   const sdf = sdfIn(objQ, objPos, fn);
   const ang = [];
   const abd = opt.abd || [0.04, 0, -0.04, -0.1];
-  for (let c = 0; c < 4; c++) ang.push(hand.grasp(c, sdf, { abd: abd[c], start: opt.start || [0.15, 0.2, 0.1] }));
+  for (let c = 0; c < 4; c++) ang.push(hand.grasp(c, sdf, { abd: abd[c], start: opt.start || [0.15, 0.2, 0.1], tol: opt.tol ?? 0.0004, skip0: opt.skip0 ?? 0.45 }));
   const th = opt.thumb || {};
   // the thumb closes over the object, across the index and middle fingers
   const others = [...hand.capsules(0, ang[0]), ...hand.capsules(1, ang[1])];
@@ -281,7 +281,8 @@ function definePoses() {
     return axisP.addScaledVector(away, rr);
   };
   // the fingers close round the barrel until each part of them touches it
-  const rightAng = solveGrip(R, fq.q, fq.pos, flashSDF, { thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
+  // (fingers press in a little, as a gloved hand squeezing would, so there's no air between them and the barrel)
+  const rightAng = solveGrip(R, fq.q, fq.pos, flashSDF, { tol: 0.002, skip0: 0.15, thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
   // The right hand holds the flashlight like the reference photo: the back of the hand faces right,
   // the fingers wrap round the barrel toward you, the thumb is on top and the head stands up out of
   // the fist. The forearm comes up from the lower right and runs straight into the hand.
