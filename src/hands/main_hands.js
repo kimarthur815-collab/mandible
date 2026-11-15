@@ -301,7 +301,7 @@ function definePoses() {
     const wrist = grip.clone().sub(GRIP.at.clone().applyQuaternion(q0));
     // the forearm runs straight into the untipped hand
     const arm = ARM_R.clone().applyQuaternion(q0).lerp(FPS_R, 0.5).normalize();
-    arm.x -= 0.15; arm.normalize();          // the far end of the forearm a touch in toward the body
+    arm.x -= 1.2; arm.y -= 0.2; arm.normalize();          // the forearm turns in toward the body, elbow a little low
     // then the wrist tips down (toward the little finger) until the flashlight points ahead
     const axis = new V3(0, 1, 0).applyQuaternion(q0);
     let best = null;
