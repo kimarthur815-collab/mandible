@@ -50,6 +50,7 @@ export class Sound {
       roach: this.makeLegSteps(2.2, { stride: 9, legs: 3, f0: 2600, f1: 4200, len: 0.0025, scrape: 0.3 }),
       ling: this.makeLegSteps(2.2, { stride: 6, legs: 4, f0: 900, f1: 1800, len: 0.005, scrape: 0.2 }),
       big: this.makeLegSteps(2.6, { stride: 2.6, legs: 4, f0: 320, f1: 760, len: 0.012, scrape: 0.45 }),
+      tiny: this.makeLegSteps(1.8, { stride: 15, legs: 4, f0: 4800, f1: 7200, len: 0.0012, scrape: 0.08 }),
     };
     this.startAmbience();
     this.startTension();
@@ -577,7 +578,7 @@ export class Sound {
   // the closest few moving bugs each get a voice that follows them; a voice keeps its bug
   // as long as it stays among the closest, and only fully silent voices are handed on.
   updateVoices(emit, dt, now) {
-    const N = 6, GAIN = { roach: 1.1, ling: 1.0, big: 1.5 };
+    const N = 6, GAIN = { roach: 1.1, ling: 1.0, big: 1.5, tiny: 0.6 };
     if (!this.voices) { this.voices = []; for (let i = 0; i < N; i++) this.voices.push({ sp: this.spot(0, 0.1, 0, 1.0, 1.4), src: null, g: null, kind: null, key: null, c: null, idle: 1 }); }
     const cands = emit.slice().sort((a, b) => a.d - b.d).slice(0, N);
     const taken = new Set();
@@ -659,6 +660,10 @@ export class Sound {
     if (!this.ghostSrc) { const sp = this.spot(0, 0.1, 0, 1.4, 1.1); this.ghostSrc = { ...this.loop(this.tapBuf, sp.in, 0, 1.4), sp }; }
     if (s.ghost) { this.place(this.ghostSrc.sp, s.ghost.x, s.ghost.y, s.ghost.z); this.ghostSrc.g.gain.setTargetAtTime(Math.min(1, s.ghost.speed / 4) * 0.35, now, 0.05); }
     else this.ghostSrc.g.gain.setTargetAtTime(0, now, 0.1);
+    // the ghost's brood pouring past: a light, dry patter
+    if (!this.broodSrc) { const sp = this.spot(0, 0.05, 0, 1.0, 1.3); this.broodSrc = { ...this.loop(this.skitBufs[2], sp.in, 0, 1.9), sp }; }
+    if (s.brood && s.brood.moving) { this.place(this.broodSrc.sp, s.brood.cx, 0.05, s.brood.cz); this.broodSrc.g.gain.setTargetAtTime(Math.min(0.22, s.brood.moving / 60), now, 0.08); }
+    else this.broodSrc.g.gain.setTargetAtTime(0, now, 0.15);
     if (!this.lingSrc) { const sp = this.spot(0, 0.1, 0, 1.2, 1.2); this.lingSrc = { ...this.loop(this.skitBufs[0], sp.in, 0, 1.5), sp }; }
     if (s.lings && s.lings.moving) { this.place(this.lingSrc.sp, s.lings.cx, 0.1, s.lings.cz); this.lingSrc.g.gain.setTargetAtTime(Math.min(0.45, s.lings.moving / 20), now, 0.1); }
     else this.lingSrc.g.gain.setTargetAtTime(0, now, 0.15);

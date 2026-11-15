@@ -9,6 +9,7 @@ import { Sound } from './audio.js';
 import { dressLevel } from './dressing.js';
 import { MapSpiders } from './spiders.js';
 import { EggNest } from './spiderlings.js';
+import { GhostBrood } from './ghostlings.js';
 import { MapCentipede } from './centi.js';
 
 const $ = (s) => document.querySelector(s);
@@ -46,6 +47,7 @@ const BT = { chitin: TX.makeChitinNormal(256), terg: TX.makeTergiteTextures(512)
 BT.eye.repeat.set(3, 3);
 const spiders = new MapSpiders(scene, silk, BT);
 const eggs = new EggNest(scene, [[-7.6, 4.02, 62.6], [-6.7, 2.75, 61.3], [-9.5, 4.05, 63.2]], silk, BT);
+const brood = new GhostBrood(scene);
 const centi = new MapCentipede(scene, BT, dress.metalMaterial(0x7d8280));
 const mist = makeMist(scene);
 const sfx = new Sound();
@@ -187,7 +189,7 @@ function resetGame() {
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false,
   });
   swarms.reset();
-  spiders.reset(); eggs.reset(); centi.reset();
+  spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   player.place(SPOTS.start.x, SPOTS.start.z, SPOTS.start.yaw);
@@ -366,7 +368,7 @@ function useSpray() {
   G.mistIn = 0.12; G.mistDir = d.clone();     // the can needs a moment to come up
   const hitR = swarms.sprayHit(o, d);
   const sp = spiders.spray(o, d);
-  const lings = eggs.spray(o, d);
+  const lings = eggs.spray(o, d) + brood.spray(o, d);
   const c = centi.spray(o, d);
   if (sp.webs) { tip('거미줄이 녹았다', 'webmelt'); for (const w of spiders.webs) if (w.state === 'melting') sfx.webMelt(w.x, w.z); }
   if (G.grab && sp.spiders.includes(G.grab.sp)) endGrab(true);
@@ -626,6 +628,7 @@ function frame(dtOverride) {
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드리면 거미가 깬다', 'tripwake'); },
     onCower: () => tip('빛을 비추면 잠깐 움츠린다', 'ghostlit'),
     onThreadLit: () => tip('실이 쳐져 있다. 웅크려서 지나가라', 'trip'),
+    onSacBurst: (p) => { brood.burst(p); sfx.eggBurst(p.x, 0.2, p.z); },
     onFirstLit: () => tip('거미는 위에서 기다린다. 천장을 비춰라', 'spiderlit'),
     onDrop: (sp) => sfx.creak(sp.s.root.position.x, sp.ceil - 0.3, sp.s.root.position.z),
     onCatch: (sp) => startGrab(sp),
@@ -656,6 +659,7 @@ function frame(dtOverride) {
       tip('새끼 거미는 스프레이 한 번이면 쓸려 나간다', 'lings');
     },
   });
+  const broodInfo = brood.update({ dt, player: { pos: player.pos }, nav: swarms.nav, frozen });
   G.lingT += dt;
   if (G.lingT > 2.5) G.lingSlow = Math.max(0, G.lingSlow - dt * 0.06);
   centi.update({
@@ -700,9 +704,11 @@ function frame(dtOverride) {
   if (G.grab) inten = 1;
   if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
+  if (broodInfo.moving > 4) inten = Math.max(inten, 0.4);
   sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce,
     centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.speed } : null, lings: lingInfo, ghost: spiders.ghostInfo(),
-    emit: G.started ? ai.emit.concat(lingInfo.emit || [], spiders.emitters(player.pos)) : [] });
+    brood: broodInfo,
+    emit: G.started ? ai.emit.concat(lingInfo.emit || [], broodInfo.emit, spiders.emitters(player.pos)) : [] });
   if (G.started && !G.scared && !dev.freeze && Math.hypot(player.pos.x - nests[0].x, player.pos.z - nests[0].z) < 7.5) { G.scared = true; swarms.jumpScare(camera, 0); }
   for (const a of G.attached) a.age += dt;
   // roaches on you: no damage, but they slow you down and crawl over your face until shaken off
@@ -917,6 +923,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
   if (k === 'gens') genMeshes.forEach((g) => { if (!g.on) genOn(g); });
   if (k === 'drop') spiders.dropNow(camera.position.clone());
   if (k === 'eggs' && eggs.burst()) sfx.eggBurst(-7.6, 4, 62.6);
+  if (k === 'brood') { const f = new THREE.Vector3(Math.sin(player.yaw), 0, Math.cos(player.yaw)); const p = new THREE.Vector3(player.pos.x + f.x * 2.5, 0, player.pos.z + f.z * 2.5); brood.burst(p); sfx.eggBurst(p.x, 0.2, p.z); }
   if (k === 'centi') { if (!centi.wake()) msg('지네는 이미 깨어 있다'); }
   if (k === 'centichase') { centi.enrage(player.pos); msg('지네가 당신을 쫓는다'); }
   if (k === 'sprayfill') { G.spray += 3; updateHud(); }
@@ -924,7 +931,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 }));
 
 window.__M = {
-  player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, centi, useSpray, mashGrab,
+  player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
   arms, sfx, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },

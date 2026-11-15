@@ -8,12 +8,12 @@ const V3 = THREE.Vector3;
 const clamp = THREE.MathUtils.clamp;
 
 // ---------------------------------------------------------------- spiderling (about 0.55 m across the legs)
-function colorize(g, fn) {
+export function colorize(g, fn) {
   const p = g.attributes.position, c = new Float32Array(p.count * 3), col = new THREE.Color();
   for (let i = 0; i < p.count; i++) { fn(col, p.getX(i), p.getY(i), p.getZ(i)); c[i * 3] = col.r; c[i * 3 + 1] = col.g; c[i * 3 + 2] = col.b; }
   g.setAttribute('color', new THREE.BufferAttribute(c, 3));
 }
-function tag(g, leg, pivot, distFrom = null) {
+export function tag(g, leg, pivot, distFrom = null) {
   const n = g.attributes.position.count;
   const L = new Float32Array(n).fill(leg), P = new Float32Array(n * 3), D = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -26,7 +26,7 @@ function tag(g, leg, pivot, distFrom = null) {
   if (g.attributes.uv) g.deleteAttribute('uv');
   return g;
 }
-function seg(a, b, r0, r1) {
+export function seg(a, b, r0, r1) {
   const d = new V3().subVectors(b, a), L = d.length();
   const c = new THREE.CylinderGeometry(r1, r0, L, 6, 1);
   c.translate(0, L / 2, 0);
@@ -68,7 +68,7 @@ function spiderlingGeometry() {
   return mergeGeometries(parts.map((g) => { for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'color', 'aLeg', 'aPivot', 'aDist'].includes(k)) g.deleteAttribute(k); return g; }));
 }
 
-function lingMaterial(uTime) {
+export function lingMaterial(uTime) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.0 });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = uTime;

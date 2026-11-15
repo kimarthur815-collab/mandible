@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { Spider } from '../spider.js';
 import { Thread, makeDoorWeb, sagLine, segmentsGeometry } from '../silk.js';
+import { eggSacGeometry } from './ghostlings.js';
 
 const V3 = THREE.Vector3;
 
@@ -36,6 +37,20 @@ export class MapSpiders {
       return { ...z, s, th, grabbed: false, fallT: 0, g: null };
     });
     this.ghost = this.spiders.find((sp) => sp.mode === 'trip');
+    // the ghost carries its egg sac in its jaws, like a real pholcid
+    if (this.ghost) {
+      const geo = eggSacGeometry();
+      const held = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 }));
+      held.position.set(0, -0.04, 0.095);
+      held.scale.setScalar(1.3);
+      held.castShadow = true;
+      this.ghost.s.body.add(held);
+      this.ghost.sacHeld = held;
+      const loose = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, side: THREE.DoubleSide }));
+      loose.visible = false; loose.castShadow = true;
+      this.scene.add(loose);
+      this.sac = { m: loose, v: new V3(), st: 'off', spin: new V3() };
+    }
     // the web in the lab doorway (wolf spider's alarm)
     this.webs = [this.makeWeb({ x: -6.0, z: 57.5, axis: 'x', halfW: 1.5, h: 3.0 })];
     // tripwire threads across the corridor
@@ -76,7 +91,11 @@ export class MapSpiders {
       this.setThreadGeo(t);
     }
     const gh = this.ghost;
-    if (gh) { gh.g = null; gh.s.state = 'ceiling'; }
+    if (gh) {
+      gh.g = null; gh.s.state = 'ceiling';
+      gh.hasSac = true; gh.sacHeld.visible = true;
+      const L = this.sac; L.st = 'off'; L.m.visible = false; L.m.material.color.setScalar(1);
+    }
   }
 
   // walls, floor, ceiling and anything standing in the corridor, for the ghost's feet to grab
@@ -133,6 +152,41 @@ export class MapSpiders {
       if (headY > y) return t;
     }
     return null;
+  }
+
+  // the ghost lets go of its egg sac (first spray or struggle only); it falls and bursts on the floor
+  dropSac(sp) {
+    if (!sp || !sp.sacHeld || !sp.hasSac) return false;
+    sp.hasSac = false;
+    sp.sacHeld.visible = false;
+    const L = this.sac, m = L.m, k = sp.s.root.scale.x;
+    sp.s.root.updateMatrixWorld(true);
+    sp.sacHeld.getWorldPosition(m.position);
+    sp.sacHeld.getWorldQuaternion(m.quaternion);
+    m.scale.setScalar(k * 1.3); m.visible = true; m.material.color.setScalar(1);
+    L.v.set((Math.random() - 0.5) * 0.8, 0.5, (Math.random() - 0.5) * 0.8);
+    L.spin.set(Math.random() * 6 - 3, Math.random() * 6 - 3, Math.random() * 6 - 3);
+    L.st = 'fall';
+    return true;
+  }
+
+  updateSac(dt) {
+    const L = this.sac;
+    if (!L || L.st !== 'fall') return;
+    const m = L.m, r = 0.032 * m.scale.x;
+    L.v.y -= 9.8 * dt;
+    m.position.addScaledVector(L.v, dt);
+    m.position.x = THREE.MathUtils.clamp(m.position.x, CORR.wx0 + 0.1, CORR.wx1 - 0.1);
+    m.rotation.x += L.spin.x * dt; m.rotation.y += L.spin.y * dt; m.rotation.z += L.spin.z * dt;
+    if (m.position.y <= r) {
+      // splits open on the floor: what is left is a flattened, darker husk
+      m.position.y = r * 0.4;
+      m.scale.y *= 0.4;
+      m.rotation.set(0, Math.random() * 6, 0);
+      m.material.color.setScalar(0.6);
+      L.st = 'burst';
+      this.onSacBurst && this.onSacBurst(new V3(m.position.x, 0, m.position.z));
+    }
   }
 
   snapThread(t) {
@@ -317,7 +371,8 @@ export class MapSpiders {
   // ctx: { dt, cam, light, safe, frozen, onFirstLit, onDrop, onCatch, onWebHit, onWebLit, onRetract }
   update(ctx) {
     const { dt } = ctx;
-    this.onWake = ctx.onWake; this.onCower = ctx.onCower;
+    this.onWake = ctx.onWake; this.onCower = ctx.onCower; this.onSacBurst = ctx.onSacBurst;
+    if (!ctx.frozen) this.updateSac(ctx.dt);
     for (const sp of this.spiders) {
       const s = sp.s;
       if (sp.mode === 'trip' && sp.g && !sp.grabbed && s.state !== 'fallen') {
@@ -421,6 +476,7 @@ export class MapSpiders {
 
   knockDown(sp, from) {
     const s = sp.s;
+    if (sp.mode === 'trip') this.dropSac(sp);
     const was = s.bodyWorld;
     sp.grabbed = false; s.caught = false;
     s.state = 'fallen'; sp.fallT = 3;
@@ -435,7 +491,7 @@ export class MapSpiders {
 
   // you broke free by struggling: it lets go and pulls itself back up
   release(sp) {
-    if (sp.mode === 'trip') { this.ghostRetreat(sp); return; }
+    if (sp.mode === 'trip') { this.dropSac(sp); this.ghostRetreat(sp); return; }
     sp.grabbed = false; sp.s.caught = false;
     sp.s.startRetract();
     sp.s.cooldown = 5;
