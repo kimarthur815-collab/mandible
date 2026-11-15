@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "build:map": "node build.mjs map"
+    "build:map": "node build.mjs map",
+    "build:hands": "node build.mjs hands"
   },
   "license": "Unlicense",
   "dependencies": {

@@ -10,6 +10,7 @@ const PAGES = {
   roach:     ['src/main.js',            'templates/roach.html',     'docs/roach.html'],
   centipede: ['src/main_centipede.js',  'templates/centipede.html', 'docs/centipede.html'],
   spider:    ['src/main_spider.js',     'templates/spider.html',    'docs/spider.html'],
+  hands:     ['src/hands/main_hands.js', 'templates/hands.html',     'docs/hands.html'],
 };
 
 async function page(name) {

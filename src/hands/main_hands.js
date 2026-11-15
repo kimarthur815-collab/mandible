@@ -1,0 +1,579 @@
+// MANDIBLE — first-person hands, standalone viewer.
+// Blue nitrile gloves, white flash-spun suit sleeves, black tactical flashlight; seven poses from the
+// reference sheet plus the spray can; three beam strengths; a game view and a studio view.
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { Hand, frameQ, handData } from './handmodel.js';
+import { gloveMaterial, sleeveMaterial, tyvekTextures } from './materials.js';
+import { makeFlashlight, flashSDF, makeCan, canSDF } from './props.js';
+import * as S from '../map/surface.js';
+
+const V3 = THREE.Vector3, Q = THREE.Quaternion;
+const $ = (s) => document.querySelector(s);
+const clamp = THREE.MathUtils.clamp;
+const ease = (t) => t * t * (3 - 2 * t);
+
+// ------------------------------------------------------------------ renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: !!window.__TEST });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+$('#app').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(54, innerWidth / innerHeight, 0.02, 60);
+scene.add(camera);
+
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 }));
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.45, 0.5, 2.6);
+composer.addPass(bloom);
+const grain = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uT: { value: 0 }, uVig: { value: 0.55 }, uGrain: { value: 0.035 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uT, uVig, uGrain; varying vec2 vUv;
+    float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){
+      vec2 d = vUv - 0.5;
+      float ca = 0.0012 * dot(d, d) * 4.0;
+      vec3 c = vec3(texture2D(tDiffuse, vUv + d * ca).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - d * ca).b);
+      c *= 1.0 - uVig * smoothstep(0.25, 0.85, length(d * vec2(1.25, 1.0)));
+      c += (h(vUv * 931.0 + uT) - 0.5) * uGrain * (0.35 + 0.65 * (1.0 - min(1.0, dot(c, vec3(0.33)))));
+      gl_FragColor = vec4(max(c, 0.0), 1.0);
+    }`,
+});
+composer.addPass(grain);
+composer.addPass(new OutputPass());
+
+// on short (phone, landscape) screens, shift the picture up so the pose buttons don't cover the hands
+function fit() {
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  const pad = innerHeight < 560 ? Math.round(Math.min(64, innerHeight * 0.15)) : 0;
+  if (pad) camera.setViewOffset(innerWidth, innerHeight + pad, 0, pad, innerWidth, innerHeight); else camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', fit);
+fit();
+
+// ------------------------------------------------------------------ the room (game view)
+const room = new THREE.Group();
+scene.add(room);
+const solids = [];
+function buildRoom() {
+  const macro = S.macroNoise();
+  const cf = S.concreteFloor(1), pw = S.paintedWall(3), wb = S.wallBand(5), rc = S.rawConcrete(7);
+  const W = (o) => S.worldMaterial({ macro, ...o });
+  const floorM = W({ color: cf.color, data: cf.data, tint: 0xb4aea4, wet: 0.65 });
+  const wallM = W({ color: pw.color, data: pw.data, band: wb.color, bandData: wb.data, tint: 0xcfc8bc, bandTint: 0x6e6a62, split: 1.1 });
+  const ceilM = W({ color: rc.color, data: rc.data, tint: 0x8a867e });
+  const box = (w, h, d, x, y, z, m) => {
+    const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+    o.position.set(x, y, z); o.receiveShadow = true; o.castShadow = true;
+    room.add(o); solids.push(o); return o;
+  };
+  // the room: 4.4 wide, 3 high, from z = 2.2 to z = -3
+  box(4.4, 0.1, 5.4, 0, -0.05, -0.4, floorM);
+  box(4.4, 0.1, 5.4, 0, 3.05, -0.4, ceilM);
+  box(0.1, 3, 5.4, -2.25, 1.5, -0.4, wallM);
+  box(0.1, 3, 5.4, 2.25, 1.5, -0.4, wallM);
+  box(4.4, 3, 0.1, 0, 1.5, 2.25, wallM);
+  // front wall with a doorway (x -0.5..0.5, up to 2.1)
+  box(1.75, 3, 0.14, -1.375, 1.5, -3.05, wallM);
+  box(1.75, 3, 0.14, 1.375, 1.5, -3.05, wallM);
+  box(1.0, 0.9, 0.14, 0, 2.55, -3.05, wallM);
+  // door frame
+  const frameM = new THREE.MeshStandardMaterial({ color: 0x5a5148, roughness: 0.75 });
+  box(0.07, 2.12, 0.18, -0.535, 1.06, -3.05, frameM); box(0.07, 2.12, 0.18, 0.535, 1.06, -3.05, frameM); box(1.14, 0.07, 0.18, 0, 2.125, -3.05, frameM);
+  // the door, open into the room on the left
+  const door = box(0.98, 2.06, 0.045, 0, 0, 0, new THREE.MeshStandardMaterial({ color: 0x6d6a60, roughness: 0.8 }));
+  door.geometry.translate(0.49, 1.03, 0);
+  door.position.set(-0.5, 0, -2.98); door.rotation.y = 1.25;
+  // corridor beyond, ending in a window
+  box(1.8, 0.1, 7, 0, -0.05, -6.5, floorM);
+  box(1.8, 0.1, 7, 0, 2.65, -6.5, ceilM);
+  box(0.1, 2.7, 7, -0.85, 1.3, -6.5, wallM);
+  box(0.1, 2.7, 7, 0.85, 1.3, -6.5, wallM);
+  box(1.8, 1.0, 0.1, 0, 0.5, -10, wallM); box(1.8, 0.7, 0.1, 0, 2.3, -10, wallM);
+  box(0.5, 1.0, 0.1, -0.65, 1.45, -10, wallM); box(0.5, 1.0, 0.1, 0.65, 1.45, -10, wallM);
+  const win = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.95), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.55, 0.66, 0.82) }));
+  win.position.set(0, 1.45, -10.02); room.add(win);
+  const bars = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 });
+  box(0.03, 0.95, 0.03, 0, 1.45, -9.98, bars); box(0.8, 0.03, 0.03, 0, 1.45, -9.98, bars);
+  const moon = new THREE.PointLight(0x9db4d8, 3.5, 8, 1.4); moon.position.set(0, 1.5, -9.4); room.add(moon);
+  // a rack on the left wall with a few boxes
+  const metal = new THREE.MeshStandardMaterial({ color: 0x3d3f42, roughness: 0.55, metalness: 0.5 });
+  for (const z of [-0.6, -2.2]) for (const x of [-2.18, -1.62]) box(0.05, 2.2, 0.05, x, 1.1, z, metal);
+  for (const y of [0.35, 1.05, 1.75]) box(0.6, 0.04, 1.65, -1.9, y, -1.4, metal);
+  const card = new THREE.MeshStandardMaterial({ color: 0x8a6e4a, roughness: 0.9 });
+  box(0.45, 0.3, 0.4, -1.9, 0.52, -1.0, card); box(0.4, 0.42, 0.5, -1.88, 1.28, -1.8, card); box(0.35, 0.25, 0.35, -1.95, 1.9, -0.95, card);
+  // papers on the floor
+  const paper = new THREE.MeshStandardMaterial({ color: 0xb8b2a2, roughness: 0.95, side: THREE.DoubleSide });
+  for (let i = 0; i < 9; i++) {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(0.21, 0.29), paper);
+    p.rotation.set(-Math.PI / 2, 0, Math.random() * 6); p.position.set(-1.4 + Math.random() * 2.6, 0.003 + i * 0.0004, -2.6 + Math.random() * 3.2);
+    p.receiveShadow = true; room.add(p);
+  }
+  scene.fog = new THREE.FogExp2(0x000000, 0.06);
+}
+
+// ------------------------------------------------------------------ studio
+const studio = new THREE.Group();
+scene.add(studio);
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+function studioBackground() {
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(256, 210, 30, 256, 256, 380);
+  grd.addColorStop(0, '#3a3c41'); grd.addColorStop(1, '#141518');
+  g.fillStyle = grd; g.fillRect(0, 0, 512, 512);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const studioBg = studioBackground();
+const sKey = new THREE.DirectionalLight(0xfff4ea, 1.25); sKey.position.set(0.6, 1.2, 0.9); sKey.castShadow = true;
+sKey.shadow.mapSize.set(2048, 2048); Object.assign(sKey.shadow.camera, { left: -0.5, right: 0.5, top: 0.5, bottom: -0.5, near: 0.1, far: 4 }); sKey.shadow.bias = -0.0004; sKey.shadow.normalBias = 0.002;
+const sFill = new THREE.DirectionalLight(0xc8d6ff, 0.45); sFill.position.set(-1, 0.3, 0.6);
+const sRim = new THREE.DirectionalLight(0xffffff, 0.8); sRim.position.set(-0.4, 0.8, -1.2);
+const sHemi = new THREE.HemisphereLight(0xd8dcff, 0x2a2622, 0.35);
+studio.add(sKey, sKey.target, sFill, sRim, sHemi);
+
+// ------------------------------------------------------------------ hands, props
+const rig = new THREE.Group();         // camera-space rig (follows the camera with a little lag)
+scene.add(rig);
+const tyvek = tyvekTextures();
+const mats = { glove: (u) => gloveMaterial(u), sleeve: sleeveMaterial(tyvek) };
+let R = null, L = null, flash = null, can = null, vmMats = [];
+
+// beam
+const LEVELS = {
+  off: { I: 0, angle: 0.30, cone: 0 },
+  low: { I: 220, angle: 0.34, cone: 0.35 },
+  mid: { I: 700, angle: 0.38, cone: 0.7 },
+  high: { I: 1800, angle: 0.42, cone: 1.0 },
+};
+let level = 'mid', beamK = 1, flick = 0;
+const spot = new THREE.SpotLight(0xfff1de, 0, 0, 0.33, 0.55, 2);
+spot.castShadow = true; spot.shadow.mapSize.set(1024, 1024); spot.shadow.camera.near = 0.05; spot.shadow.bias = -0.0005; spot.shadow.normalBias = 0.01;
+spot.map = beamPattern();
+const spill = new THREE.PointLight(0xfff1de, 0, 0.55, 2);
+const bounce = new THREE.PointLight(0xd8cfc0, 0, 6, 2);
+scene.add(bounce);
+// light coming back off the room onto the arms (only reaches the arms)
+const armFill = new THREE.PointLight(0xe6e0d6, 0, 1.6, 1.2);
+camera.add(armFill); armFill.position.set(-0.05, 0.3, -0.75);
+const armTop = new THREE.PointLight(0xdcd6cc, 0, 1.0, 1.5);
+camera.add(armTop); armTop.position.set(0.0, 0.25, 0.05);
+const nightAmb = new THREE.HemisphereLight(0x8090b0, 0x1a1816, 0.0);
+room.add(nightAmb);
+let cone = null, dust = null;
+function beamPattern() {
+  const N = 256, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d'), id = g.createImageData(N, N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const r = Math.hypot(x - N / 2 + 0.5, y - N / 2 + 0.5) / (N / 2);
+    // hot centre, a faint ring from the reflector's edge, soft spill
+    let v = Math.exp(-r * r / 0.06) * 1.0 + Math.exp(-Math.pow((r - 0.5) / 0.12, 2)) * 0.05 + Math.exp(-r * r / 0.3) * 0.38;
+    v *= 1 - Math.pow(Math.min(1, r), 6);
+    const k = Math.min(255, v * 230);
+    id.data[(y * N + x) * 4] = k; id.data[(y * N + x) * 4 + 1] = k * 0.97; id.data[(y * N + x) * 4 + 2] = k * 0.92; id.data[(y * N + x) * 4 + 3] = 255;
+  }
+  g.putImageData(id, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function makeCone() {
+  const L = 7, g = new THREE.CylinderGeometry(0.02, L * Math.tan(0.36), L, 48, 24, true);
+  g.translate(0, -L / 2, 0); g.rotateX(-Math.PI / 2);
+  const m = new THREE.ShaderMaterial({
+    uniforms: { uK: { value: 0.7 }, uLen: { value: L } },
+    vertexShader: `varying vec3 vN; varying vec3 vV; varying float vZ;
+      void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); vZ = position.z; gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform float uK, uLen; varying vec3 vN; varying vec3 vV; varying float vZ;
+      void main(){ float e = abs(dot(normalize(vN), normalize(vV))); float d = vZ / uLen;
+        float a = pow(e, 2.2) * exp(-d * 2.6) * smoothstep(0.0, 0.05, d) * 0.055 * uK;
+        gl_FragColor = vec4(vec3(1.0, 0.96, 0.9) * a, 1.0); }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  return new THREE.Mesh(g, m);
+}
+function makeDust() {
+  const N = 700, p = new Float32Array(N * 3), s = new Float32Array(N);
+  for (let i = 0; i < N; i++) { p[i * 3] = (Math.random() - 0.5) * 5; p[i * 3 + 1] = Math.random() * 2.8; p[i * 3 + 2] = -Math.random() * 6 + 1.8; s[i] = Math.random(); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('aS', new THREE.BufferAttribute(s, 1));
+  const m = new THREE.ShaderMaterial({
+    uniforms: { uLens: { value: new V3() }, uDir: { value: new V3(0, 0, -1) }, uCos: { value: Math.cos(0.33) }, uK: { value: 1 }, uT: { value: 0 }, uPx: { value: 1 } },
+    vertexShader: `attribute float aS; uniform vec3 uLens, uDir; uniform float uCos, uK, uT, uPx; varying float vA;
+      void main(){
+        vec3 p = position + vec3(sin(uT * 0.21 + aS * 40.0), sin(uT * 0.13 + aS * 23.0) * 0.6, cos(uT * 0.17 + aS * 31.0)) * 0.12;
+        vec3 v = p - uLens; float d = length(v); float c = dot(v / d, uDir);
+        vA = smoothstep(uCos, uCos + 0.04, c) * uK * exp(-d * 0.45) * (0.4 + 0.6 * aS);
+        vec4 mv = viewMatrix * vec4(p, 1.0);
+        gl_PointSize = (0.004 + aS * 0.006) * uPx / -mv.z;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `varying float vA; void main(){ vec2 c = gl_PointCoord - 0.5; float a = smoothstep(0.5, 0.0, length(c)) * vA; gl_FragColor = vec4(vec3(1.0, 0.95, 0.88) * a * 0.9, 1.0); }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const o = new THREE.Points(g, m); o.frustumCulled = false; return o;
+}
+
+// ------------------------------------------------------------------ grips (hand-frame placements)
+// right hand power grip on the flashlight: the barrel runs obliquely across the palm, head out
+// past the thumb and index finger
+const GRIP = {
+  axis: new V3(-0.93, 0, -0.37).normalize(),       // tail -> lens, in the right hand's frame
+  at: new V3(0.004, -0.0315, -0.069),             // barrel axis point under the fingers' base
+  zf: -0.03,                                       // where on the flashlight (its own z) that point is
+};
+function gripFrame(mir, axisZ, at, zf) {
+  // flashlight/can local -> hand frame
+  const a = mir ? new V3(-axisZ.x, axisZ.y, axisZ.z) : axisZ.clone();
+  const p = mir ? new V3(-at.x, at.y, at.z) : at.clone();
+  const q = frameQ(new V3(0, 0, 1), new V3(0, 1, 0), a, new V3(0, 1, 0));
+  const pos = p.clone().sub(new V3(0, 0, zf).applyQuaternion(q));
+  return { q, pos, axis: a, at: p };
+}
+
+// ------------------------------------------------------------------ hand states
+function sdfIn(objQ, objPos, fn) {
+  const iq = objQ.clone().invert();
+  return (p) => fn(p.clone().sub(objPos).applyQuaternion(iq));
+}
+function solveGrip(hand, objQ, objPos, fn, opt = {}) {
+  const sdf = sdfIn(objQ, objPos, fn);
+  const ang = [];
+  const abd = opt.abd || [0.04, 0, -0.04, -0.1];
+  for (let c = 0; c < 4; c++) ang.push(hand.grasp(c, sdf, { abd: abd[c], start: opt.start || [0.15, 0.2, 0.1] }));
+  const th = opt.thumb || {};
+  // the thumb closes over the object, across the index and middle fingers
+  const others = [...hand.capsules(0, ang[0]), ...hand.capsules(1, ang[1])];
+  const tgt = th.target(objQ, objPos);
+  ang.push(hand.thumbTo(tgt, sdf, { others, mcp: th.mcp ?? 0.4, ip: th.ip ?? 0.35 }));
+  return ang;
+}
+function presetAngles(kind) {
+  if (kind === 'open') return [[0.06, 0.1, 0.06, 0.13, 0], [0.04, 0.08, 0.05, 0.02, 0], [0.06, 0.1, 0.06, -0.09, 0], [0.1, 0.12, 0.08, -0.2, 0], [0.05, 0.1, 0.05, 0.62, 0.25]];
+  if (kind === 'relaxed') return [[0.12, 0.18, 0.1, -0.02, 0], [0.2, 0.28, 0.14, 0.0, 0], [0.26, 0.34, 0.18, 0.0, 0], [0.34, 0.4, 0.22, 0.02, 0], [0.25, 0.2, 0.15, 0.12, 0.35]];
+  if (kind === 'fist') return [[1.45, 1.72, 0.95, 0.03, 0], [1.5, 1.75, 0.95, 0, 0], [1.52, 1.75, 0.95, -0.03, 0], [1.5, 1.7, 0.95, -0.08, 0], null];
+  return null;
+}
+
+// a hand's target: where the wrist goes, how the hand is turned, where the elbow is, finger angles, what it holds
+const POSES = {};
+function definePoses() {
+  const fq = gripFrame(false, GRIP.axis, GRIP.at, GRIP.zf);
+  // right hand on the flashlight: aim the flashlight, the back of the hand roughly toward `up`
+  const rightAim = (grip, dir, up, elbow) => {
+    const handQ = frameQ(GRIP.axis, new V3(0, 1, 0), dir, up);
+    const wrist = grip.clone().sub(GRIP.at.clone().applyQuaternion(handQ));
+    return { wrist, handQ, elbow, held: 'flash' };
+  };
+  // thumb target: on the barrel's far side, a little toward the head, pressing over the index finger
+  const barrelThumb = (zf, rr, side = 1) => (q, pos) => {
+    const axisP = new V3(0, 0, zf).applyQuaternion(q).add(pos);
+    const away = new V3(0, -1, 0);          // the barrel's far side from the palm (hand frame)
+    return axisP.addScaledVector(away, rr);
+  };
+  const rightAng = solveGrip(R, fq.q, fq.pos, flashSDF, { thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
+  const leftRelaxed = { wrist: new V3(-0.17, -0.15, -0.41), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.32, 0.02, -1), new V3(-0.25, 0.9, 0.35)), elbow: new V3(-0.3, -0.62, 0.0), held: null, ang: presetAngles('relaxed') };
+  const base = (grip, dir, up, elbow, extra = {}) => ({ ...rightAim(grip, dir, up, elbow), ang: rightAng, ...extra });
+  POSES.default = { R: base(new V3(0.17, -0.12, -0.42), new V3(-0.17, 0.1, -1), new V3(-0.45, 0.8, 0.4), new V3(0.3, -0.62, -0.06)), L: leftRelaxed, light: true };
+  POSES.up = { R: base(new V3(0.17, -0.1, -0.42), new V3(-0.25, 0.6, -1), new V3(-0.45, 0.7, 0.55), new V3(0.3, -0.6, -0.14)), L: leftRelaxed, light: true };
+  POSES.down = { R: base(new V3(0.17, -0.14, -0.41), new V3(-0.2, -0.75, -1), new V3(-0.4, 0.85, 0.2), new V3(0.31, -0.6, 0.02)), L: leftRelaxed, light: true };
+  POSES.off = { R: base(new V3(0.2, -0.19, -0.42), new V3(-0.05, -0.5, -1), new V3(-0.3, 0.9, 0.3), new V3(0.32, -0.62, 0.05)), L: { ...leftRelaxed, wrist: new V3(-0.21, -0.23, -0.37) }, light: false };
+  // left hand open, reaching to take hold of something
+  POSES.use = {
+    R: base(new V3(0.18, -0.13, -0.42), new V3(-0.15, 0.08, -1), new V3(-0.45, 0.8, 0.4), new V3(0.32, -0.62, -0.04)),
+    L: { wrist: new V3(-0.13, -0.12, -0.40), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.22, 0.75, -0.62), new V3(-0.45, 0.15, 0.88)), elbow: new V3(-0.28, -0.6, -0.04), held: null, ang: presetAngles('open') },
+    light: true,
+  };
+  // left fist, knuckles forward
+  const fistAng = presetAngles('fist');
+  {
+    // the thumb closes over the curled index and middle fingers
+    const tmp = fistAng.slice(0, 4).map((a) => a.slice());
+    const sdf = (p) => {
+      let d = 1e9;
+      for (let c = 0; c < 2; c++) {
+        const { pts, rads } = L.fk(c, tmp[c]);
+        for (let k = 0; k < 3; k++) {
+          const a = pts[k], b = pts[k + 1], ab = b.clone().sub(a), t = clamp(p.clone().sub(a).dot(ab) / ab.lengthSq(), 0, 1);
+          d = Math.min(d, p.distanceTo(a.clone().addScaledVector(ab, t)) - rads[k][0]);
+        }
+      }
+      return d;
+    };
+    fistAng[4] = L.grasp(4, sdf, { abd: 0.5, roll: 0.7, start: [0.2, 0.1, 0.1], max: [1.1, 1.0, 1.0], rate: [1, 0.8, 0.8], skip0: 0.6 });
+  }
+  POSES.fist = {
+    R: base(new V3(0.18, -0.13, -0.42), new V3(-0.15, 0.08, -1), new V3(-0.45, 0.8, 0.4), new V3(0.32, -0.62, -0.04)),
+    L: { wrist: new V3(-0.13, -0.15, -0.37), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.12, 0.05, -1), new V3(-0.55, 0.83, 0.05)), elbow: new V3(-0.26, -0.6, 0.06), held: null, ang: fistAng },
+    light: true,
+  };
+  // both hands: the left supports the flashlight's head from below-left
+  {
+    const r = base(new V3(0.1, -0.12, -0.43), new V3(-0.12, 0.06, -1), new V3(-0.35, 0.85, 0.4), new V3(0.27, -0.62, -0.04));
+    // flashlight world transform for this pose
+    const fW = r.handQ.clone().multiply(fq.q), fP = r.wrist.clone().add(fq.pos.clone().applyQuaternion(r.handQ));
+    // left grip on the head, turned around the barrel
+    const lg = gripFrame(true, GRIP.axis, new V3(0.004, -0.0365, -0.069), 0.058);
+    const psi = Math.PI + 0.55;
+    const roll = new Q().setFromAxisAngle(new V3(0, 0, 1), psi);
+    // left hand frame relative to the flashlight: inverse of (flash -> hand) composed with the roll
+    const lInF = roll.clone().multiply(lg.q.clone().invert());          // hand frame expressed in flashlight frame
+    const lPosF = new V3().sub(lg.pos.clone().applyQuaternion(lg.q.clone().invert())).applyQuaternion(roll);
+    const handQ = fW.clone().multiply(lInF);
+    const wrist = fP.clone().add(lPosF.applyQuaternion(fW));
+    const leftAng = solveGrip(L, lg.q, lg.pos, flashSDF, { abd: [0.06, 0, -0.05, -0.12], thumb: { target: barrelThumb(0.058 + 0.025, 0.018 + 0.0105) } });
+    POSES.both = { R: r, L: { wrist, handQ, elbow: new V3(-0.2, -0.62, 0.0), held: null, ang: leftAng }, light: true };
+  }
+  // the spray can in the left hand
+  {
+    const cg = gripFrame(true, GRIP.axis, new V3(0.004, -0.0505, -0.066), 0.0);
+    const canAng = solveGrip(L, cg.q, cg.pos, canSDF, { abd: [0.08, 0.0, -0.06, -0.14], start: [0.1, 0.15, 0.1], thumb: { target: barrelThumb(0.03, 0.0333 + 0.0105), mcp: 0.25, ip: 0.2 } });
+    // turn the hand so the can stands up with its label toward the camera
+    const handQ = frameQ(cg.axis, new V3(0, 1, 0), new V3(0.12, 1, -0.28), new V3(-0.9, 0.0, -0.1));
+    const at = new V3(-0.16, -0.17, -0.42);
+    const wrist = at.clone().sub(cg.at.clone().applyQuaternion(handQ));
+    POSES.spray = { R: base(new V3(0.18, -0.13, -0.42), new V3(-0.15, 0.08, -1), new V3(-0.45, 0.8, 0.4), new V3(0.32, -0.62, -0.04)), L: { wrist, handQ, elbow: new V3(-0.24, -0.62, 0.02), held: 'can', ang: canAng, canFrame: cg }, light: true };
+  }
+  POSES._flashFrame = fq;
+  POSES._rightAim = (grip, dir, up) => ({ ...rightAim(grip, dir, up, new V3()), ang: rightAng });
+  // elbows: where the forearm would naturally be for that hand angle, pulled down and back out of view
+  // bring everything a little closer to the eye (bigger hands on screen); in the two-handed pose the
+  // left hand moves with the flashlight
+  const NEAR = 0.9;
+  const done = new Set();
+  for (const [name, P] of Object.entries(POSES)) {
+    if (!P || !P.R || !P.R.wrist) continue;
+    const dR = P.R.wrist.clone().multiplyScalar(NEAR - 1);
+    if (!done.has(P.R)) { P.R.wrist.add(dR); done.add(P.R); }
+    if (done.has(P.L)) continue;
+    done.add(P.L);
+    if (name === 'both') P.L.wrist.add(dR); else P.L.wrist.multiplyScalar(NEAR);
+  }
+  for (const P of Object.values(POSES)) for (const k of ['R', 'L']) {
+    const st = P[k]; if (!st || !st.wrist) continue;
+    const sd = k === 'R' ? 1 : -1;
+    const neutral = new V3(0.2 * sd, -0.06, 1).normalize().applyQuaternion(st.handQ);
+    const fps = new V3(0.75 * sd, -0.55, 0.35).normalize();
+    st.elbow = st.wrist.clone().addScaledVector(neutral.lerp(fps, 0.92).normalize(), 0.27);
+  }
+}
+
+// ------------------------------------------------------------------ pose blending
+const cur = { R: null, L: null };
+const trans = { R: null, L: null };
+let poseName = 'default';
+function copyState(s) { return { wrist: s.wrist.clone(), handQ: s.handQ.clone(), elbow: s.elbow.clone(), held: s.held, ang: s.ang.map((a) => a.slice()), canFrame: s.canFrame }; }
+const LOW = { R: { wrist: new V3(0.28, -0.6, -0.22), elbow: new V3(0.34, -0.9, 0.1) }, L: { wrist: new V3(-0.28, -0.6, -0.22), elbow: new V3(-0.34, -0.9, 0.1) } };
+function setPose(name) {
+  const P = POSES[name];
+  if (!P) return;
+  poseName = name;
+  for (const k of ['R', 'L']) {
+    const to = P[k];
+    const from = cur[k] ? copyState(cur[k]) : copyState(to);
+    const swap = cur[k] && from.held !== to.held;            // drop the hand out of view to change what it holds
+    trans[k] = { from, to, t: 0, dur: swap ? 0.95 : 0.5, swap };
+  }
+  targetLight = P.light;
+  document.querySelectorAll('[data-pose]').forEach((b) => b.classList.toggle('on', b.dataset.pose === name));
+}
+let targetLight = true, lightOn = true;
+function stepHand(k, dt) {
+  const tr = trans[k];
+  if (!tr) return;
+  tr.t = Math.min(1, tr.t + dt / tr.dur);
+  const s = cur[k] || (cur[k] = copyState(tr.to));
+  if (tr.swap) {
+    // down, change grip, up
+    const a = tr.t < 0.5 ? ease(tr.t * 2) : ease((tr.t - 0.5) * 2);
+    const A = tr.t < 0.5 ? tr.from : { ...tr.to, wrist: LOW[k].wrist, elbow: LOW[k].elbow, handQ: tr.to.handQ, ang: tr.to.ang };
+    const B = tr.t < 0.5 ? { ...tr.from, wrist: LOW[k].wrist, elbow: LOW[k].elbow } : tr.to;
+    if (tr.t >= 0.5) { s.held = tr.to.held; s.canFrame = tr.to.canFrame; }
+    blendInto(s, A, B, a);
+  } else {
+    const a = ease(tr.t);
+    blendInto(s, tr.from, tr.to, a);
+    // a slight dip on the way
+    s.wrist.y -= Math.sin(Math.PI * tr.t) * 0.02;
+    s.held = tr.to.held; s.canFrame = tr.to.canFrame;
+  }
+  if (tr.t >= 1) trans[k] = null;
+}
+function blendInto(s, A, B, a) {
+  s.wrist.lerpVectors(A.wrist, B.wrist, a);
+  s.elbow.lerpVectors(A.elbow, B.elbow, a);
+  s.handQ.slerpQuaternions(A.handQ, B.handQ, a);
+  for (let c = 0; c < 5; c++) for (let j = 0; j < 5; j++) s.ang[c][j] = A.ang[c][j] + (B.ang[c][j] - A.ang[c][j]) * a;
+}
+
+// ------------------------------------------------------------------ view
+let view = 'game';
+const look = { yaw: 0, pitch: -0.04 };
+const camHome = new V3(0.25, 1.62, 1.15);
+let orbit = null;
+function setView(v) {
+  view = v;
+  room.visible = v === 'game'; studio.visible = v === 'studio';
+  scene.background = v === 'studio' ? studioBg : new THREE.Color(0x000000);
+  scene.environment = v === 'studio' ? envTex : null;
+  scene.fog = v === 'game' ? new THREE.FogExp2(0x000000, 0.06) : null;
+  grain.uniforms.uVig.value = v === 'game' ? 0.55 : 0.25;
+  // the held things get a faint reflection of the room in the game view (black metal is otherwise invisible in the dark)
+  for (const [m, g] of vmMats) { m.envMap = envTex; m.envMapIntensity = v === 'game' ? g : 0.55; m.needsUpdate = true; }
+  renderer.toneMappingExposure = v === 'game' ? 1.12 : 0.95;
+  if (v === 'studio') {
+    // freeze the rig where it is and orbit around the hands
+    camera.position.copy(camHome); camera.quaternion.setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, 'YXZ'));
+    rig.position.copy(camera.position); rig.quaternion.copy(camera.quaternion);
+    const c = new V3(0, -0.15, -0.4).applyQuaternion(rig.quaternion).add(rig.position);
+    // step back a little from the eye so both arms are in view
+    camera.position.copy(new V3(0, 0.05, 0.12).applyQuaternion(rig.quaternion).add(rig.position));
+    orbit.target.copy(c); orbit.enabled = true; orbit.update();
+    // keep to the front half, where the arms read as arms
+    const az = orbit.getAzimuthalAngle();
+    orbit.minAzimuthAngle = az - 1.2; orbit.maxAzimuthAngle = az + 1.2;
+    orbit.minPolarAngle = 0.35; orbit.maxPolarAngle = 2.2;
+  } else orbit.enabled = false;
+  document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === v));
+}
+function setLevel(l) {
+  level = l; flick = 0.12;
+  document.querySelectorAll('[data-level]').forEach((b) => b.classList.toggle('on', b.dataset.level === l));
+}
+
+// drag to look (game view)
+let drag = null;
+renderer.domElement.addEventListener('pointerdown', (e) => { if (view === 'game') drag = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  look.yaw -= (e.clientX - drag.x) * 0.0035; look.pitch = clamp(look.pitch - (e.clientY - drag.y) * 0.0035, -0.9, 0.7);
+  drag = { x: e.clientX, y: e.clientY };
+});
+addEventListener('pointerup', () => { drag = null; });
+
+// ------------------------------------------------------------------ frame
+let t = 0, autoT = 0, auto = false;
+const ORDER = ['default', 'up', 'down', 'use', 'both', 'off', 'fist', 'spray'];
+const tmpQ = new Q(), rayc = new THREE.Raycaster();
+function frame(dt) {
+  t += dt;
+  if (auto) { autoT += dt; if (autoT > 3.2) { autoT = 0; setPose(ORDER[(ORDER.indexOf(poseName) + 1) % ORDER.length]); } }
+  // camera + rig
+  if (view === 'game') {
+    camera.position.copy(camHome);
+    camera.position.y += Math.sin(t * 1.5) * 0.004;
+    if (!window.__CAMLOCK) camera.quaternion.setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, 'YXZ'));
+    rig.position.copy(camera.position);
+    if (window.__CAMLOCK) rig.quaternion.setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, 'YXZ')); else rig.quaternion.slerp(camera.quaternion, 1 - Math.exp(-dt * 11));
+  } else orbit.update();
+  // hands
+  stepHand('R', dt); stepHand('L', dt);
+  for (const [k, H] of [['R', R], ['L', L]]) {
+    const s = cur[k];
+    if (!s) continue;
+    // breathing and a faint tremor
+    const ph = k === 'R' ? 0 : 1.7;
+    const w = s.wrist.clone().add(new V3(Math.sin(t * 0.9 + ph) * 0.002, Math.sin(t * 1.5 + ph) * 0.003, Math.sin(t * 0.7 + ph) * 0.0015));
+    const hq = s.handQ.clone().multiply(tmpQ.setFromEuler(new THREE.Euler(Math.sin(t * 7.3 + ph) * 0.0025 + Math.sin(t * 1.1) * 0.01, Math.sin(t * 5.9 + ph) * 0.002, Math.sin(t * 0.8 + ph) * 0.008)));
+    for (let c = 0; c < 5; c++) for (let j = 0; j < 3; j++) H.ang[c][j] = s.ang[c][j] + (s.held ? 0 : Math.sin(t * 0.6 + c * 1.3 + ph) * 0.02);
+    for (let c = 0; c < 5; c++) { H.ang[c][3] = s.ang[c][3]; H.ang[c][4] = s.ang[c][4]; }
+    if (window.__DBG && window.__DBG[k]) { const D = window.__DBG[k]; for (let c = 0; c < 5; c++) for (let j = 0; j < 5; j++) H.ang[c][j] = D.ang[c][j]; }
+    H.applyAngles();
+    if (window.__DBG && window.__DBG[k] && window.__DBG[k].pose) H.place(window.__DBG[k].pose.w, window.__DBG[k].pose.q, window.__DBG[k].pose.e); else H.place(w, hq, s.elbow);
+  }
+  // what the left hand holds
+  can.visible = cur.L && cur.L.held === 'can';
+  if (can.visible) { const cf = cur.L.canFrame; can.position.copy(cf.pos); can.quaternion.copy(cf.q); }
+  // light
+  lightOn = targetLight && level !== 'off';
+  const Lv = LEVELS[lightOn ? level : 'off'];
+  flick = Math.max(0, flick - dt);
+  beamK += ((lightOn ? 1 : 0) - beamK) * Math.min(1, dt * 30);
+  const fl = flick > 0 ? (Math.sin(t * 160) > 0 ? 0.35 : 1) : 1;
+  const I = LEVELS[level].I * beamK * fl * (targetLight ? 1 : 0);
+  spot.intensity = I; spot.angle = Lv.angle || 0.33;
+  spill.intensity = 0;
+  flash.userData.led.emissiveIntensity = I > 0 ? 4 + I * 0.02 : 0;
+  rig.updateMatrixWorld(true);
+  const lens = new V3(0, 0, 0.0845).applyMatrix4(flash.matrixWorld), dir = new V3(0, 0, 1).transformDirection(flash.matrixWorld);
+  cone.material.uniforms.uK.value = (lightOn ? LEVELS[level].cone : 0) * beamK * fl * (view === 'game' ? 1 : 0.5);
+  cone.visible = cone.material.uniforms.uK.value > 0.01;
+  dust.material.uniforms.uLens.value.copy(lens); dust.material.uniforms.uDir.value.copy(dir);
+  dust.material.uniforms.uCos.value = Math.cos(spot.angle * 0.9); dust.material.uniforms.uK.value = I / 700;
+  dust.material.uniforms.uT.value = t; dust.material.uniforms.uPx.value = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+  dust.visible = view === 'game';
+  // light bouncing back off whatever the beam hits lights the gloves from the front
+  if (view === 'game' && I > 0) {
+    rayc.set(lens, dir); rayc.far = 12;
+    const hit = rayc.intersectObjects(solids, false)[0];
+    if (hit) {
+      const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : dir.clone().negate();
+      bounce.position.copy(hit.point).addScaledVector(n, 0.35);
+      const d = hit.distance;
+      bounce.intensity = I * 0.02 / Math.max(0.6, d * d * 0.35);
+    } else bounce.intensity = 0;
+  } else bounce.intensity = 0;
+  armFill.intensity = view === 'game' ? 0.05 + I * 0.0011 : 0;
+  armTop.intensity = view === 'game' ? 0.06 + I * 0.0003 : 0;
+  nightAmb.intensity = 0.22;
+  grain.uniforms.uT.value = t;
+}
+
+// ------------------------------------------------------------------ boot
+function boot() {
+  buildRoom();
+  handData();
+  R = new Hand('right', mats); L = new Hand('left', mats);
+  rig.add(R.mesh, L.mesh);
+  flash = makeFlashlight();
+  R.bones[1].add(flash);
+  const fq = gripFrame(false, GRIP.axis, GRIP.at, GRIP.zf);
+  flash.position.copy(fq.pos); flash.quaternion.copy(fq.q);
+  spot.position.set(0, 0, 0.0845); spot.target.position.set(0, 0, 1); flash.add(spot, spot.target);
+  spill.position.set(0, 0.0, 0.07); flash.add(spill);
+  cone = makeCone(); cone.position.z = 0.085; flash.add(cone);
+  dust = makeDust(); scene.add(dust);
+  can = makeCan(); L.bones[1].add(can); can.visible = false;
+  vmMats = [];
+  const collect = (o, g) => o.traverse((x) => { if (x.material && !x.material.isShaderMaterial && !x.material.isMeshBasicMaterial && !x.isPoints) vmMats.push([x.material, g]); });
+  collect(flash, 0.55); collect(can, 0.3);
+  vmMats.push([R.mesh.material, 0.1], [L.mesh.material, 0.1], [mats.sleeve, 0.06]);
+  orbit = new OrbitControls(camera, renderer.domElement);
+  orbit.enableDamping = true; orbit.minDistance = 0.14; orbit.maxDistance = 0.85; orbit.enabled = false;
+  definePoses();
+  setPose('default');
+  for (const k of ['R', 'L']) { cur[k] = copyState(POSES.default[k]); trans[k] = null; }
+  setView('game'); setLevel('mid');
+  document.querySelectorAll('[data-pose]').forEach((b) => b.addEventListener('click', () => { auto = false; $('#auto').classList.remove('on'); setPose(b.dataset.pose); }));
+  document.querySelectorAll('[data-level]').forEach((b) => b.addEventListener('click', () => setLevel(b.dataset.level)));
+  document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+  $('#auto').addEventListener('click', () => { auto = !auto; autoT = 0; $('#auto').classList.toggle('on', auto); });
+  $('#loading').classList.add('hide');
+  let last = performance.now();
+  const loop = (now) => {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!window.__NOLOOP) { frame(dt); composer.render(); }
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+  window.__H = {
+    setPose, setLevel, setView, look, camera, R, L, POSES, orbit, rig,
+    step(n = 1, dt = 1 / 30) { for (let i = 0; i < n; i++) frame(dt); composer.render(); },
+    get pose() { return poseName; },
+  };
+  window.__READY = true;
+}
+setTimeout(boot, 30);
