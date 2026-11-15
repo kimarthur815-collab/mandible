@@ -13,6 +13,7 @@ GitHub Pages를 켜면 아래 주소에서 바로 열린다.
 | --- | --- |
 | 게임 맵 (현재 개발 중인 본편) | https://kimarthur815-collab.github.io/mandible/ |
 | 바퀴벌레 미리보기 | https://kimarthur815-collab.github.io/mandible/roach.html |
+| 공장 외관 미리보기 | https://kimarthur815-collab.github.io/mandible/factory.html |
 | 지네 미리보기 | https://kimarthur815-collab.github.io/mandible/centipede.html |
 | 거미 미리보기 | https://kimarthur815-collab.github.io/mandible/spider.html |
 

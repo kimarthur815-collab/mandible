@@ -11,6 +11,7 @@ const PAGES = {
   centipede: ['src/main_centipede.js',  'templates/centipede.html', 'docs/centipede.html'],
   spider:    ['src/main_spider.js',     'templates/spider.html',    'docs/spider.html'],
   hands:     ['src/hands/main_hands.js', 'templates/hands.html',     'docs/hands.html'],
+  factory:   ['src/main_factory.js',    'templates/factory.html',   'docs/factory.html'],
 };
 
 async function page(name) {
