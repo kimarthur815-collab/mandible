@@ -4,12 +4,18 @@
 // Webs across the corridor and the lab door slow you, shake, and call the nearest spider.
 import * as THREE from 'three';
 import { Spider } from '../spider.js';
-import { Thread, makeDoorWeb } from '../silk.js';
+import { Thread, makeDoorWeb, sagLine, segmentsGeometry } from '../silk.js';
 
 const V3 = THREE.Vector3;
 
+// The ghost spider no longer ambushes from above: it sleeps on the corridor ceiling and
+// single, nearly invisible threads strung across the corridor at head height wake it.
+// Crouch under them. Snap one and it comes down and chases you, flicking between the
+// walls and the floor.
+const CORR = { wx0: 16.8, wx1: 20.2, z0: 20.4, z1: 45.6, ceil: 4.0 };
+const TRIP_Z = [23.6, 27.2, 30.8, 34.2, 37.6, 42.6];
 const ZONES = [
-  { type: 'ghost', scale: 2.05, ceil: 4.0, bounds: { x0: 17.0, x1: 20.0, z0: 20.8, z1: 45.2 }, spots: [[18.5, 26.5, 0.2], [18.3, 31.0, 3.0], [18.7, 35.0, 1.4]] },
+  { type: 'ghost', mode: 'trip', scale: 2.05, ceil: 4.0, bounds: { x0: 17.0, x1: 20.0, z0: 20.8, z1: 45.2 }, spots: [[18.5, 29.0, 0.2], [18.3, 32.4, 3.0], [18.7, 35.8, 1.4]] },
   { type: 'wolf', scale: 2.35, ceil: 8.0, bounds: { x0: -5.2, x1: 23.2, z0: 46.8, z1: 69.2 }, spots: [[7.2, 55.5, 0.4], [7.2, 61.0, 2.6], [-3.6, 58.0, 1.6], [12.4, 49.3, 4.2]] },
 ];
 
@@ -25,13 +31,20 @@ export class MapSpiders {
       scene.add(s.root);
       const th = new Thread(silk);
       scene.add(th.line);
-      return { ...z, s, th, grabbed: false, fallT: 0 };
+      if (z.mode === 'trip') s.noAmbush = true;
+      return { ...z, s, th, grabbed: false, fallT: 0, g: null };
     });
-    // webs: one across the corridor, one in the lab doorway
-    this.webs = [
-      this.makeWeb({ x: 18.5, z: 38.0, axis: 'z', halfW: 1.72, h: 3.95 }),
-      this.makeWeb({ x: -6.0, z: 57.5, axis: 'x', halfW: 1.5, h: 3.0 }),
-    ];
+    this.ghost = this.spiders.find((sp) => sp.mode === 'trip');
+    // the web in the lab doorway (wolf spider's alarm)
+    this.webs = [this.makeWeb({ x: -6.0, z: 57.5, axis: 'x', halfW: 1.5, h: 3.0 })];
+    // tripwire threads across the corridor
+    this.trips = TRIP_Z.map((z) => {
+      const mat = this.silk.clone();
+      const mesh = new THREE.LineSegments(new THREE.BufferGeometry(), mat);
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      return { z, mat, mesh, a: new V3(), b: new V3(), state: 'whole', seen: false };
+    });
     this.reset();
   }
 
@@ -53,6 +66,177 @@ export class MapSpiders {
       sp.home = { x, z, yaw };
     }
     for (const w of this.webs) { w.state = 'whole'; w.alpha = 1; w.shake = 0; w.mesh.visible = true; w.mesh.scale.set(1, 1, 1); }
+    // threads: a slightly different slant every run, always between a crouching and a standing head
+    for (const t of this.trips) {
+      const dz = (Math.random() - 0.5) * 0.9;
+      t.a.set(CORR.wx0 + 0.02, 1.3 + Math.random() * 0.22, t.z - dz / 2);
+      t.b.set(CORR.wx1 - 0.02, 1.3 + Math.random() * 0.22, t.z + dz / 2);
+      t.state = 'whole'; t.seen = false;
+      this.setThreadGeo(t);
+    }
+    const gh = this.ghost;
+    if (gh) { gh.g = null; gh.s.state = 'ceiling'; }
+  }
+
+  setThreadGeo(t) {
+    const segs = [];
+    if (t.state === 'whole') sagLine(t.a, t.b, 0.035, 14, segs);
+    else {
+      // snapped: two loose ends hanging from the walls
+      for (const [p, q] of [[t.a, t.b], [t.b, t.a]]) {
+        const end = p.clone().lerp(q, 0.22); end.y -= 0.85;
+        sagLine(p, end, -0.05, 6, segs);
+      }
+    }
+    t.mesh.geometry.dispose();
+    t.mesh.geometry = segmentsGeometry(segs);
+  }
+
+  // does a body standing at (x, z) with its head at headY touch a thread?
+  threadAt(p, headY) {
+    for (const t of this.trips) {
+      if (t.state !== 'whole') continue;
+      const ax = t.a.x, az = t.a.z, bx = t.b.x - ax, bz = t.b.z - az;
+      const u = THREE.MathUtils.clamp(((p.x - ax) * bx + (p.z - az) * bz) / (bx * bx + bz * bz), 0, 1);
+      const cx = ax + bx * u, cz = az + bz * u;
+      if (Math.hypot(p.x - cx, p.z - cz) > 0.3) continue;
+      const y = t.a.y + (t.b.y - t.a.y) * u - 0.035 * 4 * u * (1 - u);
+      if (headY > y) return t;
+    }
+    return null;
+  }
+
+  snapThread(t) {
+    t.state = 'snapped';
+    this.setThreadGeo(t);
+    if (this.ghost) this.wakeGhost(this.ghost);
+  }
+
+  // ---------------------------------------------------------------- the ghost spider's chase
+  wakeGhost(sp) {
+    const s = sp.s;
+    if (sp.g && sp.g.phase !== 'sleep') { sp.g.chaseT = 0; return false; }
+    if (s.state !== 'ceiling' && s.state !== 'crawl') return false;
+    const top = s.bodyWorld;
+    sp.g = { phase: 'descend', t: 0, top, anchor: s.root.position.clone(), ceilQ: s.root.quaternion.clone(), surf: 'floor', h: 0, hT: 1.4, switchT: 1.2, burst: 0, go: true, speed: 0,
+      cowerT: 0, cowerCd: 0, hits: 0, hitDecay: 0, chaseT: 0, outT: 0, giveup: false, seed: Math.random() * 10, pos: new V3(top.x, 0, top.z), yaw: s.yaw || 0 };
+    s.state = 'descend';
+    s.anchor.copy(sp.g.anchor);
+    this.onWake && this.onWake(sp);
+    return true;
+  }
+
+  // surface frame: up = wall/floor normal, forward = heading on that surface
+  surfQuat(n, f) {
+    const Y = n.clone().normalize(), Z = f.clone().addScaledVector(Y, -f.dot(Y));
+    if (Z.lengthSq() < 1e-6) Z.set(0, 0, 1).addScaledVector(Y, -Y.z);
+    Z.normalize();
+    const X = new V3().crossVectors(Y, Z);
+    return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z));
+  }
+
+  updateGhost(sp, ctx) {
+    const s = sp.s, g = sp.g, dt = ctx.dt, P = ctx.player;
+    g.t += dt;
+    if (g.phase === 'descend') {
+      // drops on its line, spinning, then lands on the floor
+      const k = Math.min(1, g.t / 0.85), e = k * k;
+      const floorBody = new V3(g.top.x, s.P.H * s.root.scale.y, g.top.z);
+      const p = g.top.clone().lerp(floorBody, e);
+      const hang = this.surfQuat(new V3(0, 1, 0), new V3(Math.sin(g.yaw), 0, Math.cos(g.yaw)));
+      const q = g.ceilQ.clone().slerp(hang, Math.min(1, k * 1.6)).premultiply(new THREE.Quaternion().setFromAxisAngle(new V3(0, 1, 0), Math.PI * 3 * k * (1 - k)));
+      s.setBodyAt(p, q);
+      s.speed = 0;
+      s.update(dt, { light: ctx.light, cam: ctx.cam, bounds: sp.bounds });
+      sp.th.set(g.anchor, s.spinneretWorld(), true);
+      if (k >= 1) { g.phase = 'chase'; g.surf = 'floor'; g.pos.set(g.top.x, 0, g.top.z); g.q = hang; s.state = 'chase'; }
+      return;
+    }
+    sp.th.set(g.anchor, s.spinneretWorld(), false);
+    const W0 = CORR.wx0 + 0.02, W1 = CORR.wx1 - 0.02;
+    const inCorr = P.x > CORR.wx0 - 0.2 && P.x < CORR.wx1 + 0.2 && P.z > CORR.z0 - 0.3 && P.z < CORR.z1 + 0.3;
+    const body = s.bodyWorld, dCam = body.distanceTo(ctx.cam), dP = Math.hypot(P.x - g.pos.x, P.z - g.pos.z);
+    if (g.phase === 'chase') {
+      g.chaseT += dt;
+      g.outT = inCorr ? 0 : g.outT + dt;
+      if (dP > 15 || g.chaseT > 15 || g.outT > 2 || !ctx.alive) { g.phase = 'giveup'; g.giveup = true; }
+    }
+    // the beam makes it flinch, a bit less each time
+    g.cowerCd -= dt; g.hitDecay += dt;
+    if (g.hitDecay > 6 && g.hits > 0) { g.hits--; g.hitDecay = 0; }
+    let lit = false;
+    if (ctx.light.on && g.phase === 'chase') { const v = body.clone().sub(ctx.light.pos), d = v.length(); lit = d < 14 && v.dot(ctx.light.dir) / d > Math.cos(0.32); }
+    if (lit && g.cowerT <= 0 && g.cowerCd <= 0) {
+      g.cowerT = [1.5, 1.1, 0.7, 0.5][Math.min(3, g.hits)]; g.hits++; g.hitDecay = 0; g.cowerCd = g.cowerT + 0.9; s.whirl = 1.2;
+      this.onCower && this.onCower(sp);
+    }
+    g.cowerT -= dt;
+    s.cower = THREE.MathUtils.lerp(s.cower, g.cowerT > 0 ? 1 : 0.15, 1 - Math.exp(-dt * 8));
+    // jerky rhythm: bursts and dead stops
+    g.burst -= dt;
+    if (g.burst <= 0) { g.go = Math.random() < 0.8; g.burst = g.go ? 0.35 + Math.random() * 0.8 : 0.1 + Math.random() * 0.3; }
+    let speed = g.cowerT > 0 ? 0 : g.go ? 4.4 : 0.3;
+    if (g.giveup) speed = 3.2;
+    // pick a surface: floor <-> walls
+    g.switchT -= dt;
+    const tz = THREE.MathUtils.clamp(P.z, CORR.z0 + 0.4, CORR.z1 - 0.4);
+    if (g.giveup) { if (g.surf === 'floor') g.want = g.pos.x < 18.5 ? 'west' : 'east'; else g.want = g.surf; g.hT = 3.7; }
+    else if (g.switchT <= 0) {
+      g.switchT = 1.1 + Math.random() * 1.7;
+      g.want = g.surf === 'floor' ? (Math.random() < 0.5 ? 'west' : 'east') : (Math.random() < 0.75 ? 'floor' : g.surf);
+      g.hT = 0.9 + Math.random() * 1.6;
+    }
+    if (!g.want) g.want = 'floor';
+    // close in: always come down for the last couple of metres
+    if (!g.giveup && dP < 2.6) g.want = 'floor';
+    let n = new V3(0, 1, 0), fwd = new V3();
+    if (g.surf === 'floor') {
+      let tx = THREE.MathUtils.clamp(P.x, W0 + 0.3, W1 - 0.3), tzz = tz;
+      if (g.want === 'west') tx = W0; else if (g.want === 'east') tx = W1;
+      const dx = tx - g.pos.x, dzz = tzz - g.pos.z, L = Math.hypot(dx, dzz) || 1;
+      fwd.set(dx / L, 0, dzz / L);
+      if (g.want !== 'floor') { fwd.x += Math.sign(dx) * 0.8; fwd.normalize(); }
+      g.yaw = Math.atan2(fwd.x, fwd.z) + Math.sin(g.t * 9 + g.seed) * 0.25;
+      fwd.set(Math.sin(g.yaw), 0, Math.cos(g.yaw));
+      g.pos.addScaledVector(fwd, speed * dt);
+      g.pos.x = THREE.MathUtils.clamp(g.pos.x, W0, W1); g.pos.z = THREE.MathUtils.clamp(g.pos.z, CORR.z0, CORR.z1);
+      if (g.want !== 'floor' && Math.abs(g.pos.x - (g.want === 'west' ? W0 : W1)) < 0.12) { g.surf = g.want; g.h = 0.02; }
+    } else {
+      const wx = g.surf === 'west' ? W0 : W1;
+      n.set(g.surf === 'west' ? 1 : -1, 0, 0);
+      const hT = g.want === 'floor' ? 0 : g.hT + Math.sin(g.t * 1.9 + g.seed) * 0.35;
+      const dh = hT - g.h, dzz = g.giveup ? 0 : tz - g.pos.z, L = Math.hypot(dh, dzz) || 1;
+      fwd.set(0, dh / L, dzz / L);
+      g.h = THREE.MathUtils.clamp(g.h + fwd.y * speed * 0.9 * dt, 0, 3.75);
+      g.pos.z = THREE.MathUtils.clamp(g.pos.z + fwd.z * speed * 0.9 * dt, CORR.z0, CORR.z1);
+      g.pos.x = wx;
+      if (g.want === 'floor' && g.h < 0.05) { g.pos.x = g.surf === 'west' ? W0 + 0.15 : W1 - 0.15; g.surf = 'floor'; }
+      if (g.giveup && g.h > 3.6) {
+        // back over the top onto the ceiling, and crawl home to sleep
+        s.placeOnCeiling(THREE.MathUtils.clamp(wx + n.x * 0.4, sp.bounds.x0, sp.bounds.x1), g.pos.z, g.pos.z < sp.home.z ? 0 : Math.PI, sp.ceil);
+        s.callTo(sp.home.x, sp.home.z, sp.bounds);
+        sp.g = null;
+        return;
+      }
+    }
+    const surfPt = g.surf === 'floor' ? new V3(g.pos.x, 0, g.pos.z) : new V3(g.pos.x, g.h, g.pos.z);
+    const q = this.surfQuat(n, fwd.lengthSq() > 0 ? fwd : new V3(0, 0, 1));
+    g.q = (g.q || q).clone().slerp(q, 1 - Math.exp(-dt * 10));
+    s.root.position.copy(surfPt);
+    s.root.quaternion.copy(g.q);
+    s.speed = speed;
+    s.state = 'chase';
+    s.update(dt, { light: ctx.light, cam: ctx.cam, bounds: sp.bounds });
+    if (!g.giveup && g.cowerT <= 0 && dCam < 1.3 && ctx.alive && !ctx.god && !ctx.safe) { s.caught = true; sp.grabbed = true; sp.grabK = 0; ctx.onCatch && ctx.onCatch(sp); }
+  }
+
+  // after a grab or a spray knock-down the ghost scurries off and climbs back to sleep
+  ghostRetreat(sp) {
+    const s = sp.s, b = s.bodyWorld;
+    sp.grabbed = false; s.caught = false;
+    const g = sp.g || {};
+    sp.g = Object.assign(g, { phase: 'giveup', giveup: true, t: 0, surf: 'floor', pos: new V3(THREE.MathUtils.clamp(b.x, CORR.wx0 + 0.3, CORR.wx1 - 0.3), 0, THREE.MathUtils.clamp(b.z, CORR.z0, CORR.z1)), h: 0, hT: 3.7, burst: 0, go: true, cowerT: 0, cowerCd: 0, hits: 0, hitDecay: 0, chaseT: 0, outT: 0, seed: Math.random() * 10, yaw: 0, switchT: 9, want: b.x < 18.5 ? 'west' : 'east', q: null, anchor: g.anchor || s.root.position.clone() });
+    s.state = 'chase';
   }
 
   // the web whose plane you are walking through, if any
@@ -77,8 +261,13 @@ export class MapSpiders {
   // ctx: { dt, cam, light, safe, frozen, onFirstLit, onDrop, onCatch, onWebHit, onWebLit, onRetract }
   update(ctx) {
     const { dt } = ctx;
+    this.onWake = ctx.onWake; this.onCower = ctx.onCower;
     for (const sp of this.spiders) {
       const s = sp.s;
+      if (sp.mode === 'trip' && sp.g && !sp.grabbed && s.state !== 'fallen') {
+        if (!ctx.frozen) this.updateGhost(sp, { ...ctx, player: ctx.playerPos });
+        continue;
+      }
       if (ctx.frozen && (s.state === 'ceiling' || s.state === 'crawl')) { s.cooldown = Math.max(s.cooldown, 0.3); }
       if (ctx.safe) s.cooldown = Math.max(s.cooldown, 0.25);           // nothing drops into a lit safe zone
       if (s.state === 'fallen') {
@@ -89,8 +278,11 @@ export class MapSpiders {
         s.setBodyAt(p, sp.fallQ);
         s.time += dt; s.root.updateMatrixWorld(true); s.body.updateMatrix();
         s.updateGait(dt, true); s.updateLegs(s.time, true);
-        if (sp.fallT <= 0) { s.state = 'retract'; s.st = 0; s.retractFrom = s.bodyWorld; s.retractQ = s.root.quaternion.clone(); s.caught = false; }
-        sp.th.set(s.anchor, s.spinneretWorld(), true);
+        if (sp.fallT <= 0) {
+          if (sp.mode === 'trip') { this.ghostRetreat(sp); continue; }
+          s.state = 'retract'; s.st = 0; s.retractFrom = s.bodyWorld; s.retractQ = s.root.quaternion.clone(); s.caught = false;
+        }
+        sp.th.set(s.anchor, s.spinneretWorld(), sp.mode !== 'trip');
         continue;
       }
       if (!s.onCatch) {
@@ -115,6 +307,15 @@ export class MapSpiders {
         s.update(dt, { light: ctx.light, cam: ctx.cam, bounds: sp.bounds });
       }
       sp.th.set(s.anchor, s.spinneretWorld(), s.threadVisible || sp.grabbed);
+    }
+    for (const t of this.trips) {
+      for (const k of ['uSpotPos', 'uSpotDir', 'uCosO', 'uCosI', 'uKey', 'uKeyOn']) t.mat.uniforms[k].value = this.silk.uniforms[k].value;
+      t.mat.uniforms.uOn.value = this.silk.uniforms.uOn.value * (t.state === 'whole' ? 0.8 : 0.5);
+      t.mat.uniforms.uAmb.value = this.silk.uniforms.uAmb.value;
+      if (!t.seen && t.state === 'whole' && ctx.light.on) {
+        const mid = t.a.clone().lerp(t.b, 0.5), v = mid.sub(ctx.light.pos), d = v.length();
+        if (d < 6 && v.dot(ctx.light.dir) / d > Math.cos(0.3)) { t.seen = true; ctx.onThreadLit && ctx.onThreadLit(t); }
+      }
     }
     // webs: light them to see them, walk into them and they shake
     for (const w of this.webs) {
@@ -155,7 +356,7 @@ export class MapSpiders {
     }
     for (const sp of this.spiders) {
       const s = sp.s;
-      const hanging = sp.grabbed || ['drop', 'hang', 'swing', 'caught'].includes(s.state);
+      const hanging = sp.grabbed || ['drop', 'hang', 'swing', 'caught', 'chase', 'descend'].includes(s.state);
       if (!hanging) continue;
       if (sp.grabbed || inCone(s.bodyWorld)) { this.knockDown(sp, origin); res.spiders.push(sp); }
     }
@@ -178,6 +379,7 @@ export class MapSpiders {
 
   // you broke free by struggling: it lets go and pulls itself back up
   release(sp) {
+    if (sp.mode === 'trip') { this.ghostRetreat(sp); return; }
     sp.grabbed = false; sp.s.caught = false;
     sp.s.startRetract();
     sp.s.cooldown = 5;
@@ -187,11 +389,14 @@ export class MapSpiders {
   dropNow(cam) {
     const sp = this.nearestSpider(cam.x, cam.z);
     if (!sp) return;
+    if (sp.mode === 'trip') { this.wakeGhost(sp); return; }
     const s = sp.s;
     if (s.state !== 'ceiling') s.placeOnCeiling(s.root.position.x, s.root.position.z, s.yaw, sp.ceil);
     s.root.position.x = cam.x + 0.6; s.root.position.z = cam.z + 0.6;
     s.startDrop(cam);
   }
 
-  states() { return this.spiders.map((sp) => (sp.grabbed ? 'grab' : sp.s.state)); }
+  states() { return this.spiders.map((sp) => (sp.grabbed ? 'grab' : sp.mode === 'trip' && sp.g ? sp.g.phase : sp.s.state)); }
+  // where the chasing ghost is (for its footsteps)
+  ghostInfo() { const g = this.ghost && this.ghost.g; return g && g.phase !== 'descend' ? { x: g.pos.x, y: g.surf === 'floor' ? 0.1 : g.h, z: g.pos.z, speed: this.ghost.s.speed || 0 } : null; }
 }

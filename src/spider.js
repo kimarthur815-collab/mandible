@@ -307,7 +307,7 @@ export class Spider {
       this.cower = lerp(this.cower, lit ? 1 : 0, 1 - Math.exp(-dt * 6));
       if (!wolf && lit && this.whirl <= 0 && this.litTime < 0.1) this.whirl = 1.4;
       if (this.litTime > 3) this.startCrawl(ctx);
-      else if (!lit && this.cooldown <= 0) {
+      else if (!lit && this.cooldown <= 0 && !this.noAmbush) {
         const p = this.root.position;
         if (Math.hypot(cam.x - p.x, cam.z - p.z) < 2.0 && cam.y < this.ceilY - 0.6) this.startDrop(cam);
       }
@@ -329,7 +329,7 @@ export class Spider {
     if (this.whirl > 0) this.whirl -= dt;
 
     // body pose
-    const air = this.state === 'drop' || this.state === 'hang' || this.state === 'swing' || this.state === 'retract' || this.state === 'fallen';
+    const air = this.state === 'drop' || this.state === 'hang' || this.state === 'swing' || this.state === 'retract' || this.state === 'fallen' || this.state === 'descend';
     const wh = Math.max(0, this.whirl) > 0 ? sstep(0, 0.3, this.whirl) : 0;
     this.body.position.set(
       0.03 * wh * Math.sin(t * 70),

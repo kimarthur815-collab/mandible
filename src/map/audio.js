@@ -278,7 +278,7 @@ export class Sound {
       const p = this.panner(x, 0.1, z, 1, 1.2); p.connect(this.amb);
       const s = this.ctx.createBufferSource(); s.buffer = this.skitBufs[Math.floor(Math.random() * 3)];
       const g = this.ctx.createGain(), now = this.ctx.currentTime, dur = rnd(0.6, 1.4);
-      g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.5, now + 0.1); g.gain.linearRampToValueAtTime(0, now + dur);
+      g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.25, now + 0.1); g.gain.linearRampToValueAtTime(0, now + dur);
       s.connect(g); g.connect(p); s.start(now, Math.random() * 1.5); s.stop(now + dur + 0.05);
     }
   }
@@ -317,14 +317,14 @@ export class Sound {
   // ------------------------------------------------------------ effects
   step(kind, side) {
     if (!this.ctx) return;
-    const g = kind === 'run' ? 0.7 : kind === 'crouch' ? 0.14 : 0.4;
-    const pan = side ? 0.15 : -0.15;
-    // grit on concrete + the heel
-    this.burst({ dur: kind === 'run' ? 0.09 : 0.07, f: rnd(1500, 2600), q: 0.9, gain: g * 0.7, pan });
-    this.burst({ dur: 0.05, f: rnd(5000, 7000), q: 1.5, gain: g * 0.18, t: 0.01, pan });
-    this.tone({ f0: kind === 'run' ? 110 : 90, f1: 45, dur: 0.07, gain: g * 0.8, pan });
+    const g = (kind === 'run' ? 0.55 : kind === 'crouch' ? 0.12 : 0.32) * rnd(0.85, 1.1);
+    const pan = (side ? 0.12 : -0.12) + rnd(-0.03, 0.03);
+    // rubber boot on concrete: a soft heel thud, then the sole rolling and scuffing off
+    this.tone({ f0: rnd(70, 85) * (kind === 'run' ? 1.15 : 1), f1: 42, dur: 0.11, gain: g * 0.7, attack: 0.012, pan });
+    this.burst({ dur: 0.09, f: rnd(380, 520), q: 0.8, gain: g * 0.55, attack: 0.012, buf: this.brown, pan });
+    this.burst({ t: rnd(0.03, 0.05), dur: kind === 'run' ? 0.1 : 0.13, f: rnd(900, 1300), q: 0.6, gain: g * 0.22, attack: 0.025, pan });
     // the suit rustles with each step
-    if (kind !== 'crouch') this.burst({ dur: 0.12, f: 4200, q: 0.7, gain: g * 0.12, t: 0.02, buf: this.white, pan: -pan });
+    if (kind !== 'crouch') this.burst({ dur: 0.14, f: 3200, q: 0.6, gain: g * 0.07, t: 0.03, attack: 0.03, buf: this.white, pan: -pan });
   }
 
   click(on) {
@@ -336,16 +336,16 @@ export class Sound {
 
   shakeOff() {
     if (!this.ctx) return;
-    this.burst({ dur: 0.35, f: 3500, q: 0.6, gain: 0.5, attack: 0.02 });
-    this.burst({ t: 0.08, dur: 0.25, f: 5200, q: 0.8, gain: 0.3, attack: 0.01 });
+    this.burst({ dur: 0.35, f: 3500, q: 0.6, gain: 0.32, attack: 0.02 });
+    this.burst({ t: 0.08, dur: 0.25, f: 5200, q: 0.8, gain: 0.18, attack: 0.01 });
     this.tone({ t: 0.32, f0: 160, f1: 70, dur: 0.06, gain: 0.25 });
     this.burst({ t: 0.33, dur: 0.05, f: 2500, q: 2, gain: 0.25 });
   }
 
   attach() {
     if (!this.ctx) return;
-    this.burst({ dur: 0.18, f: 4500, q: 0.8, gain: 0.45, attack: 0.005 });
-    this.tone({ f0: 220, f1: 90, dur: 0.08, gain: 0.25 });
+    this.burst({ dur: 0.18, f: 4500, q: 0.8, gain: 0.25, attack: 0.005 });
+    this.tone({ f0: 220, f1: 90, dur: 0.08, gain: 0.16 });
   }
 
   // something flew at your face
@@ -359,7 +359,7 @@ export class Sound {
     // the wings
     const p = this.panner(x, y, z, 0.6, 1.4); p.connect(this.sfx);
     const l = this.loop(this.buzzBuf, p, 0, 1);
-    l.g.gain.setValueAtTime(0, now); l.g.gain.linearRampToValueAtTime(1.0, now + 0.15);
+    l.g.gain.setValueAtTime(0, now); l.g.gain.linearRampToValueAtTime(0.7, now + 0.15);
     this.flyerSrc = { ...l, p };
   }
   flyerAt(x, y, z) { if (this.flyerSrc) this.setPos(this.flyerSrc.p, x, y, z); }
@@ -431,6 +431,14 @@ export class Sound {
     const f = this.burst({ t: 0.01, dur: 0.75, f: 5200, q: 0.5, gain: 0.55, attack: 0.03, pan: -0.25 });
     f.frequency.setValueAtTime(5200, this.ctx.currentTime); f.frequency.linearRampToValueAtTime(3800, this.ctx.currentTime + 0.8);
     this.burst({ t: 0.02, dur: 0.6, f: 9000, q: 0.7, gain: 0.25, attack: 0.04, type: 'highpass', pan: -0.25 });
+  }
+
+  threadSnap(x, y, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, y, z, 1, 1); p.connect(this.sfx);
+    this.tone({ dest: p, f0: 2600, f1: 1900, dur: 0.18, gain: 0.25 });
+    this.tone({ dest: p, f0: 5200, f1: 3800, dur: 0.08, gain: 0.08 });
+    this.burst({ dest: p, dur: 0.02, f: 6000, q: 2, gain: 0.25 });
   }
 
   creak(x, y, z) {
@@ -535,23 +543,23 @@ export class Sound {
       }
       const src = this.swarmSrc[i];
       this.setPos(src.p, w.x, 0.15, w.z);
-      src.g.gain.setTargetAtTime(Math.min(1.4, w.moving / 5) * 0.9 + (w.moving > 0 ? 0.04 : 0), now, 0.12);
+      src.g.gain.setTargetAtTime(Math.min(1, w.moving / 6) * 0.38 + (w.moving > 0 ? 0.02 : 0), now, 0.12);
     });
     // the closest roach gets its own crisp skitter
     if (!this.nearSrc) {
       const pn = this.panner(0, 0.1, 0, 0.5, 1.6); pn.connect(this.sfx);
       this.nearSrc = { ...this.loop(this.skitBufs[1], pn, 0, 1.25), p: pn };
     }
-    if (s.near && s.near.d < 3) { this.setPos(this.nearSrc.p, s.near.x, 0.1, s.near.z); this.nearSrc.g.gain.setTargetAtTime(0.5 * (1 - s.near.d / 3) * s.near.speed, now, 0.05); }
+    if (s.near && s.near.d < 3) { this.setPos(this.nearSrc.p, s.near.x, 0.1, s.near.z); this.nearSrc.g.gain.setTargetAtTime(0.22 * (1 - s.near.d / 3) * s.near.speed, now, 0.05); }
     else this.nearSrc.g.gain.setTargetAtTime(0, now, 0.1);
     // crawling on you
     if (!this.onMe) {
       this.onMe = { crinkle: this.loop(this.crinkleBuf, this.sfx, 0, 1), skit: this.loop(this.skitBufs[2], this.sfx, 0, 1.4) };
     }
     const a = Math.min(3, s.attached);
-    this.onMe.crinkle.g.gain.setTargetAtTime(a ? 0.35 + a * 0.15 : 0, now, 0.05);
-    this.onMe.skit.g.gain.setTargetAtTime(a ? 0.25 + a * 0.1 : 0, now, 0.05);
-    if (s.pounce) this.burst({ dur: 0.3, f: 5000, q: 0.7, gain: 0.25, attack: 0.03 });
+    this.onMe.crinkle.g.gain.setTargetAtTime(a ? 0.18 + a * 0.07 : 0, now, 0.05);
+    this.onMe.skit.g.gain.setTargetAtTime(a ? 0.1 + a * 0.05 : 0, now, 0.05);
+    if (s.pounce) this.burst({ dur: 0.3, f: 5000, q: 0.7, gain: 0.1, attack: 0.03 });
     // the centipede: faster ticks the faster it runs, so you can hear how close it is
     if (!this.tapSrc) { const pn = this.panner(0, 0.3, 0, 1.6, 1.0); pn.connect(this.sfx); this.tapSrc = { ...this.loop(this.tapBuf, pn, 0, 0.6), p: pn }; }
     if (s.centi) {
@@ -560,8 +568,12 @@ export class Sound {
       this.tapSrc.g.gain.setTargetAtTime(s.centi.speed > 0.2 ? 0.35 + v * 0.75 : 0, now, 0.08);
       this.tapSrc.s.playbackRate.setTargetAtTime(0.45 + v * 0.9, now, 0.1);
     } else this.tapSrc.g.gain.setTargetAtTime(0, now, 0.1);
+    // the ghost spider running at you: long legs ticking fast on concrete and tiles
+    if (!this.ghostSrc) { const pn = this.panner(0, 0.1, 0, 1.4, 1.1); pn.connect(this.sfx); this.ghostSrc = { ...this.loop(this.tapBuf, pn, 0, 1.4), p: pn }; }
+    if (s.ghost) { this.setPos(this.ghostSrc.p, s.ghost.x, s.ghost.y, s.ghost.z); this.ghostSrc.g.gain.setTargetAtTime(Math.min(1, s.ghost.speed / 4) * 0.35, now, 0.05); }
+    else this.ghostSrc.g.gain.setTargetAtTime(0, now, 0.1);
     if (!this.lingSrc) { const pn = this.panner(0, 0.1, 0, 1.2, 1.2); pn.connect(this.sfx); this.lingSrc = { ...this.loop(this.skitBufs[0], pn, 0, 1.5), p: pn }; }
-    if (s.lings && s.lings.moving) { this.setPos(this.lingSrc.p, s.lings.cx, 0.1, s.lings.cz); this.lingSrc.g.gain.setTargetAtTime(Math.min(1.2, s.lings.moving / 10), now, 0.1); }
+    if (s.lings && s.lings.moving) { this.setPos(this.lingSrc.p, s.lings.cx, 0.1, s.lings.cz); this.lingSrc.g.gain.setTargetAtTime(Math.min(0.7, s.lings.moving / 14), now, 0.1); }
     else this.lingSrc.g.gain.setTargetAtTime(0, now, 0.15);
 
     // chase music follows how close the hunt is

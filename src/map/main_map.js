@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as TX from '../textures.js';
 import { buildLevel, buildBugMarkers, ROOMS, DOORS, SPOTS, greyMat, boxGeom } from './level.js';
 import { Player } from './player.js';
-import { makeSilkMaterial, makeDoorWeb } from '../silk.js';
+import { makeSilkMaterial } from '../silk.js';
 import { RoachSwarms } from './roachswarm.js';
 import { Arms } from './arms.js';
 import { Sound } from './audio.js';
@@ -58,12 +58,6 @@ scene.add(nightEye);
 const NIGHT_K = 0.75;
 let adapt = 0, prevYaw = 0, prevPitch = 0, shakeKick = 0;
 const lensW = new THREE.Vector3();
-{
-  const web = makeDoorWeb(0.1, 1.9, 0, 1.95, 3.95, silk);
-  web.position.set(18.5, 0, 38);
-  web.frustumCulled = false;
-  scene.add(web);
-}
 
 // outside the shutter (seen once it opens)
 {
@@ -627,13 +621,18 @@ function frame(dtOverride) {
   let safeLamp = null;
   for (const l of lamps) if (l.on && Math.hypot(player.pos.x - l.x, player.pos.z - l.z) < 4.2) safeLamp = { x: l.x, z: l.z, r: 4.2 };
   spiders.update({
-    dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen,
+    dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god,
+    onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드리면 거미가 깬다', 'tripwake'); },
+    onCower: () => tip('빛을 비추면 잠깐 움츠린다', 'ghostlit'),
+    onThreadLit: () => tip('실이 쳐져 있다. 웅크려서 지나가라', 'trip'),
     onFirstLit: () => tip('거미는 위에서 기다린다. 천장을 비춰라', 'spiderlit'),
     onDrop: (sp) => sfx.creak(sp.s.root.position.x, sp.ceil - 0.3, sp.s.root.position.z),
     onCatch: (sp) => startGrab(sp),
     onWebLit: () => tip('스프레이로 거미줄을 녹일 수 있다', 'weblit'),
   });
   if (G.started && !G.dead && !G.grab) {
+    const tr = spiders.threadAt(player.pos, camera.position.y + 0.12);
+    if (tr) { spiders.snapThread(tr); sfx.threadSnap(player.pos.x, 1.4, player.pos.z); msg('실이 끊어졌다'); }
     const w = spiders.webAt(player.pos);
     if (w) {
       spiders.hitWeb(w, player.pos);
@@ -698,9 +697,10 @@ function frame(dtOverride) {
   if (fly.state === 'fly' || fly.state === 'face') { inten = 1; sfx.flyerAt(fly.pos.x, fly.pos.y, fly.pos.z); }
   if (centi.active) { const dC = Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z); if (centi.state === 'chase') inten = Math.max(inten, 0.65, 1 - dC / 20); }
   if (G.grab) inten = 1;
+  if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
   sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce,
-    centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.speed } : null, lings: lingInfo });
+    centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.speed } : null, lings: lingInfo, ghost: spiders.ghostInfo() });
   if (G.started && !G.scared && !dev.freeze && Math.hypot(player.pos.x - nests[0].x, player.pos.z - nests[0].z) < 7.5) { G.scared = true; swarms.jumpScare(camera, 0); }
   for (const a of G.attached) a.age += dt;
   // roaches on you: no damage, but they slow you down and crawl over your face until shaken off
