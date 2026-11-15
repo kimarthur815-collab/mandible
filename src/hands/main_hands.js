@@ -234,8 +234,8 @@ function makeDust() {
 // right hand power grip on the flashlight: the barrel runs obliquely across the palm, head out
 // past the thumb and index finger
 const GRIP = {
-  axis: new V3(-0.72, 0, -0.69).normalize(),       // tail -> lens, in the right hand's frame (a diagonal power grip)
-  at: new V3(0.004, -0.029, -0.069),              // barrel axis point, snug under the palm at the fingers' base
+  axis: new V3(-0.87, 0, -0.5).normalize(),        // tail -> lens, in the right hand's frame (30 degrees: the barrel lies under all four fingers)
+  at: new V3(0.004, -0.029, -0.074),              // barrel axis point, snug under the palm at the fingers' base
   zf: -0.03,                                       // where on the flashlight (its own z) that point is
 };
 function gripFrame(mir, axisZ, at, zf) {
@@ -287,8 +287,10 @@ function definePoses() {
   // (fingers press in a little, as a gloved hand squeezing would, so there's no air between them and the barrel)
   // the ring and little fingers squeeze harder and close in toward the middle finger, like a real fist
   const rightAng = solveGrip(R, fq.q, fq.pos, flashSDF, {
-    tol: [0.002, 0.002, 0.006, 0.007], skip0: 0.15, abd: [0.04, 0, 0.01, 0.0],
-    rate: [[1, 1.15, 0.85], [1, 1.15, 0.85], [1, 1.3, 1.3], [1, 1.35, 1.4]], thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
+    tol: [0.002, 0.002, 0.004, 0.005], skip0: 0.15, abd: [0.04, 0, 0.01, 0.0],
+    // the knuckle joints close first (as a hand really grips), so each finger's first segment lies along
+    // the barrel and there is no hollow under the ring and little fingers
+    rate: [[1, 1.15, 0.85], [1.4, 1.0, 0.8], [1.7, 0.9, 0.7], [1.8, 0.9, 0.7]], thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
   // The right hand holds the flashlight like the reference photo: the back of the hand faces right,
   // the fingers wrap round the barrel toward you, the thumb is on top and the head stands up out of
   // the fist. The forearm comes up from the lower right and runs straight into the hand.
@@ -311,10 +313,10 @@ function definePoses() {
     return { wrist, handQ: best.q, elbow: wrist.clone().addScaledVector(arm, 0.27), held: 'flash', ang: rightAng, tip: best.d };
   };
   const leftRelaxed = { wrist: new V3(-0.17, -0.15, -0.41), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.32, 0.02, -1), new V3(-0.25, 0.9, 0.35)), elbow: new V3(-0.3, -0.62, 0.0), held: null, ang: presetAngles('relaxed') };
-  const holding = () => rightHand(new V3(0.17, -0.12, -0.42), new V3(-0.08, -0.05, -1), new V3(0.95, 0.25, 0.25), 0.1, 25);
+  const holding = () => rightHand(new V3(0.17, -0.12, -0.42), new V3(-0.08, -0.2, -1), new V3(0.95, 0.25, 0.25), 0.1, 30);
   POSES.default = { R: holding(), L: leftRelaxed, light: true };
   // light off: the hand drops a little and the flashlight tips forward
-  POSES.off = { R: rightHand(new V3(0.18, -0.16, -0.42), new V3(-0.08, -0.2, -1), new V3(0.95, 0.25, 0.25), -0.3, 25), L: { ...leftRelaxed, wrist: new V3(-0.19, -0.185, -0.38) }, light: false };
+  POSES.off = { R: rightHand(new V3(0.18, -0.16, -0.42), new V3(-0.08, -0.35, -1), new V3(0.95, 0.25, 0.25), -0.3, 30), L: { ...leftRelaxed, wrist: new V3(-0.19, -0.185, -0.38) }, light: false };
   // left hand open, reaching to take hold of something
   POSES.use = {
     R: holding(),
