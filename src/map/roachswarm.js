@@ -109,10 +109,11 @@ export function buildRoachGeometry() {
   return g;
 }
 
-function makeMaterial(uTime) {
+function makeMaterial(uTime, uFace) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.36, metalness: 0.05, side: THREE.DoubleSide });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = uTime;
+    sh.uniforms.uFace = uFace;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute float aLeg; attribute vec3 aPivot; attribute float aDist;
@@ -120,7 +121,8 @@ function makeMaterial(uTime) {
         uniform float uTime;
         vec3 rotY(vec3 p, float a){ float c = cos(a), s = sin(a); return vec3(c*p.x + s*p.z, p.y, -s*p.x + c*p.z); }`)
       ;
-    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `{ float mx = max(max(outgoingLight.r, outgoingLight.g), outgoingLight.b); if (mx > 0.55) outgoingLight *= 0.55 / mx; }
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uFace;').replace('#include <opaque_fragment>', `outgoingLight += diffuseColor.rgb * uFace;
+      { float mx = max(max(outgoingLight.r, outgoingLight.g), outgoingLight.b); if (mx > 0.55) outgoingLight *= 0.55 / mx; }
       #include <opaque_fragment>`);
     sh.vertexShader = sh.vertexShader
       .replace('#include <begin_vertex>', `vec3 transformed = vec3(position);
@@ -169,7 +171,11 @@ export class RoachSwarms {
     geo.setAttribute('iPhase', this.iPhase);
     geo.setAttribute('iMove', this.iMove);
     geo.setAttribute('iSeed', new THREE.InstancedBufferAttribute(seeds, 1));
-    this.mesh = new THREE.InstancedMesh(geo, makeMaterial(this.uTime), total);
+    // uFace: an even fill for roaches on your face (overlay pass only), so the whole bug is readable
+    // instead of a lamp glinting off the end nearest your eye
+    this.uFace = { value: 0 }; this.faceAmb = 0;
+    this.mesh = new THREE.InstancedMesh(geo, makeMaterial(this.uTime, this.uFace), total);
+    this.mesh.onBeforeRender = () => { this.uFace.value = 0; };
     this.mesh.frustumCulled = false;
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(this.mesh);
@@ -181,6 +187,7 @@ export class RoachSwarms {
     og.setAttribute('iSeed', new THREE.InstancedBufferAttribute(new Float32Array([0.13, 0.57, 0.81, 0.33]), 1));
     this.overlay = new THREE.InstancedMesh(og, this.mesh.material, 4);
     this.overlay.frustumCulled = false;
+    this.overlay.onBeforeRender = () => { this.uFace.value = this.faceAmb; };
     this.overlay.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < 4; i++) this.overlay.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
     this.blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.34, 0.42).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, color: 0x000000, opacity: 0.7 }), total);

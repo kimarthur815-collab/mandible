@@ -190,8 +190,7 @@ export class Arms {
     this.bounce = new THREE.DirectionalLight(0xfff0dc, 0);   // light coming back off what the beam hits
     this.lampL = new THREE.DirectionalLight(0xffd29a, 0);
     this.lensL = new THREE.PointLight(0xfff2dc, 0, 0.3, 2);  // the beam's own glow on the fingers
-    this.faceL = new THREE.PointLight(0xffe6cc, 0, 0.6, 2);           // so a roach on your face is just readable
-    this.scene.add(this.hemi, this.bounce, this.bounce.target, this.lampL, this.lampL.target, this.lensL, this.faceL);
+    this.scene.add(this.hemi, this.bounce, this.bounce.target, this.lampL, this.lampL.target, this.lensL);
 
     const glove = new THREE.MeshPhysicalMaterial({ vertexColors: true, color: 0x4568c4, roughness: 0.4, clearcoat: 0.3, clearcoatRoughness: 0.45, sheen: 0.35, sheenColor: new THREE.Color(0x8aa8ff), sheenRoughness: 0.5, normalMap: nitrileNormal(), normalScale: new THREE.Vector2(0.4, 0.4) });
     glove.normalMap.repeat.set(3, 3);
@@ -354,9 +353,6 @@ export class Arms {
       this.lampL.target.position.copy(cam.position);
     }
     this.hemi.intensity = 0.04 + s.adapt * 0.1 + lampK * 0.6 + (s.bright ? 1.6 : 0);
-    const fT = s.faceLit ? 0.03 + (s.flashOn ? 0.015 : 0) : 0;
-    this.faceL.intensity += (fT - this.faceL.intensity) * Math.min(1, dt * 6);
-    this.faceL.position.copy(cam.localToWorld(this._v.set(0.02, 0.12, -0.08)));
   }
 
   // sleeve from elbow to wrist, glove cuff pulled over the end of it

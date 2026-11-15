@@ -101,6 +101,7 @@ function furOn(c, r, count, len, col, col2, rand, filter) {
 }
 
 const _x = new V3(), _y = new V3(), _z = new V3();
+const _fa = new V3(), _fb = new V3(), _fc = new V3();
 function placeSeg(mesh, p0, p1, up, len) {
   _y.subVectors(p1, p0);
   const d = _y.length() || 1e-6;
@@ -279,7 +280,7 @@ export class Spider {
     this.root.position.set(x, ceilY, z);
     this.ceilingQuat(yaw, this.root.quaternion);
     this.root.updateMatrixWorld(true);
-    for (const l of this.legs) { l.foot.copy(l.home).applyMatrix4(this.root.matrixWorld); l.stepping = false; }
+    for (const l of this.legs) { this.footTarget(l, 0, l.foot); l.stepping = false; }
     this.state = 'ceiling'; this.litTime = 0; this.cower = 0; this.cooldown = 1.5;
   }
 
@@ -430,7 +431,7 @@ export class Spider {
         this.root.position.copy(this.anchor);
         this.root.quaternion.copy(this.ceilQ);
         this.root.updateMatrixWorld(true);
-        for (const l of this.legs) { l.foot.copy(l.home).applyMatrix4(this.root.matrixWorld); l.stepping = false; }
+        for (const l of this.legs) { this.footTarget(l, 0, l.foot); l.stepping = false; }
         this.state = 'ceiling'; this.cooldown = 3.5; this.litTime = 0;
       }
     }
@@ -454,6 +455,25 @@ export class Spider {
   get threadVisible() { return this.state === 'drop' || this.state === 'hang' || this.state === 'swing' || this.state === 'retract' || this.state === 'caught'; }
   spinneretWorld() { return this.spinneret.clone().applyMatrix4(this.body.matrixWorld); }
 
+  // where a foot wants to go: its rest spot under the body; but if a wall, the floor or a box is
+  // in the way (or the rest spot hangs in the air, e.g. while rounding an edge) it grabs that
+  // surface instead, so legs reach onto a wall before the body gets there and never go through it
+  footTarget(l, cw, out, lead) {
+    out.copy(l.home).multiplyScalar(1 - 0.35 * cw).applyMatrix4(this.root.matrixWorld);
+    if (lead) out.add(lead);
+    if (!this.surf) return out;
+    const hipW = _fa.copy(l.hip).applyMatrix4(this.body.matrixWorld);
+    _fb.subVectors(out, hipW).multiplyScalar(1.15).add(hipW);
+    let hit = this.surf(hipW, _fb);
+    if (!hit) {
+      const up = _fc.set(0, 1, 0).applyQuaternion(this.root.quaternion);
+      _fa.copy(out).addScaledVector(up, 0.3); _fb.copy(out).addScaledVector(up, -0.9);
+      hit = this.surf(_fa, _fb);
+    }
+    if (hit) out.copy(hit.p).addScaledVector(hit.n, 0.012);
+    return out;
+  }
+
   updateGait(dt, air) {
     const sp = this.speed || 0;
     const homeW = new V3(), lift = new V3(0, 1, 0).applyQuaternion(this.root.quaternion);
@@ -475,7 +495,7 @@ export class Spider {
     for (const l of this.legs) if (l.stepping) busy[l.group] = true;
     const errs = [];
     for (const l of this.legs) {
-      homeW.copy(l.home).multiplyScalar(1 - 0.35 * cw).applyMatrix4(this.root.matrixWorld);
+      this.footTarget(l, cw, homeW);
       const e = l.foot.distanceTo(homeW);
       errs.push(e);
       if (!l.stepping && e > thr) want[l.group] = true;
@@ -486,9 +506,8 @@ export class Spider {
         this.lastGroup = g;
         this.legs.forEach((l, k) => {
           if (l.group !== g) return;
-          homeW.copy(l.home).multiplyScalar(1 - 0.35 * cw).applyMatrix4(this.root.matrixWorld);
+          this.footTarget(l, cw, homeW, sp > 0.05 ? fwd.clone().multiplyScalar(thr * 0.8) : null);
           l.from.copy(l.foot); l.to.copy(homeW);
-          if (sp > 0.05) l.to.addScaledVector(fwd, thr * 0.8);
           l.stepping = true; l.t = 0; l.dur = stepDur; l.lift = 0.06 + sp * 0.02;
         });
         break;
@@ -505,7 +524,7 @@ export class Spider {
     if (sp < 0.05 && Math.random() < dt * 1.5) {
       const l = this.legs[Math.floor(Math.random() * 8)];
       if (!l.stepping) {
-        homeW.copy(l.home).multiplyScalar(1 - 0.35 * cw).applyMatrix4(this.root.matrixWorld);
+        this.footTarget(l, cw, homeW);
         l.from.copy(l.foot); l.to.copy(homeW);
         l.stepping = true; l.t = 0; l.dur = 0.25; l.lift = 0.05;
       }

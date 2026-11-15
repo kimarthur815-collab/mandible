@@ -23,7 +23,7 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
+renderer.toneMappingExposure = 1.22;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 $('#app').appendChild(renderer.domElement);
 
@@ -164,6 +164,7 @@ shutter.castShadow = shutter.receiveShadow = true;
 scene.add(shutter);
 const shCol = { x0: -2.6, x1: 2.6, z0: 0.05, z1: 0.35 };
 colliders.push(shCol);
+spiders.setColliders(colliders);
 const indicators = [0, 1, 2].map((i) => {
   const m = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 10), new THREE.MeshStandardMaterial({ color: 0x200000, emissive: new THREE.Color(0xff2010), emissiveIntensity: 1.4 }));
   m.position.set(-0.6 + i * 0.6, 4.85, 0.45);
@@ -713,6 +714,7 @@ function frame(dtOverride) {
     if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); swarms.drop(a.r, player.pos, player.pos); msg('털어냈다'); sfx.shakeOff(); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
   }
   swarms.showAttached(camera, G.attached, dt, t);
+  { const on = G.attached.length > 0 || swarms.flyer.state === 'face', k = on ? (G.flashOn ? 0.3 : 0.22) : 0; swarms.faceAmb += (k - swarms.faceAmb) * Math.min(1, dt * 6); }
   $('#crawl').classList.toggle('show', G.attached.length > 0);
   $('#crawl').style.setProperty('--n', G.attached.length);
   $('#bShake').classList.toggle('show', G.attached.length > 0);

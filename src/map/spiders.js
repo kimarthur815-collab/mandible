@@ -14,6 +14,7 @@ const V3 = THREE.Vector3;
 // walls and the floor.
 const CORR = { wx0: 16.8, wx1: 20.2, z0: 20.4, z1: 45.6, ceil: 4.0 };
 const TRIP_Z = [23.6, 27.2, 30.8, 34.2, 37.6, 42.6];
+const GR = 0.38;   // how far the ghost's body sits from an edge when it rolls around it
 const ZONES = [
   { type: 'ghost', mode: 'trip', scale: 2.05, ceil: 4.0, bounds: { x0: 17.0, x1: 20.0, z0: 20.8, z1: 45.2 }, spots: [[18.5, 29.0, 0.2], [18.3, 32.4, 3.0], [18.7, 35.8, 1.4]] },
   { type: 'wolf', scale: 2.35, ceil: 8.0, bounds: { x0: -5.2, x1: 23.2, z0: 46.8, z1: 69.2 }, spots: [[7.2, 55.5, 0.4], [7.2, 61.0, 2.6], [-3.6, 58.0, 1.6], [12.4, 49.3, 4.2]] },
@@ -76,6 +77,34 @@ export class MapSpiders {
     }
     const gh = this.ghost;
     if (gh) { gh.g = null; gh.s.state = 'ceiling'; }
+  }
+
+  // walls, floor, ceiling and anything standing in the corridor, for the ghost's feet to grab
+  setColliders(cols) {
+    const sp = this.ghost;
+    if (!sp) return;
+    const boxes = cols.filter((c) => c.x1 > CORR.wx0 - 2.5 && c.x0 < CORR.wx1 + 2.5 && c.z1 > CORR.z0 - 2.5 && c.z0 < CORR.z1 + 2.5);
+    const floorY = 0, ceilY = CORR.ceil, UP = new V3(0, 1, 0), DN = new V3(0, -1, 0), NX = [new V3(-1, 0, 0), new V3(1, 0, 0)], NZ = [new V3(0, 0, -1), new V3(0, 0, 1)];
+    // first surface the segment a -> b runs into (entering from outside), or null
+    sp.s.surf = (a, b) => {
+      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+      let bt = 1, bn = null;
+      if (dy < 0 && a.y >= floorY) { const t = (floorY - a.y) / dy; if (t < bt) { bt = t; bn = UP; } }
+      if (dy > 0 && a.y <= ceilY) { const t = (ceilY - a.y) / dy; if (t < bt) { bt = t; bn = DN; } }
+      for (const c of boxes) {
+        let t0 = 0, t1 = bt, nn = null, ok = true;
+        for (const [o, d, lo, hi, N] of [[a.x, dx, c.x0, c.x1, NX], [a.z, dz, c.z0, c.z1, NZ]]) {
+          if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) { ok = false; break; } continue; }
+          const ta = (lo - o) / d, tb = (hi - o) / d;
+          const tin = Math.min(ta, tb), tout = Math.max(ta, tb);
+          if (tin > t0) { t0 = tin; nn = d > 0 ? N[0] : N[1]; }
+          if (tout < t1) t1 = tout;
+          if (t0 > t1) { ok = false; break; }
+        }
+        if (ok && nn && t0 < bt) { bt = t0; bn = nn; }
+      }
+      return bn ? { p: new V3(a.x + dx * bt, a.y + dy * bt, a.z + dz * bt), n: bn, t: bt } : null;
+    };
   }
 
   setThreadGeo(t) {
@@ -149,7 +178,7 @@ export class MapSpiders {
       s.speed = 0;
       s.update(dt, { light: ctx.light, cam: ctx.cam, bounds: sp.bounds });
       sp.th.set(g.anchor, s.spinneretWorld(), true);
-      if (k >= 1) { g.phase = 'chase'; g.surf = 'floor'; g.pos.set(g.top.x, 0, g.top.z); g.q = hang; s.state = 'chase'; }
+      if (k >= 1) { g.phase = 'chase'; g.surf = 'floor'; g.pos.set(THREE.MathUtils.clamp(g.top.x, CORR.wx0 + 0.02 + GR, CORR.wx1 - 0.02 - GR), 0, g.top.z); g.q = hang; s.state = 'chase'; }
       return;
     }
     sp.th.set(g.anchor, s.spinneretWorld(), false);
@@ -189,39 +218,66 @@ export class MapSpiders {
     if (!g.want) g.want = 'floor';
     // close in: always come down for the last couple of metres
     if (!g.giveup && dP < 2.6) g.want = 'floor';
-    let n = new V3(0, 1, 0), fwd = new V3();
+    // the body rolls around the inside of each edge (radius GR) instead of cutting through it
+    const cl = THREE.MathUtils.clamp, R = GR, CE = CORR.ceil, top = CE - R;
+    const n = new V3(0, 1, 0), fwd = new V3(), surfPt = new V3();
+    let exact = false;
     if (g.surf === 'floor') {
-      let tx = THREE.MathUtils.clamp(P.x, W0 + 0.3, W1 - 0.3), tzz = tz;
+      let tx = cl(P.x, W0 + R, W1 - R);
       if (g.want === 'west') tx = W0; else if (g.want === 'east') tx = W1;
-      const dx = tx - g.pos.x, dzz = tzz - g.pos.z, L = Math.hypot(dx, dzz) || 1;
+      const dx = tx - g.pos.x, dzz = tz - g.pos.z, L = Math.hypot(dx, dzz) || 1;
       fwd.set(dx / L, 0, dzz / L);
       if (g.want !== 'floor') { fwd.x += Math.sign(dx) * 0.8; fwd.normalize(); }
       g.yaw = Math.atan2(fwd.x, fwd.z) + Math.sin(g.t * 9 + g.seed) * 0.25;
       fwd.set(Math.sin(g.yaw), 0, Math.cos(g.yaw));
       g.pos.addScaledVector(fwd, speed * dt);
-      g.pos.x = THREE.MathUtils.clamp(g.pos.x, W0, W1); g.pos.z = THREE.MathUtils.clamp(g.pos.z, CORR.z0, CORR.z1);
-      if (g.want !== 'floor' && Math.abs(g.pos.x - (g.want === 'west' ? W0 : W1)) < 0.12) { g.surf = g.want; g.h = 0.02; }
-    } else {
-      const wx = g.surf === 'west' ? W0 : W1;
-      n.set(g.surf === 'west' ? 1 : -1, 0, 0);
-      const hT = g.want === 'floor' ? 0 : g.hT + Math.sin(g.t * 1.9 + g.seed) * 0.35;
-      const dh = hT - g.h, dzz = g.giveup ? 0 : tz - g.pos.z, L = Math.hypot(dh, dzz) || 1;
-      fwd.set(0, dh / L, dzz / L);
-      g.h = THREE.MathUtils.clamp(g.h + fwd.y * speed * 0.9 * dt, 0, 3.75);
-      g.pos.z = THREE.MathUtils.clamp(g.pos.z + fwd.z * speed * 0.9 * dt, CORR.z0, CORR.z1);
-      g.pos.x = wx;
-      if (g.want === 'floor' && g.h < 0.05) { g.pos.x = g.surf === 'west' ? W0 + 0.15 : W1 - 0.15; g.surf = 'floor'; }
-      if (g.giveup && g.h > 3.6) {
-        // back over the top onto the ceiling, and crawl home to sleep
-        s.placeOnCeiling(THREE.MathUtils.clamp(wx + n.x * 0.4, sp.bounds.x0, sp.bounds.x1), g.pos.z, g.pos.z < sp.home.z ? 0 : Math.PI, sp.ceil);
+      g.pos.x = cl(g.pos.x, W0 + R, W1 - R); g.pos.z = cl(g.pos.z, CORR.z0, CORR.z1);
+      if (g.want !== 'floor' && Math.abs(g.pos.x - (g.want === 'west' ? W0 + R : W1 - R)) < 0.03) { g.cn = { side: g.want, dir: 1, th: 0, type: 'low' }; g.surf = 'corner'; }
+      surfPt.set(g.pos.x, 0, g.pos.z);
+    } else if (g.surf === 'corner') {
+      const c = g.cn, sg = c.side === 'west' ? 1 : -1, wx = c.side === 'west' ? W0 : W1;
+      const dzz = g.giveup ? 0 : cl(tz - g.pos.z, -1, 1) * 0.5;
+      c.th = cl(c.th + c.dir * speed * 0.8 * dt / R, 0, Math.PI / 2);
+      g.pos.z = cl(g.pos.z + dzz * speed * dt, CORR.z0, CORR.z1);
+      const sn = Math.sin(c.th), cs = Math.cos(c.th);
+      let tx, ty;
+      if (c.type === 'low') {
+        // floor <-> wall, around the bottom edge
+        surfPt.set(wx + sg * (R - R * sn), R - R * cs, g.pos.z);
+        n.set(sg * sn, cs, 0);
+        tx = -sg * cs; ty = sn;
+      } else {
+        // wall -> ceiling, over the top edge
+        surfPt.set(wx + sg * (R - R * cs), CE - R + R * sn, g.pos.z);
+        n.set(sg * cs, -sn, 0);
+        tx = sg * sn; ty = cs;
+      }
+      fwd.set(tx * c.dir, ty * c.dir, dzz).normalize();
+      exact = true;
+      if (c.type === 'low' && c.dir > 0 && c.th >= Math.PI / 2) { g.surf = c.side; g.h = R; g.pos.x = wx; }
+      else if (c.type === 'low' && c.dir < 0 && c.th <= 0) { g.surf = 'floor'; g.pos.x = wx + sg * R; }
+      else if (c.type === 'top' && c.th >= Math.PI / 2) {
+        // up on the ceiling: crawl home and sleep
+        s.placeOnCeiling(wx + sg * R, g.pos.z, sg * Math.PI / 2, sp.ceil);
         s.callTo(sp.home.x, sp.home.z, sp.bounds);
         sp.g = null;
         return;
       }
+    } else {
+      const side = g.surf, sg = side === 'west' ? 1 : -1, wx = side === 'west' ? W0 : W1;
+      n.set(sg, 0, 0);
+      const hT = g.want === 'floor' ? R : g.giveup ? top : cl(g.hT + Math.sin(g.t * 1.9 + g.seed) * 0.35, R, top);
+      const dh = hT - g.h, dzz = g.giveup ? 0 : tz - g.pos.z, L = Math.hypot(dh, dzz);
+      if (L > 1e-4) fwd.set(0, dh / L, dzz / L); else fwd.set(0, 1, 0);
+      g.h = cl(g.h + fwd.y * speed * 0.9 * dt, R, top);
+      g.pos.z = cl(g.pos.z + fwd.z * speed * 0.9 * dt, CORR.z0, CORR.z1);
+      g.pos.x = wx;
+      if (g.want === 'floor' && g.h <= R + 0.01) { g.cn = { side, dir: -1, th: Math.PI / 2, type: 'low' }; g.surf = 'corner'; }
+      else if (g.giveup && g.h >= top - 0.01) { g.cn = { side, dir: 1, th: 0, type: 'top' }; g.surf = 'corner'; }
+      surfPt.set(wx, g.h, g.pos.z);
     }
-    const surfPt = g.surf === 'floor' ? new V3(g.pos.x, 0, g.pos.z) : new V3(g.pos.x, g.h, g.pos.z);
     const q = this.surfQuat(n, fwd.lengthSq() > 0 ? fwd : new V3(0, 0, 1));
-    g.q = (g.q || q).clone().slerp(q, 1 - Math.exp(-dt * 10));
+    g.q = exact || !g.q ? q : g.q.clone().slerp(q, 1 - Math.exp(-dt * 10));
     s.root.position.copy(surfPt);
     s.root.quaternion.copy(g.q);
     s.speed = speed;
@@ -235,7 +291,7 @@ export class MapSpiders {
     const s = sp.s, b = s.bodyWorld;
     sp.grabbed = false; s.caught = false;
     const g = sp.g || {};
-    sp.g = Object.assign(g, { phase: 'giveup', giveup: true, t: 0, surf: 'floor', pos: new V3(THREE.MathUtils.clamp(b.x, CORR.wx0 + 0.3, CORR.wx1 - 0.3), 0, THREE.MathUtils.clamp(b.z, CORR.z0, CORR.z1)), h: 0, hT: 3.7, burst: 0, go: true, cowerT: 0, cowerCd: 0, hits: 0, hitDecay: 0, chaseT: 0, outT: 0, seed: Math.random() * 10, yaw: 0, switchT: 9, want: b.x < 18.5 ? 'west' : 'east', q: null, anchor: g.anchor || s.root.position.clone() });
+    sp.g = Object.assign(g, { phase: 'giveup', giveup: true, t: 0, surf: 'floor', pos: new V3(THREE.MathUtils.clamp(b.x, CORR.wx0 + 0.02 + GR, CORR.wx1 - 0.02 - GR), 0, THREE.MathUtils.clamp(b.z, CORR.z0, CORR.z1)), h: 0, hT: 3.7, burst: 0, go: true, cowerT: 0, cowerCd: 0, hits: 0, hitDecay: 0, chaseT: 0, outT: 0, seed: Math.random() * 10, yaw: 0, switchT: 9, want: b.x < 18.5 ? 'west' : 'east', q: null, anchor: g.anchor || s.root.position.clone() });
     s.state = 'chase';
   }
 
