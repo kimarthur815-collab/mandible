@@ -295,12 +295,12 @@ function definePoses() {
   // the fingers wrap round the barrel toward you, the thumb is on top and the head stands up out of
   // the fist. The forearm comes up from the lower right and runs straight into the hand.
   const ARM_R = new V3(-0.02, -0.06, 1).normalize();          // where the forearm runs, in the hand's frame
-  const FPS_R = new V3(0.75, -0.55, 0.35).normalize();      // arms come in from the lower corner
+  const FPS_R = new V3(0.9, -0.4, 0.15).normalize();       // the right arm comes in from the side, reaching forward
   const rightHand = (grip, long, back, lift = 0.14, maxTip = 40) => {
     const q0 = frameQ(new V3(0, 0, -1), new V3(0, 1, 0), long.clone().normalize(), back.clone().normalize());
     const wrist = grip.clone().sub(GRIP.at.clone().applyQuaternion(q0));
     // the forearm runs straight into the untipped hand
-    const arm = ARM_R.clone().applyQuaternion(q0).lerp(FPS_R, 0.3).normalize();
+    const arm = ARM_R.clone().applyQuaternion(q0).lerp(FPS_R, 0.5).normalize();
     // then the wrist tips down (toward the little finger) until the flashlight points ahead
     const axis = new V3(0, 1, 0).applyQuaternion(q0);
     let best = null;
@@ -313,10 +313,12 @@ function definePoses() {
     return { wrist, handQ: best.q, elbow: wrist.clone().addScaledVector(arm, 0.27), held: 'flash', ang: rightAng, tip: best.d };
   };
   const leftRelaxed = { wrist: new V3(-0.17, -0.15, -0.41), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.32, 0.02, -1), new V3(-0.25, 0.9, 0.35)), elbow: new V3(-0.3, -0.62, 0.0), held: null, ang: presetAngles('relaxed') };
-  const holding = () => rightHand(new V3(0.18, -0.16, -0.42), new V3(-0.08, -0.5, -1), new V3(0.95, 0.25, 0.25), -0.3, 30);
+  // the right arm reaches out a little (the grip point further from the eye along the same line of sight)
+  const REACH = 1.2;
+  const holding = () => rightHand(new V3(0.15, -0.16, -0.42).multiplyScalar(REACH), new V3(-0.08, -0.5, -1), new V3(0.95, 0.25, 0.25), -0.3, 30);
   POSES.default = { R: holding(), L: leftRelaxed, light: true };
   // light off: the hand drops a little and the flashlight tips forward
-  POSES.off = { R: rightHand(new V3(0.185, -0.175, -0.415), new V3(-0.08, -0.6, -1), new V3(0.95, 0.25, 0.25), -0.4, 30), L: { ...leftRelaxed, wrist: new V3(-0.19, -0.185, -0.38) }, light: false };
+  POSES.off = { R: rightHand(new V3(0.155, -0.175, -0.415).multiplyScalar(REACH), new V3(-0.08, -0.6, -1), new V3(0.95, 0.25, 0.25), -0.4, 30), L: { ...leftRelaxed, wrist: new V3(-0.19, -0.185, -0.38) }, light: false };
   // left hand open, reaching to take hold of something
   POSES.use = {
     R: holding(),
