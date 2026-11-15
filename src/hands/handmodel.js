@@ -8,7 +8,7 @@ const clamp = THREE.MathUtils.clamp;
 
 // ------------------------------------------------------------------ geometry (right, and a mirrored left)
 let GEN = null;
-export function handData() { return GEN || (GEN = buildHand()); }
+export function handData(opt) { return GEN || (GEN = buildHand(opt)); }
 
 function gloveGeometry(H, mirror) {
   const n = H.pos.length / 3;

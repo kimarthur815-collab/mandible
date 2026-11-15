@@ -5,6 +5,7 @@ import { Player } from './player.js';
 import { makeSilkMaterial } from '../silk.js';
 import { RoachSwarms } from './roachswarm.js';
 import { Arms } from './arms.js';
+import { beamPattern, makeCone, beamNear } from '../hands/beam.js';
 import { Sound } from './audio.js';
 import { dressLevel } from './dressing.js';
 import { MapSpiders } from './spiders.js';
@@ -53,11 +54,12 @@ const mist = makeMist(scene);
 const sfx = new Sound();
 window.__SFX = sfx;
 let stepAcc = 0, stepSide = false;
-arms.scene.add(swarms.overlay);
+arms.addOverlay(swarms.overlay);
 // eyes getting used to the dark: with the light off, what is close slowly becomes faintly visible
 const nightEye = new THREE.PointLight(0x9db0cc, 0, 6.5, 1.6);
 scene.add(nightEye);
 const NIGHT_K = 0.75;
+const FLASH_I = 200;          // the flashlight's strength (turned down on close walls, see beamNear)
 let adapt = 0, prevYaw = 0, prevPitch = 0, shakeKick = 0;
 const lensW = new THREE.Vector3();
 
@@ -74,14 +76,18 @@ scene.add(dawn);
 // ------------------------------------------------------------------ lights
 const hemi = new THREE.HemisphereLight(0xdfe6ff, 0x3a3630, 0);
 scene.add(hemi);
-const cookie = TX.makeCookie(256);
 const flash = new THREE.SpotLight(0xffeedd, 0, 0, 0.5, 0.5, 2);
 flash.castShadow = true;
 flash.shadow.mapSize.set(touch ? 512 : 1024, touch ? 512 : 1024);
 flash.shadow.bias = -0.0004; flash.shadow.normalBias = 0.03;
 flash.shadow.camera.near = 0.2; flash.shadow.camera.far = 40;
-flash.map = cookie;
+flash.map = beamPattern();
 scene.add(flash, flash.target);
+// the shaft of light through the dusty air (as in the hands viewer)
+const shaft = makeCone();
+shaft.frustumCulled = false;
+scene.add(shaft);
+let nearK = 1;
 // spill: the soft halo around a real flashlight beam that lights things right in front of you
 const beamDir = new THREE.Vector3();
 const spill = new THREE.PointLight(0xffeedd, 0, 1.8, 2);
@@ -618,14 +624,20 @@ function frame(dtOverride) {
   arms.lensWorld(camera, hd, lensW);
   flash.position.copy(lensW);
   flash.target.position.copy(aimS);
-  flash.intensity = G.flashOn ? 115 * fl : 0;
+  // a wall right in front of you would go white: the beam is turned down the closer the wall is
+  nearK += (beamNear(hd) - nearK) * Math.min(1, dt * 10);
+  flash.intensity = G.flashOn ? FLASH_I * fl * nearK : 0;
   spill.position.copy(flash.position); spill.intensity = G.flashOn ? 0.2 * fl : 0;
+  shaft.position.copy(flash.position);
+  shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), beamDir.subVectors(aimS, flash.position).normalize());
+  shaft.material.uniforms.uK.value = G.flashOn ? 0.7 * fl : 0;
+  shaft.visible = G.flashOn;
   // dark adaptation: builds up over ~7 s with the light off, gone almost at once when it comes on
   adapt = G.flashOn ? Math.max(0, adapt - dt / 0.6) : Math.min(1, adapt + dt / 7);
   nightEye.position.copy(camera.position);
   nightEye.intensity = bright ? 0 : Math.pow(adapt, 1.5) * NIGHT_K;
   bounce.position.copy(camera.position).addScaledVector(fwd, Math.min(hd * 0.75, 4.5));
-  bounce.intensity = G.flashOn ? 2.2 * fl : 0;
+  bounce.intensity = G.flashOn ? 2.2 * fl * Math.min(1, nearK * 1.6) : 0;
   dress.update(dt, camera.position, flash.position, beamDir.subVectors(flash.target.position, flash.position).normalize(), G.flashOn ? fl : 0, renderer.domElement.height * 1.2);
   silk.uniforms.uSpotPos.value.copy(flash.position);
   silk.uniforms.uSpotDir.value.copy(fwd);
