@@ -204,7 +204,7 @@ function resetGame() {
   });
   swarms.reset(); swarms.sealed = new Set([3]); gate.setOpen(false); phantom.hide();
   spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
-  document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
+  document.body.classList.remove('grabbed'); $('#grab').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   player.place(SPOTS.start.x, SPOTS.start.z, SPOTS.start.yaw);
   for (const l of lamps) { l.on = false; l.burnt = false; l.t = 0; l.light.intensity = 0; l.bulb.material.emissive.set(0xffa24a); l.bulb.material.emissiveIntensity = 0; l.leverPivot.rotation.z = 0.6; }
@@ -280,6 +280,7 @@ el.addEventListener('click', () => {
   if (viaTouch() || !G.started) return;
   if (!locked && !freeLook) requestLock();
   else if (G.grab) mashGrab();
+  else if (G.attached.length) shakeTap();
   else toggleFlash();
 });
 document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === el; if (locked) { everLocked = true; freeLook = false; } });
@@ -301,6 +302,8 @@ const joy = { id: null, ox: 0, oy: 0, x: 0, y: 0 }, look = { id: null, x: 0, y: 
 const joyBase = $('#joy'), joyKnob = $('#joy i');
 el.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'touch') return;
+  if (G.grab) mashGrab();                 // caught or covered: tap anywhere on the screen
+  else if (G.attached.length) shakeTap();
   if (e.clientX < innerWidth * 0.45 && joy.id === null) {
     joy.id = e.pointerId; joy.ox = e.clientX; joy.oy = e.clientY; joy.x = 0; joy.y = 0;
     joyBase.style.left = `${e.clientX}px`; joyBase.style.top = `${e.clientY}px`; joyBase.classList.add('on');
@@ -335,7 +338,6 @@ bindHold('#bRun', 'run'); bindHold('#bUse', 'use');
 $('#bCrouch').addEventListener('pointerdown', (e) => { e.preventDefault(); hold.crouch = !hold.crouch; $('#bCrouch').classList.toggle('on', hold.crouch); });
 $('#bFlash').addEventListener('pointerdown', (e) => { e.preventDefault(); toggleFlash(); });
 $('#bSpray').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); useSpray(); });
-$('#bMash').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); mashGrab(); });
 document.querySelectorAll('[data-act="map"]').forEach((b) => b.addEventListener('click', toggleMap));
 document.querySelectorAll('[data-act="bright"]').forEach((b) => b.addEventListener('click', toggleBright));
 document.querySelectorAll('[data-act="marks"]').forEach((b) => b.addEventListener('click', () => { markers.visible = !markers.visible; b.classList.toggle('on', markers.visible); }));
@@ -425,7 +427,7 @@ function startGrab(sp) {
   sfx.grab(); shakeScreen();
   const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on');
   document.body.classList.add('grabbed');
-  $('#grab').classList.add('show'); $('#bMash').classList.add('show');
+  $('#grab').classList.add('show');
 }
 function mashGrab() { if (G.grab) { G.grab.meter = Math.min(1, G.grab.meter + 0.1); sfx.struggle(); } }
 function endGrab(sprayed) {
@@ -433,7 +435,7 @@ function endGrab(sprayed) {
   if (!g) return;
   G.grab = null;
   document.body.classList.remove('grabbed');
-  $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
+  $('#grab').classList.remove('show');
   { const p = g.sp.s.bodyWorld; sfx.escape(p.x, p.y, p.z); }
   if (sprayed) { msg('스프레이로 떼어냈다. 살았다'); return; }
   spiders.release(g.sp);
@@ -529,7 +531,7 @@ const dev = { god: false, battery: false, noclip: false, freeze: false, fast: fa
 // every bug goes back to where it started.
 function respawnAtLamp(l) {
   Object.assign(G, { dead: false, hp: 3, attached: [], grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
-  document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
+  document.body.classList.remove('grabbed'); $('#grab').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   // stand beside the pole, on the side with the most room, facing out
   let best = null;
@@ -564,7 +566,7 @@ function die(deathTip) {
   if (G.dead) return;
   G.dead = true; G.timing = false;
   sfx.death();
-  if (G.grab) { G.grab = null; document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); $('#bMash').classList.remove('show'); }
+  if (G.grab) { G.grab = null; document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); }
   G.attached.length = 0;
   $('#crawl').classList.remove('show');
   $('#dead').classList.add('show');
@@ -576,7 +578,7 @@ function onAttach(r) {
   if (dev.god || G.dead || G.attached.length >= 3) return false;
   G.attached.push({ r, age: 0, shake: 0, rev: 0, lastSign: 0, taps: 0 });
   sfx.attach();
-  tip(touch ? '떼어내야 해! (털기 버튼 연타)' : '떼어내야 해! (마우스를 흔들어)', 'attach');
+  tip(touch ? '떼어내야 해! (화면 연타)' : '떼어내야 해! (마우스를 흔들거나 클릭 연타)', 'attach');
   return true;
 }
 function shakeScreen() { document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake'); }
@@ -628,6 +630,30 @@ resize();
 const ray = new THREE.Raycaster();
 const levelMeshes = [...levelGroup.children, shutter, emDoor];
 const hideSpots = colliders.filter((c) => c.hide);
+// turning the view toward something worth seeing (the dead man, a spider, the brood):
+// eases round over ~0.8 s and holds a moment, ignoring your own looking meanwhile
+let focus = null;
+const seeRay = new THREE.Raycaster();
+function canSee(p) {
+  const o = camera.position, d = p.distanceTo(o);
+  seeRay.set(o, p.clone().sub(o).divideScalar(d)); seeRay.far = d - 0.4;
+  return seeRay.intersectObjects(levelMeshes, false).length === 0;
+}
+function lookToward(p, hold = 0.5) {
+  if (!G.started || G.dead || G.grab) return;
+  focus = { p: p.clone(), t: 0, end: 0.8 + hold };
+}
+function applyFocus(dt, inp) {
+  if (!focus) return inp;
+  focus.t += dt;
+  if (focus.t > focus.end || G.dead || G.grab) { focus = null; return inp; }
+  const c = camera.position, dx = focus.p.x - c.x, dz = focus.p.z - c.z, k = 1 - Math.exp(-dt * 5);
+  let dy = Math.atan2(dx, dz) - player.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  player.yaw += dy * k;
+  player.pitch += (THREE.MathUtils.clamp(Math.atan2(focus.p.y - c.y, Math.hypot(dx, dz)), -1.2, 1.2) - player.pitch) * k;
+  return { ...inp, lookX: 0, lookY: 0 };
+}
+const BODY_SEE = new THREE.Vector3(BODY.x, 2.4, BODY.z);
 const aim = new THREE.Vector3(), aimS = new THREE.Vector3();
 let t = 0, flick = 1, flickT = 3;
 const clock = new THREE.Clock();
@@ -644,7 +670,7 @@ function frame(dtOverride) {
   if (needRotate) { renderer.render(scene, camera); return; }
   const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
-  if (G.started && !G.won && !G.dead && !G.grab) player.update(dt, inp);
+  if (G.started && !G.won && !G.dead && !G.grab) player.update(dt, applyFocus(dt, inp));
   input.lookX = 0; input.lookY = 0;
   if (dev.battery) G.battery = 1;
   if (player.moved && !G.timing && !G.won) G.timing = true;
@@ -777,7 +803,10 @@ function frame(dtOverride) {
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드렸다... 뭔가 깨어났다', 'tripwake'); },
     onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추니 움츠러든다', 'ghostlit'); },
     onThreadLit: () => tip('실이 쳐져 있다. 숙이고 지나가야겠다', 'trip'),
-    onSacBurst: (p) => { brood.burst(p); sfx.sacDrop(p.x, p.z); sfx.eggBurst(p.x, 0.2, p.z); },
+    onSacBurst: (p) => {
+      brood.burst(p); sfx.sacDrop(p.x, p.z); sfx.eggBurst(p.x, 0.2, p.z);
+      G.broodGone = false; tip('알집이 터졌다... 새끼들이 쏟아져 나온다!'); lookToward(new THREE.Vector3(p.x, 0.15, p.z), 0.6);
+    },
     onFirstLit: () => tip('위에서 뭔가 기다리고 있었다. 천장을 잘 봐야겠다', 'spiderlit'),
     onDrop: (sp) => sfx.creak(sp.s.root.position.x, sp.ceil - 0.3, sp.s.root.position.z),
     onCatch: (sp) => startGrab(sp),
@@ -785,13 +814,22 @@ function frame(dtOverride) {
   });
   // the spider walling off the passage, the one from the blackout, the dead man in the corridor
   gate.update({ dt, cam: camera.position, light, playerPos: player.pos,
-    onNear: () => tip('저 안으로는... 못 가겠다', 'gate'),
+    onNear: () => { tip('저 안으로는... 못 가겠다', 'gate'); if (!G.tipped.seeGate) { G.tipped.seeGate = true; lookToward(gate.s.bodyWorld); } },
     onShake: (x, y, z) => sfx.spiderFlinch(x, y, z),
     onTouch: () => tip('거미줄이 너무 두껍다. 지나갈 수 없다') });
   phantom.update({ dt, cam: camera.position, light, onRetract: (x, y, z) => sfx.spiderFlinch(x, y, z) });
   deadMan.update(dt);
-  if (G.started && !G.tipped.body && Math.hypot(player.pos.x - BODY.x, player.pos.z - BODY.z) < 5.5) {
+  if (G.started && !G.tipped.body && Math.hypot(player.pos.x - BODY.x, player.pos.z - BODY.z) < 5.5 && canSee(BODY_SEE)) {
     G.tipped.body = true; sfx.sting(); tip('...나랑 같은 방역복이다. 먼저 들어온 사람인가');
+    lookToward(BODY_SEE, 0.9);
+  }
+  // the first time each spider is close enough to see, the view turns to it
+  if (G.started && !G.dead && !G.grab) {
+    spiders.spiders.forEach((sp, i) => {
+      if (G.tipped['see' + i]) return;
+      const b = sp.s.bodyWorld;
+      if (b.distanceTo(camera.position) < 7 && canSee(b)) { G.tipped['see' + i] = true; lookToward(b); }
+    });
   }
   if (G.started && !G.dead && !G.grab) {
     const tr = spiders.threadAt(player.pos, camera.position.y + 0.12);
@@ -819,6 +857,10 @@ function frame(dtOverride) {
     },
   });
   const broodInfo = brood.update({ dt, player: { pos: player.pos }, nav: swarms.nav, frozen });
+  // ...and once they've streamed past you and scatter for the cracks, the view follows them
+  if (G.broodGone === false && broodInfo.fleeing >= 8 && Math.hypot(broodInfo.fx - player.pos.x, broodInfo.fz - player.pos.z) > 2) {
+    G.broodGone = true; tip('벽 틈으로 흩어져 들어간다...'); lookToward(new THREE.Vector3(broodInfo.fx, 0.1, broodInfo.fz), 0.6);
+  }
   G.lingT += dt;
   if (G.lingT > 2.5) G.lingSlow = Math.max(0, G.lingSlow - dt * 0.06);
   centi.update({
@@ -895,7 +937,6 @@ function frame(dtOverride) {
   { const on = G.attached.length > 0 || swarms.flyer.state === 'face', k = on ? (G.flashOn ? 0.3 : 0.22) : 0; swarms.faceAmb += (k - swarms.faceAmb) * Math.min(1, dt * 6); }
   $('#crawl').classList.toggle('show', G.attached.length > 0);
   $('#crawl').style.setProperty('--n', G.attached.length);
-  $('#bShake').classList.toggle('show', G.attached.length > 0);
 
   // ---- lamps (safe zones)
   G.inSafe = false;
@@ -1058,7 +1099,7 @@ function checkOrient() { needRotate = touch && innerHeight > innerWidth; $('#rot
 addEventListener('resize', checkOrient);
 addEventListener('orientationchange', () => setTimeout(checkOrient, 200));
 checkOrient();
-$('#bShake').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); if (G.attached[0]) G.attached[0].taps++; shakeKick = 1; });
+function shakeTap() { if (G.attached[0]) G.attached[0].taps++; shakeKick = 1; }
 
 // ------------------------------------------------------------------ developer mode
 const TP = {

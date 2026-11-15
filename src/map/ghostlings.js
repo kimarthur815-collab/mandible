@@ -101,10 +101,10 @@ export class GhostBrood {
   }
 
   update({ dt, player, nav, frozen }) {
-    if (!this.active) return { moving: 0, cx: 0, cz: 0, emit: [] };
+    if (!this.active) return { moving: 0, cx: 0, cz: 0, fleeing: 0, fx: 0, fz: 0, emit: [] };
     this.uTime.value += dt;
     const P = player.pos;
-    let alive = 0, moving = 0, cx = 0, cz = 0;
+    let alive = 0, moving = 0, cx = 0, cz = 0, fleeing = 0, fx = 0, fz = 0;
     const emit = [];
     const M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new V3(), Z = new THREE.Matrix4().makeScale(0, 0, 0);
     for (const b of this.B) {
@@ -168,12 +168,13 @@ export class GhostBrood {
       this.mesh.setMatrixAt(b.i, M);
       if (b.st === 'spill' || b.st === 'rush' || b.st === 'flee') {
         moving++; cx += b.p.x; cz += b.p.z;
+        if (b.st === 'flee') { fleeing++; fx += b.p.x; fz += b.p.z; }
         const d = Math.hypot(b.p.x - P.x, b.p.z - P.z);
         if (d < 10) emit.push({ key: 'g' + b.i, kind: 'tiny', x: b.p.x, y: 0.02, z: b.p.z, d, sp: clamp(b.speed / 3, 0.4, 1) });
       }
     }
     this.mesh.instanceMatrix.needsUpdate = true; this.iPhase.needsUpdate = true; this.iMove.needsUpdate = true;
     if (alive === 0) { this.active = false; this.hide(); }
-    return { moving, cx: moving ? cx / moving : 0, cz: moving ? cz / moving : 0, emit };
+    return { moving, cx: moving ? cx / moving : 0, cz: moving ? cz / moving : 0, fleeing, fx: fleeing ? fx / fleeing : 0, fz: fleeing ? fz / fleeing : 0, emit };
   }
 }
