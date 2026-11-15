@@ -198,7 +198,7 @@ function resetGame() {
   Object.assign(G, {
     battery: 1, flashOn: false, locked: false, holdT: 0, holdKey: null, shutter: 0, shutterOpening: false,
     emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: 3, inSafe: false,
-    tipped: {}, lampSeen: false, hp: 3, dead: false, attached: [], scared: false, events: [],
+    tipped: {}, lampSeen: false, hp: 3, dead: false, attached: [], attachCd: 0, scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
   });
@@ -530,7 +530,7 @@ const dev = { god: false, battery: false, noclip: false, freeze: false, fast: fa
 // health is back to 3, the spray keeps what was left, the lamp comes on again for 10 s and
 // every bug goes back to where it started.
 function respawnAtLamp(l) {
-  Object.assign(G, { dead: false, hp: 3, attached: [], grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
+  Object.assign(G, { dead: false, hp: 3, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   // stand beside the pole, on the side with the most room, facing out
@@ -574,8 +574,11 @@ function die(deathTip) {
   setTimeout(() => { $('#dead .s').textContent = deathTip; }, 1600);
   setTimeout(() => { if (G.checkpoint) respawnAtLamp(G.checkpoint); else { resetGame(); G.started = true; } }, 3800);
 }
+// after one climbs on or is shaken off, no other can climb on for a few seconds
+const ATTACH_CD = 3.5;
 function onAttach(r) {
-  if (dev.god || G.dead || G.attached.length >= 3) return false;
+  if (dev.god || G.dead || G.attached.length >= 3 || G.attachCd > 0) return false;
+  G.attachCd = ATTACH_CD;
   G.attached.push({ r, age: 0, shake: 0, rev: 0, lastSign: 0, taps: 0 });
   sfx.attach();
   tip(touch ? '떼어내야 해! (화면 연타)' : '떼어내야 해! (마우스를 흔들거나 클릭 연타)', 'attach');
@@ -925,13 +928,14 @@ function frame(dtOverride) {
     emit: G.started ? ai.emit.concat(lingInfo.emit || [], broodInfo.emit, spiders.emitters(player.pos)) : [] });
   if (G.started && !G.scared && !dev.freeze && Math.hypot(player.pos.x - nests[0].x, player.pos.z - nests[0].z) < 7.5) { G.scared = true; swarms.jumpScare(camera, 0); }
   for (const a of G.attached) a.age += dt;
+  G.attachCd = Math.max(0, G.attachCd - dt);
   // roaches on you: no damage, but they slow you down and crawl over your face until shaken off
   player.slowMul = Math.max(0.3, Math.max(0.4, 1 - 0.22 * G.attached.length) * (1 - G.lingSlow) * (G.webSlowT > 0 ? 0.5 : 1));
   if (G.attached.length) {
     const a = G.attached[0];
     if (lookSign && lookSign !== a.lastSign) { a.rev++; a.lastSign = lookSign; }
     a.shake += lookMag;
-    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); swarms.throwDead(a.r, player.pos, player.yaw); msg('떼어냈다!'); sfx.shakeOff(); sfx.roachDie(1); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
+    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); G.attachCd = ATTACH_CD; swarms.throwDead(a.r, player.pos, player.yaw); msg('떼어냈다!'); sfx.shakeOff(); sfx.roachDie(1); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
   }
   swarms.showAttached(camera, G.attached, dt, t);
   { const on = G.attached.length > 0 || swarms.flyer.state === 'face', k = on ? (G.flashOn ? 0.3 : 0.22) : 0; swarms.faceAmb += (k - swarms.faceAmb) * Math.min(1, dt * 6); }

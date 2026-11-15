@@ -351,14 +351,20 @@ export class RoachSwarms {
       this.fieldCell = pk; this.fieldAge = 0;
     }
     // ---- swarm level: hearing, being lit, losing track
-    const act = this.swarms.map(() => 0), held = this.swarms.map(() => 0);
+    const act = this.swarms.map(() => 0), held = this.swarms.map(() => 0), litAny = this.swarms.map(() => false);
     for (const r of this.roaches) {
       if (r.sw < 0 || r.state === 'attached' || r.state === 'off' || r.state === 'flee' || r.state === 'dead' || r.state === 'escape') continue;
       act[r.sw]++;
+      const rk = nav.idx(r.pos.x, r.pos.z);
+      if (rk >= 0 && nav.lit[rk]) litAny[r.sw] = true;
       if (r.mode === 'recoil' || r.mode === 'scatter' || r.mode === 'wait') held[r.sw]++;
     }
     for (const s of this.swarms) {
       let heard = null;
+      // finding them (not after you, and unseen for 5 s): for the first second in your light they don't run
+      s.graceT = Math.max(0, (s.graceT || 0) - dt);
+      if (litAny[s.idx]) { if ((s.unlitT ?? 99) > 5 && s.state !== 'hunt' && s.state !== 'search') s.graceT = 1; s.unlitT = 0; }
+      else s.unlitT = (s.unlitT ?? 99) + dt;
       const c = this.centroid(s), dc = Math.hypot(c.x - P.x, c.z - P.z);
       // kept at bay by light for a while: they give up and leave you alone for a bit
       // (you standing in a lit lamp counts too: they circle a moment, then lose interest)
@@ -452,7 +458,7 @@ export class RoachSwarms {
       const onWall = k >= 0 && nav.wall[k];
       const dP = Math.hypot(P.x - r.pos.x, P.z - r.pos.z);
       let dx = 0, dz = 0, want = 0, turn = 10;
-      if (!ctx.frozen && cellLit && r.mode !== 'recoil') {
+      if (!ctx.frozen && cellLit && r.mode !== 'recoil' && !(s.graceT > 0)) {
         // now and then one takes to the air instead of running (never more than two at once)
         if (r.escCd <= 0 && r !== this.flyer) {
           r.escCd = 5;
