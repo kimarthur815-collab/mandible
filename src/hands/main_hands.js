@@ -256,7 +256,10 @@ function solveGrip(hand, objQ, objPos, fn, opt = {}) {
   const sdf = sdfIn(objQ, objPos, fn);
   const ang = [];
   const abd = opt.abd || [0.04, 0, -0.04, -0.1];
-  for (let c = 0; c < 4; c++) ang.push(hand.grasp(c, sdf, { abd: abd[c], start: opt.start || [0.15, 0.2, 0.1], tol: opt.tol ?? 0.0004, skip0: opt.skip0 ?? 0.45 }));
+  for (let c = 0; c < 4; c++) {
+    const t = Array.isArray(opt.tol) ? opt.tol[c] : (opt.tol ?? 0.0004);
+    ang.push(hand.grasp(c, sdf, { abd: abd[c], start: opt.start || [0.15, 0.2, 0.1], tol: t, skip0: opt.skip0 ?? 0.45, ...(opt.rate ? { rate: opt.rate[c] } : {}) }));
+  }
   const th = opt.thumb || {};
   // the thumb closes over the object, across the index and middle fingers
   const others = [...hand.capsules(0, ang[0]), ...hand.capsules(1, ang[1])];
@@ -282,7 +285,10 @@ function definePoses() {
   };
   // the fingers close round the barrel until each part of them touches it
   // (fingers press in a little, as a gloved hand squeezing would, so there's no air between them and the barrel)
-  const rightAng = solveGrip(R, fq.q, fq.pos, flashSDF, { tol: 0.002, skip0: 0.15, thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
+  // the ring and little fingers squeeze harder and close in toward the middle finger, like a real fist
+  const rightAng = solveGrip(R, fq.q, fq.pos, flashSDF, {
+    tol: [0.002, 0.002, 0.006, 0.007], skip0: 0.15, abd: [0.04, 0, 0.01, 0.0],
+    rate: [[1, 1.15, 0.85], [1, 1.15, 0.85], [1, 1.3, 1.3], [1, 1.35, 1.4]], thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
   // The right hand holds the flashlight like the reference photo: the back of the hand faces right,
   // the fingers wrap round the barrel toward you, the thumb is on top and the head stands up out of
   // the fist. The forearm comes up from the lower right and runs straight into the hand.
