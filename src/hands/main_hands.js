@@ -264,7 +264,6 @@ function solveGrip(hand, objQ, objPos, fn, opt = {}) {
 function presetAngles(kind) {
   if (kind === 'open') return [[0.06, 0.1, 0.06, 0.13, 0], [0.04, 0.08, 0.05, 0.02, 0], [0.06, 0.1, 0.06, -0.09, 0], [0.1, 0.12, 0.08, -0.2, 0], [0.05, 0.1, 0.05, 0.62, 0.25]];
   if (kind === 'relaxed') return [[0.12, 0.18, 0.1, -0.02, 0], [0.2, 0.28, 0.14, 0.0, 0], [0.26, 0.34, 0.18, 0.0, 0], [0.34, 0.4, 0.22, 0.02, 0], [0.25, 0.2, 0.15, 0.12, 0.35]];
-  if (kind === 'fist') return [[1.45, 1.72, 0.95, 0.03, 0], [1.5, 1.75, 0.95, 0, 0], [1.52, 1.75, 0.95, -0.03, 0], [1.5, 1.7, 0.95, -0.08, 0], null];
   return null;
 }
 
@@ -274,9 +273,8 @@ function definePoses() {
   const fq = gripFrame(false, GRIP.axis, GRIP.at, GRIP.zf);
   // right hand on the flashlight: aim the flashlight, the back of the hand roughly toward `up`
   const rightAim = (grip, dir, up, elbow) => {
-    const handQ = frameQ(GRIP.axis, new V3(0, 1, 0), dir, up);
-    const wrist = grip.clone().sub(GRIP.at.clone().applyQuaternion(handQ));
-    return { wrist, handQ, elbow, held: 'flash' };
+    const b = bestRoll(grip, dir);
+    return { wrist: b.wrist, handQ: b.handQ, elbow: b.elbow, held: 'flash', fixedElbow: true };
   };
   // thumb target: on the barrel's far side, a little toward the head, pressing over the index finger
   const barrelThumb = (zf, rr, side = 1) => (q, pos) => {
@@ -285,58 +283,43 @@ function definePoses() {
     return axisP.addScaledVector(away, rr);
   };
   const rightAng = solveGrip(R, fq.q, fq.pos, flashSDF, { thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
+  // The flashlight's aim fixes all but one thing about the right hand: how far it is turned about
+  // the barrel. Pick the turn that keeps the wrist straightest for a forearm coming in from the lower
+  // right (and still shows the back of the fist), so the hand doesn't look broken at the wrist.
+  const ARM_R = new V3(0.2, -0.06, 1).normalize();          // where the forearm runs, in the hand's frame
+  const FPS_R = new V3(0.75, -0.55, 0.35).normalize();      // arms come in from the lower corner
+  const LIKE_R = new V3(-0.45, 0.8, 0.4).normalize();       // the back of the fist we liked the look of
+  const tanV = Math.tan(THREE.MathUtils.degToRad(27)), tanH = tanV * 1.78;
+  const inView = (p) => p.z < -0.02 && Math.abs(p.x / -p.z) < tanH && Math.abs(p.y / -p.z) < tanV;
+  const bestRoll = (grip, dir) => {
+    const d = dir.clone().normalize(), p0 = new V3().crossVectors(d, new V3(0, 1, 0)).normalize(), p1 = new V3().crossVectors(p0, d);
+    let best = null;
+    for (let i = 0; i < 144; i++) {
+      const a = (i / 144) * Math.PI * 2, up = p0.clone().multiplyScalar(Math.cos(a)).addScaledVector(p1, Math.sin(a));
+      const handQ = frameQ(GRIP.axis, new V3(0, 1, 0), d, up);
+      const wrist = grip.clone().sub(GRIP.at.clone().applyQuaternion(handQ));
+      const neutral = ARM_R.clone().applyQuaternion(handQ);
+      const arm = neutral.clone().lerp(FPS_R, 0.35).normalize();
+      const elbow = wrist.clone().addScaledVector(arm, 0.27), mid = wrist.clone().addScaledVector(arm, 0.12);
+      let c = neutral.angleTo(FPS_R);
+      if (inView(elbow)) c += 1.0;
+      if (arm.y > -0.2) c += 1.0;                               // the forearm must come up from below
+      if (arm.z < 0) c += 1.0;                                  // ...and not from beyond the hand
+      c += 2.0 * (1 - new V3(0, 1, 0).applyQuaternion(handQ).dot(LIKE_R));
+      if (!best || c < best.c) best = { c, up, handQ, wrist, elbow, mid };
+    }
+    return best;
+  };
   const leftRelaxed = { wrist: new V3(-0.17, -0.15, -0.41), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.32, 0.02, -1), new V3(-0.25, 0.9, 0.35)), elbow: new V3(-0.3, -0.62, 0.0), held: null, ang: presetAngles('relaxed') };
   const base = (grip, dir, up, elbow, extra = {}) => ({ ...rightAim(grip, dir, up, elbow), ang: rightAng, ...extra });
   POSES.default = { R: base(new V3(0.17, -0.12, -0.42), new V3(-0.17, 0.1, -1), new V3(-0.45, 0.8, 0.4), new V3(0.3, -0.62, -0.06)), L: leftRelaxed, light: true };
-  POSES.up = { R: base(new V3(0.17, -0.1, -0.42), new V3(-0.25, 0.6, -1), new V3(-0.45, 0.7, 0.55), new V3(0.3, -0.6, -0.14)), L: leftRelaxed, light: true };
-  POSES.down = { R: base(new V3(0.17, -0.14, -0.41), new V3(-0.2, -0.75, -1), new V3(-0.4, 0.85, 0.2), new V3(0.31, -0.6, 0.02)), L: leftRelaxed, light: true };
-  POSES.off = { R: base(new V3(0.2, -0.19, -0.42), new V3(-0.05, -0.5, -1), new V3(-0.3, 0.9, 0.3), new V3(0.32, -0.62, 0.05)), L: { ...leftRelaxed, wrist: new V3(-0.21, -0.23, -0.37) }, light: false };
+  POSES.off = { R: base(new V3(0.19, -0.155, -0.42), new V3(-0.08, -0.45, -1), new V3(-0.3, 0.9, 0.3), new V3(0.32, -0.62, 0.05)), L: { ...leftRelaxed, wrist: new V3(-0.19, -0.185, -0.38) }, light: false };
   // left hand open, reaching to take hold of something
   POSES.use = {
     R: base(new V3(0.18, -0.13, -0.42), new V3(-0.15, 0.08, -1), new V3(-0.45, 0.8, 0.4), new V3(0.32, -0.62, -0.04)),
     L: { wrist: new V3(-0.13, -0.12, -0.40), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.22, 0.75, -0.62), new V3(-0.45, 0.15, 0.88)), elbow: new V3(-0.28, -0.6, -0.04), held: null, ang: presetAngles('open') },
     light: true,
   };
-  // left fist, knuckles forward
-  const fistAng = presetAngles('fist');
-  {
-    // the thumb closes over the curled index and middle fingers
-    const tmp = fistAng.slice(0, 4).map((a) => a.slice());
-    const sdf = (p) => {
-      let d = 1e9;
-      for (let c = 0; c < 2; c++) {
-        const { pts, rads } = L.fk(c, tmp[c]);
-        for (let k = 0; k < 3; k++) {
-          const a = pts[k], b = pts[k + 1], ab = b.clone().sub(a), t = clamp(p.clone().sub(a).dot(ab) / ab.lengthSq(), 0, 1);
-          d = Math.min(d, p.distanceTo(a.clone().addScaledVector(ab, t)) - rads[k][0]);
-        }
-      }
-      return d;
-    };
-    fistAng[4] = L.grasp(4, sdf, { abd: 0.5, roll: 0.7, start: [0.2, 0.1, 0.1], max: [1.1, 1.0, 1.0], rate: [1, 0.8, 0.8], skip0: 0.6 });
-  }
-  POSES.fist = {
-    R: base(new V3(0.18, -0.13, -0.42), new V3(-0.15, 0.08, -1), new V3(-0.45, 0.8, 0.4), new V3(0.32, -0.62, -0.04)),
-    L: { wrist: new V3(-0.13, -0.15, -0.37), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.12, 0.05, -1), new V3(-0.55, 0.83, 0.05)), elbow: new V3(-0.26, -0.6, 0.06), held: null, ang: fistAng },
-    light: true,
-  };
-  // both hands: the left supports the flashlight's head from below-left
-  {
-    const r = base(new V3(0.1, -0.12, -0.43), new V3(-0.12, 0.06, -1), new V3(-0.35, 0.85, 0.4), new V3(0.27, -0.62, -0.04));
-    // flashlight world transform for this pose
-    const fW = r.handQ.clone().multiply(fq.q), fP = r.wrist.clone().add(fq.pos.clone().applyQuaternion(r.handQ));
-    // left grip on the head, turned around the barrel
-    const lg = gripFrame(true, GRIP.axis, new V3(0.004, -0.0365, -0.069), 0.058);
-    const psi = Math.PI + 0.55;
-    const roll = new Q().setFromAxisAngle(new V3(0, 0, 1), psi);
-    // left hand frame relative to the flashlight: inverse of (flash -> hand) composed with the roll
-    const lInF = roll.clone().multiply(lg.q.clone().invert());          // hand frame expressed in flashlight frame
-    const lPosF = new V3().sub(lg.pos.clone().applyQuaternion(lg.q.clone().invert())).applyQuaternion(roll);
-    const handQ = fW.clone().multiply(lInF);
-    const wrist = fP.clone().add(lPosF.applyQuaternion(fW));
-    const leftAng = solveGrip(L, lg.q, lg.pos, flashSDF, { abd: [0.06, 0, -0.05, -0.12], thumb: { target: barrelThumb(0.058 + 0.025, 0.018 + 0.0105) } });
-    POSES.both = { R: r, L: { wrist, handQ, elbow: new V3(-0.2, -0.62, 0.0), held: null, ang: leftAng }, light: true };
-  }
   // the spray can in the left hand
   {
     const cg = gripFrame(true, GRIP.axis, new V3(0.004, -0.0505, -0.066), 0.0);
@@ -365,9 +348,10 @@ function definePoses() {
   for (const P of Object.values(POSES)) for (const k of ['R', 'L']) {
     const st = P[k]; if (!st || !st.wrist) continue;
     const sd = k === 'R' ? 1 : -1;
+    if (st.fixedElbow) { st.elbow = st.wrist.clone().addScaledVector(new V3(0.2, -0.06, 1).normalize().applyQuaternion(st.handQ).lerp(new V3(0.75, -0.55, 0.35).normalize(), 0.35).normalize(), 0.27); continue; }
     const neutral = new V3(0.2 * sd, -0.06, 1).normalize().applyQuaternion(st.handQ);
     const fps = new V3(0.75 * sd, -0.55, 0.35).normalize();
-    st.elbow = st.wrist.clone().addScaledVector(neutral.lerp(fps, 0.92).normalize(), 0.27);
+    st.elbow = st.wrist.clone().addScaledVector(neutral.lerp(fps, 0.55).normalize(), 0.27);
   }
 }
 
@@ -466,7 +450,7 @@ addEventListener('pointerup', () => { drag = null; });
 
 // ------------------------------------------------------------------ frame
 let t = 0, autoT = 0, auto = false;
-const ORDER = ['default', 'up', 'down', 'use', 'both', 'off', 'fist', 'spray'];
+const ORDER = ['default', 'use', 'off', 'spray'];
 const tmpQ = new Q(), rayc = new THREE.Raycaster();
 function frame(dt) {
   t += dt;
