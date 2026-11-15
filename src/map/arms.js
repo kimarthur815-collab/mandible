@@ -181,6 +181,10 @@ export class Arms {
     this.hemi.intensity = 0.03 + s.adapt * 0.14 + k * 0.28 + lampK * 0.6 + (s.bright ? 1.4 : 0);
     this.envK = Math.min(1, 0.05 + k * 0.95 + s.adapt * 0.15 + lampK + (s.bright ? 1 : 0));
     this.flash.userData.led.emissiveIntensity = k > 0 ? 2.6 * k : 0;
+    // overheating: the head starts to glow dull red as it gets hot, brightest when it cuts out
+    const hk = THREE.MathUtils.smoothstep(s.heat || 0, 0.6, 1);
+    this.heatK = (this.heatK || 0) + (hk - (this.heatK || 0)) * Math.min(1, s.dt * 4);
+    this.flash.userData.head.emissiveIntensity = this.heatK * this.heatK * 0.22 * (0.9 + 0.1 * Math.sin(performance.now() * 0.004));
   }
 
   // where the beam should start (world), pulled back if a wall is closer than the lens

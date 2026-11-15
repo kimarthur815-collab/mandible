@@ -40,7 +40,8 @@ export function makeFlashlight() {
   const P = FLASH_PROFILE;
   const tail = new THREE.Mesh(lathe([[0, -0.0868], ...P.slice(0, 7)], 64), body);
   const grip = new THREE.Mesh(lathe(P.slice(6, 10), 96), knurl);
-  const head = new THREE.Mesh(lathe([...P.slice(9), [0.0172, 0.0842]], 96), body);
+  const headMat = body.clone(); headMat.emissive = new THREE.Color(0xd8320c); headMat.emissiveIntensity = 0;    // glows when it overheats
+  const head = new THREE.Mesh(lathe([...P.slice(9), [0.0172, 0.0842]], 96), headMat);
   // the reflector: a parabolic mirror down to the emitter
   const refl = [];
   for (let i = 0; i <= 24; i++) { const r = 0.0042 + (0.0170 - 0.0042) * (i / 24); refl.push([r, 0.0705 + 0.0132 * ((r * r - 0.0042 * 0.0042) / (0.017 * 0.017 - 0.0042 * 0.0042))]); }
@@ -60,7 +61,7 @@ export function makeFlashlight() {
   crown.position.z = 0.0842;
   for (const m of [tail, grip, head, mirror, board, led, btn, crown]) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
   g.add(glass);
-  g.userData = { led: ledMat, lensZ: 0.0845 };
+  g.userData = { led: ledMat, head: headMat, lensZ: 0.0845 };
   return g;
 }
 

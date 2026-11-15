@@ -591,12 +591,16 @@ export class Sound {
   }
   // the flashlight: a faint electrical crackle when it stutters, and a dying fizzle when it gives out
   flashCrackle() { if (this.ctx) for (let i = 0; i < 3; i++) this.burst({ t: i * 0.03 + Math.random() * 0.02, dur: 0.008, f: rnd(5000, 8000), q: 2, gain: 0.07, pan: 0.3 }); }
-  batteryDie() {
+  // the flashlight overheats: crackle, a pop as the thermal cut-out trips, a short hiss
+  overheat() {
     if (!this.ctx) return;
     this.tone({ f0: 1900, f1: 600, dur: 0.35, gain: 0.05, type: 'sawtooth', pan: 0.3 });
     for (let i = 0; i < 5; i++) this.burst({ t: i * 0.06, dur: 0.01, f: 6000, q: 2, gain: 0.08, pan: 0.3 });
     this.burst({ t: 0.32, dur: 0.012, f: 3200, q: 3, gain: 0.25, pan: 0.3 });
+    this.burst({ t: 0.36, dur: 0.6, f: 5200, q: 0.7, gain: 0.05, attack: 0.04, pan: 0.3 });
   }
+  // the metal ticking as it cools
+  coolTick() { if (this.ctx) this.burst({ dur: 0.006, f: rnd(3800, 5600), q: 6, gain: rnd(0.03, 0.06), pan: 0.3 }); }
   // crouching / standing: the suit rustling
   rustle(down) {
     if (!this.ctx) return;

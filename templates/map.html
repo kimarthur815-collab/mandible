@@ -48,12 +48,6 @@
   #prompt .bar { width: 160px; height: 3px; margin: 8px auto 0; background: rgba(255,255,255,.15); border-radius: 2px; overflow: hidden; transition: opacity .2s; }
   #prompt .bar i { display: block; height: 100%; width: 0; background: var(--amber); }
   #status { left: calc(16px + env(safe-area-inset-left)); bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; }
-  #battery { display: flex; gap: 3px; align-items: center; font-size: 10px; color: var(--dim); }
-  #battery i { width: 14px; height: 6px; border-radius: 2px; background: rgba(255,255,255,.12); }
-  #battery i.on { background: #7fe08a; box-shadow: 0 0 6px rgba(127,224,138,.6); }
-  #battery i.low { background: #ff6a4a; box-shadow: 0 0 6px rgba(255,106,74,.7); }
-  #battery.dead i { animation: blink .5s steps(2) infinite; background: #5a1a10; }
-  #battery.charging i.on, #battery.charging i.low { background: #d9a43a; box-shadow: none; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 50% { opacity: .2; } }
   #stamina { width: 54px; height: 3px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; transition: opacity .4s; }
   #stamina i { display: block; height: 100%; background: rgba(236,230,220,.8); }
@@ -180,7 +174,7 @@
   <h4>순간이동 · 벌레 자리 <span style="letter-spacing:0;opacity:.75">(바퀴는 빛을 보면 흩어져요. 가만히 보려면 벌레 멈춤)</span></h4>
   <div class="g"><button class="bug" data-tp="roach0">바퀴 떼 1</button><button class="bug" data-tp="roach1">바퀴 떼 2</button><button class="bug" data-tp="roach2">바퀴 떼 3</button><button class="bug" data-tp="roach3">바퀴 떼 4</button><button class="bug" data-tp="ghost">유령거미</button><button class="bug" data-tp="wolf">늑대거미</button><button class="bug" data-tp="centi">지네 환풍구</button><button class="bug" data-tp="eggs">알집</button></div>
   <h4>설정</h4>
-  <div class="g"><button data-dev="god">무적</button><button data-dev="battery">배터리 무한</button><button data-dev="noclip">벽 통과</button><button data-dev="fast">속도 2배</button><button data-dev="freeze">벌레 멈춤</button><button data-dev="bright">밝게</button><button data-dev="marks" class="on">벌레 위치</button><button data-dev="info">정보 표시</button></div>
+  <div class="g"><button data-dev="god">무적</button><button data-dev="battery">과열 없음</button><button data-dev="noclip">벽 통과</button><button data-dev="fast">속도 2배</button><button data-dev="freeze">벌레 멈춤</button><button data-dev="bright">밝게</button><button data-dev="marks" class="on">벌레 위치</button><button data-dev="info">정보 표시</button></div>
   <h4>바퀴 떼 시험</h4>
   <div class="g"><button data-do="call">가까운 떼 부르기</button><button data-do="scare">날아오는 바퀴</button><button data-do="attach">몸에 붙이기</button></div>
   <h4>거미 · 지네 시험</h4>
@@ -194,7 +188,7 @@
 <div class="hud" id="note"></div>
 <div class="hud" id="prompt"><span></span><div class="bar"><i></i></div></div>
 <div class="hud" id="tip"></div>
-<div class="hud" id="status"><div id="battery"><i></i><i></i><i></i></div><div id="stamina"><i></i></div><div id="spray">스프레이 <b>3</b></div></div>
+<div class="hud" id="status"><div id="stamina"><i></i></div><div id="spray">스프레이 <b>3</b></div></div>
 <div id="touch">
   <div id="joy"><i></i></div>
   <div id="joyHint">왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기</div>

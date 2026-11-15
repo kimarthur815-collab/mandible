@@ -414,7 +414,7 @@ function endGrab(sprayed) {
 // ------------------------------------------------------------------ actions
 function toggleFlash() {
   if (!G.started) return;
-  if (!G.flashOn && G.drained) { if (window.__SFX) window.__SFX.click(false); msg(`배터리 충전 중 · ${Math.ceil((1 - G.battery) * 20)}초`); return; }
+  if (!G.flashOn && G.drained) { if (window.__SFX) window.__SFX.click(false); msg(`손전등이 식는 중 · ${Math.ceil((1 - G.battery) * 10)}초`); return; }
   G.flashOn = !G.flashOn;
   $('#bFlash').classList.toggle('on', G.flashOn);
   arms.toggleClick();
@@ -601,19 +601,22 @@ function frame(dtOverride) {
   if (G.timing) G.time += dt;
 
   // ---- flashlight + battery
+  // G.battery is how much the flashlight has left before it overheats (1 = cool)
   if (G.drained) {
-    // run flat: the light is dead until the battery has charged all the way back up, 20 s
-    G.battery = Math.min(1, G.battery + dt / 20);
-    if (G.battery >= 1) { G.drained = false; msg('손전등 배터리 완충'); }
+    // overheated: it cut out, and won't come on until it has cooled right down, 10 s
+    G.battery = Math.min(1, G.battery + dt / 10);
+    G.tickT = (G.tickT || 0) - dt;
+    if (G.tickT <= 0) { G.tickT = 0.5 + Math.random() * 1.2; sfx.coolTick(); }
+    if (G.battery >= 1) { G.drained = false; msg('손전등이 식었다'); }
   } else if (G.flashOn) G.battery -= dt / 30;
   else G.battery += dt * 0.02 * (G.inSafe ? 2 : 1);
   G.battery = Math.min(1, G.battery);
   if (G.battery <= 0 && !G.drained) {
     G.battery = 0; G.drained = true;
     if (G.flashOn) toggleFlash();
-    sfx.batteryDie(); tip('배터리가 다 됐다. 20초 뒤에 완충된다', 'empty');
+    sfx.overheat(); tip('손전등이 과열돼 꺼졌다. 10초 동안 식혀야 한다', 'empty');
   }
-  if (G.flashOn && G.battery < 0.3) tip('불빛이 약해진다. 손전등을 끄면 배터리가 충전된다', 'battery');
+  if (G.flashOn && G.battery < 0.3) tip('손전등이 뜨거워진다. 꺼 두면 식는다', 'battery');
   flickT -= dt;
   if (flickT < 0) {
     // it stutters more often as the battery runs down
@@ -642,7 +645,7 @@ function frame(dtOverride) {
   shakeKick = Math.max(0, shakeKick - dt * 4);
   arms.update({
     dt, camera, moving: player.moving && player.speed > 0.3, running: player.running, crouch: player.crouch, speed: player.speed,
-    lookDX: dYaw, lookDY: dPitch, flashOn: G.flashOn, flashK: fl, aimWorld: aimS, hitDist: hd,
+    lookDX: dYaw, lookDY: dPitch, flashOn: G.flashOn, flashK: fl, aimWorld: aimS, hitDist: hd, heat: G.drained ? 0.6 + 0.4 * (1 - G.battery) : 1 - G.battery,
     lamp: nearLamp ? { k: (1 - nearLamp.d / 9) * (nearLamp.l.light.intensity / 9), dir: new THREE.Vector3(player.pos.x - nearLamp.l.x, 0, player.pos.z - nearLamp.l.z).normalize() } : null,
     adapt, bright, using: inp.use, faceLit: G.attached.length > 0 || swarms.flyer.state === 'face', shake: G.attached.length ? Math.min(1, 0.3 + lookMag * 10 + shakeKick) : 0,
   });
@@ -900,12 +903,6 @@ function frame(dtOverride) {
   $('#prompt .bar').style.opacity = G.holdT > 0 ? 1 : 0;
 
   // ---- HUD
-  const segs = G.battery > 0.66 ? 3 : G.battery > 0.33 ? 2 : G.battery > 0 ? 1 : 0;
-  document.querySelectorAll('#battery i').forEach((n, i) => {
-    n.className = i < segs ? (G.battery < 0.2 ? 'low' : 'on') : '';
-  });
-  $('#battery').classList.toggle('dead', G.drained && G.battery < 0.05);
-  $('#battery').classList.toggle('charging', G.drained && G.battery >= 0.05);
   $('#stamina').style.opacity = player.stamina < 0.999 ? 1 : 0;
   $('#stamina i').style.width = `${player.stamina * 100}%`;
   $('#stamina').classList.toggle('tired', player.exhausted);
@@ -914,7 +911,7 @@ function frame(dtOverride) {
   if (showMap) drawMap();
   if (dev.info && Math.floor(t * 4) !== Math.floor((t - dt) * 4)) {
     fpsN++;
-    $('#devinfo').textContent = `FPS ${Math.round(1 / Math.max(1e-3, fpsAvg))}  위치 ${player.pos.x.toFixed(1)}, ${player.pos.z.toFixed(1)}  방 ${(ROOMS[roomAt(player.pos.x, player.pos.z)] || {}).name || '-'}\n체력 ${G.hp}/3  배터리 ${Math.round(G.battery * 100)}%  소음 반경 ${noise}m  붙은 바퀴 ${G.attached.length}\n숨기 ${G.hidden ? '숨음' : player.inside ? '들킴' : '-'}  바퀴 떼 ${swarms.states().map((x, i) => `${i + 1}:${({ hide: '숨음', hunt: '추적', search: '수색', return: '복귀' })[x]}`).join('  ')}\n거미 ${spiders.states().join(' / ')}  지네 ${centi.info()}  알집 ${eggs.burstDone ? '터짐' : '그대로'}  느려짐 ${Math.round((1 - player.slowMul) * 100)}%`;
+    $('#devinfo').textContent = `FPS ${Math.round(1 / Math.max(1e-3, fpsAvg))}  위치 ${player.pos.x.toFixed(1)}, ${player.pos.z.toFixed(1)}  방 ${(ROOMS[roomAt(player.pos.x, player.pos.z)] || {}).name || '-'}\n체력 ${G.hp}/3  열 ${Math.round((1 - G.battery) * 100)}%${G.drained ? ' 과열' : ''}  소음 반경 ${noise}m  붙은 바퀴 ${G.attached.length}\n숨기 ${G.hidden ? '숨음' : player.inside ? '들킴' : '-'}  바퀴 떼 ${swarms.states().map((x, i) => `${i + 1}:${({ hide: '숨음', hunt: '추적', search: '수색', return: '복귀' })[x]}`).join('  ')}\n거미 ${spiders.states().join(' / ')}  지네 ${centi.info()}  알집 ${eggs.burstDone ? '터짐' : '그대로'}  느려짐 ${Math.round((1 - player.slowMul) * 100)}%`;
   }
   fpsAvg += (dt - fpsAvg) * 0.05;
   if (window.__NORENDER) return;
