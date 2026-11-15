@@ -368,7 +368,7 @@ function makeMist(sc) {
 function useSpray() {
   if (!G.started || G.dead || G.won) return;
   if (G.sprayCd > 0) return;
-  if (G.spray <= 0) { sfx.spray(true); msg('스프레이가 비었다'); return; }
+  if (G.spray <= 0) { sfx.spray(true); msg('스프레이가 다 떨어졌다...'); return; }
   G.spray--; G.sprayCd = 0.7; G.revealT = 1.5;      // the hiss gives a hiding place away
   updateHud();
   arms.sprayPuff(); sfx.spray();
@@ -379,7 +379,7 @@ function useSpray() {
   const sp = spiders.spray(o, d);
   const lings = eggs.spray(o, d) + brood.spray(o, d);
   const c = centi.spray(o, d);
-  if (sp.webs) { tip('거미줄이 녹았다', 'webmelt'); for (const w of spiders.webs) if (w.state === 'melting') sfx.webMelt(w.x, w.z); }
+  if (sp.webs) { tip('거미줄이 녹아내린다', 'webmelt'); for (const w of spiders.webs) if (w.state === 'melting') sfx.webMelt(w.x, w.z); }
   if (G.grab && sp.spiders.includes(G.grab.sp)) endGrab(true);
   if (c) sfx.centiHiss(centi.head.x, centi.head.z);
   if (hitR + lings > 0) sfx.roachDie(hitR + lings);
@@ -405,16 +405,16 @@ function endGrab(sprayed) {
   document.body.classList.remove('grabbed');
   $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
   { const p = g.sp.s.bodyWorld; sfx.escape(p.x, p.y, p.z); }
-  if (sprayed) { msg('스프레이로 떼어냈다'); return; }
+  if (sprayed) { msg('스프레이로 떼어냈다. 살았다'); return; }
   spiders.release(g.sp);
-  msg('겨우 빠져나왔다');
-  hurt('붙잡혔을 때 스프레이를 쓰면 바로 빠져나온다');
+  msg('하아... 겨우 빠져나왔다');
+  hurt('붙잡혔을 때 스프레이를 썼어야 했다');
 }
 
 // ------------------------------------------------------------------ actions
 function toggleFlash() {
   if (!G.started) return;
-  if (!G.flashOn && G.drained) { if (window.__SFX) window.__SFX.click(false); msg(`손전등이 식는 중 · ${Math.ceil((1 - G.battery) * 10)}초`); return; }
+  if (!G.flashOn && G.drained) { if (window.__SFX) window.__SFX.click(false); tip('손전등이 아직 뜨겁다'); return; }
   G.flashOn = !G.flashOn;
   $('#bFlash').classList.toggle('on', G.flashOn);
   arms.toggleClick();
@@ -437,15 +437,15 @@ function genOn(g) {
   const r = reds[g.room];
   r.on = true;
   indicators[G.gens - 1].material.emissive.set(0x30ff60);
-  msg(`발전기 ${G.gens}/3 가동`);
+  msg(G.gens === 3 ? '마지막 발전기다. 됐다!' : `발전기가 돌아간다. ${['', '두 대', '한 대'][G.gens]} 남았다`);
   sfx.generatorStart(g.x, g.z);
-  tip('발전기 소리가 벌레를 부른다', 'gen');
+  tip('발전기 소리에 벌레들이 몰려오겠다...', 'gen');
   if (g.room === 'hall' && !centi.active) { sfx.silence(1.4); setTimeout(() => { if (!G.dead) centi.wake(); }, 1300); }
   if (g.room === 'lab') {
-    G.emergencyOpening = true; setTimeout(() => { msg('비상 통로가 열렸다'); }, 1400); sfx.doorRumble(-15.5, 52, 1.6);
+    G.emergencyOpening = true; setTimeout(() => { msg('비상 통로 문이 열렸다'); }, 1400); sfx.doorRumble(-15.5, 52, 1.6);
     setTimeout(() => { if (!G.dead && eggs.burst()) sfx.eggBurst(-7.6, 4, 62.6); centi.enrage(player.pos); }, 600);
   }
-  if (G.gens === 3) { G.shutterOpening = true; setTimeout(() => msg('셔터가 열린다. 하역장으로!'), 2800); sfx.doorRumble(0, 0.5, 3.4); }
+  if (G.gens === 3) { G.shutterOpening = true; setTimeout(() => msg('셔터가 열린다. 하역장으로 가야 해!'), 2800); sfx.doorRumble(0, 0.5, 3.4); }
   updateHud();
 }
 
@@ -499,10 +499,10 @@ function respawnAtLamp(l) {
   swarms.regroup(); spiders.regroup(); eggs.clearYoung(); brood.reset(); centi.regroup(l);
   G.started = true;
   sfx.respawn();
-  msg('전등 아래에서 다시 일어났다');
+  msg('...정신이 든다. 전등 아래다');
 }
 
-function hurt(reason = '달리는 소리가 바퀴를 부른다') {
+function hurt(reason = '뛰는 소리에 바퀴들이 몰려왔다') {
   if (dev.god || G.dead) return;
   G.hp--;
   sfx.hurt();
@@ -526,7 +526,7 @@ function onAttach(r) {
   if (dev.god || G.dead || G.attached.length >= 3) return false;
   G.attached.push({ r, age: 0, shake: 0, rev: 0, lastSign: 0, taps: 0 });
   sfx.attach();
-  tip(touch ? '털기 버튼을 연타해 털어내라' : '마우스를 흔들어 털어내라', 'attach');
+  tip(touch ? '떼어내야 해! (털기 버튼 연타)' : '떼어내야 해! (마우스를 흔들어)', 'attach');
   return true;
 }
 function shakeScreen() { document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake'); }
@@ -607,16 +607,16 @@ function frame(dtOverride) {
     G.battery = Math.min(1, G.battery + dt / 10);
     G.tickT = (G.tickT || 0) - dt;
     if (G.tickT <= 0) { G.tickT = 0.5 + Math.random() * 1.2; sfx.coolTick(); }
-    if (G.battery >= 1) { G.drained = false; msg('손전등이 식었다'); }
+    if (G.battery >= 1) { G.drained = false; tip('손전등이 식었다'); }
   } else if (G.flashOn) G.battery -= dt / 30;
   else G.battery += dt * 0.02 * (G.inSafe ? 2 : 1);
   G.battery = Math.min(1, G.battery);
   if (G.battery <= 0 && !G.drained) {
     G.battery = 0; G.drained = true;
     if (G.flashOn) toggleFlash();
-    sfx.overheat(); tip('손전등이 과열돼 꺼졌다. 10초 동안 식혀야 한다', 'empty');
+    sfx.overheat(); tip('손전등이 과열되었다');
   }
-  if (G.flashOn && G.battery < 0.3) tip('손전등이 뜨거워진다. 꺼 두면 식는다', 'battery');
+  if (G.flashOn && G.battery < 0.3) tip('손전등이 뜨거워진다... 잠깐 꺼 둬야겠다', 'battery');
   flickT -= dt;
   if (flickT < 0) {
     // it stutters more often as the battery runs down
@@ -681,7 +681,7 @@ function frame(dtOverride) {
   G.stillT = quiet ? (G.stillT || 0) + dt : 0;
   G.hidden = G.stillT > 0.6;          // a moment of keeping still first
   G.hiddenT = G.hidden ? G.hiddenT + dt : 0;
-  if (player.inside && G.started) tip('불을 끄고 가만히 있으면 벌레가 찾지 못한다', 'hide');
+  if (player.inside && G.started) tip('불을 끄고 가만히 있자. 그럼 못 찾을 거야', 'hide');
   // ---- roaches
   const noise = !G.started || G.dead || G.hidden || !player.moving || player.speed < 0.3 ? 0 : player.crouch ? 1 : player.running ? 12 : 5;
   swarms.update({
@@ -691,10 +691,10 @@ function frame(dtOverride) {
     lamps: lamps.map((l) => ({ x: l.x, z: l.z, on: l.on })),
     events: G.events, playerSafe: G.inSafe,
     onAttach,
-    onFirstFlee: () => tip('바퀴는 빛을 싫어한다', 'roachlight'),
+    onFirstFlee: () => tip('바퀴들이 빛을 피한다', 'roachlight'),
     onEscape: (p, dur) => sfx.wingTakeoff(p.x, p.z, dur),
-    onFirstWait: () => tip('바퀴는 빛 밖에서 기다린다. 다른 곳을 비추면 덮친다', 'roachwait'),
-    onFirstHunt: () => tip('바퀴는 소리를 따라온다. 앉아서 걸어라', 'roachsound'),
+    onFirstWait: () => tip('빛 밖에서 기다리고 있다... 불을 돌리면 덮치겠지', 'roachwait'),
+    onFirstHunt: () => tip('소리를 듣고 오는 건가... 몸을 낮추고 걷자', 'roachsound'),
     onFlyerLaunch: (p) => sfx.scareLaunch(p.x, p.y, p.z),
     onFlyerOff: () => { sfx.shakeOff(); sfx.roachDie(1); },
     onFlyerHit: () => {
@@ -708,32 +708,32 @@ function frame(dtOverride) {
   spiders.update({
     dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god, hidden: G.hidden,
     nav: swarms.nav, field: swarms.fPlayer,
-    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽의 늑대거미가 내려온다. 빛을 비추면 벽으로 물러난다', 'wolfwake'); },
+    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽에서 거미가 내려온다! 빛을 비추면 물러나려나', 'wolfwake'); },
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
-    onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드리면 거미가 깬다', 'tripwake'); },
-    onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추면 잠깐 움츠린다', 'ghostlit'); },
-    onThreadLit: () => tip('실이 쳐져 있다. 웅크려서 지나가라', 'trip'),
+    onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드렸다... 뭔가 깨어났다', 'tripwake'); },
+    onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추니 움츠러든다', 'ghostlit'); },
+    onThreadLit: () => tip('실이 쳐져 있다. 숙이고 지나가야겠다', 'trip'),
     onSacBurst: (p) => { brood.burst(p); sfx.sacDrop(p.x, p.z); sfx.eggBurst(p.x, 0.2, p.z); },
-    onFirstLit: () => tip('거미는 위에서 기다린다. 천장을 비춰라', 'spiderlit'),
+    onFirstLit: () => tip('위에서 뭔가 기다리고 있었다. 천장을 잘 봐야겠다', 'spiderlit'),
     onDrop: (sp) => sfx.creak(sp.s.root.position.x, sp.ceil - 0.3, sp.s.root.position.z),
     onCatch: (sp) => startGrab(sp),
-    onWebLit: () => tip('스프레이로 거미줄을 녹일 수 있다', 'weblit'),
+    onWebLit: () => tip('거미줄이다. 스프레이로 녹일 수 있겠다', 'weblit'),
   });
   if (G.started && !G.dead && !G.grab) {
     const tr = spiders.threadAt(player.pos, camera.position.y + 0.12);
-    if (tr) { spiders.snapThread(tr); sfx.threadSnap(player.pos.x, 1.4, player.pos.z); msg('실이 끊어졌다'); }
+    if (tr) { spiders.snapThread(tr); sfx.threadSnap(player.pos.x, 1.4, player.pos.z); msg('실을 끊어 버렸다...'); }
     const w = spiders.webAt(player.pos);
     if (w) {
       spiders.hitWeb(w, player.pos);
       G.webSlowT = 3; G.events.push({ x: player.pos.x, z: player.pos.z, r: 8 });
-      sfx.webTear(w.x, w.z); tip('거미줄이 떨리면 거미가 온다', 'webhit');
+      sfx.webTear(w.x, w.z); tip('거미줄이 떨린다... 거미가 온다', 'webhit');
     }
   }
   G.webSlowT = Math.max(0, G.webSlowT - dt);
   if (G.started && !G.dead) {
     if (noise >= 12) eggs.hear(player.pos.x, player.pos.z, noise) && sfx.eggBurst(-7.6, 4, 62.6);
     for (const e of G.events) if (eggs.hear(e.x, e.z, e.r)) sfx.eggBurst(-7.6, 4, 62.6);
-    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip('알집 근처에서는 소리를 내지 마라', 'eggs'); }
+    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip('알집이다... 소리 내지 말자', 'eggs'); }
   }
   const lingInfo = eggs.update({
     dt, player: { pos: player.pos }, nav: swarms.nav, field: swarms.fPlayer, light, frozen, hidden: G.hidden,
@@ -741,7 +741,7 @@ function frame(dtOverride) {
       if (dev.god) return;
       G.lingSlow = Math.min(0.4, G.lingSlow + 0.1); G.lingT = 0;
       sfx.burst && sfx.ctx && sfx.burst({ dur: 0.12, f: 3800, q: 1, gain: 0.3 });
-      tip('새끼 거미는 스프레이 한 번이면 쓸려 나간다', 'lings');
+      tip('새끼들은 스프레이 한 번이면 쓸려 나가겠다', 'lings');
     },
   });
   const broodInfo = brood.update({ dt, player: { pos: player.pos }, nav: swarms.nav, frozen });
@@ -754,10 +754,10 @@ function frame(dtOverride) {
     onLunge: () => sfx.centiScreech(centi.head.x, centi.head.z),
     onStun: (hits, hold) => {
       sfx.centiHiss(centi.head.x, centi.head.z);
-      tip('지네는 손전등에 약하다', 'centilight');
-      if (hold < 2) tip('지네는 빛에 익숙해진다', 'centiadapt');
+      tip('지네가 빛에 움찔한다', 'centilight');
+      if (hold < 2) tip('빛에 점점 익숙해지는 것 같다...', 'centiadapt');
     },
-    onCatch: () => die(G.lingSlow > 0.15 ? '실험실에 들어가기 전에 스프레이를 남겨두라' : '지네는 안전지대 빛 안으로 들어오지 못한다'),
+    onCatch: () => die(G.lingSlow > 0.15 ? '실험실에 들어가기 전에 스프레이를 남겨 뒀어야 했다' : '전등 불빛 안으로 도망쳤어야 했다'),
   });
   G.events.length = 0;
 
@@ -766,7 +766,7 @@ function frame(dtOverride) {
     const gr = G.grab;
     gr.t += dt; gr.meter -= dt * 0.42;
     $('#grab .bar i').style.width = `${Math.max(0, gr.meter) * 100}%`;
-    if (gr.meter <= 0) die('붙잡혔을 때 스프레이를 쓰면 바로 빠져나온다');
+    if (gr.meter <= 0) die('붙잡혔을 때 스프레이를 썼어야 했다');
     else if (gr.t >= 2) endGrab(false);
   }
   G.sprayCd = Math.max(0, G.sprayCd - dt);
@@ -798,7 +798,7 @@ function frame(dtOverride) {
   if (G.hidden) inten = Math.max(inten * 0.6, searchK * 0.9);
   // being chased with somewhere to hide close by
   if (inten > 0.6 && !player.under && !G.tipped.hideHint && hideSpots.some((c) => Math.max(c.x0 - player.pos.x, 0, player.pos.x - c.x1) + Math.max(c.z0 - player.pos.z, 0, player.pos.z - c.z1) < 6)) {
-    G.tipped.hideHint = true; tip('테이블이나 컨베이어 밑에 웅크려 기어 들어가면 숨을 수 있다', 'hidehint');
+    G.tipped.hideHint = true; tip('테이블이나 컨베이어 밑에 기어 들어가 숨자', 'hidehint');
   }
   if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
@@ -815,7 +815,7 @@ function frame(dtOverride) {
     const a = G.attached[0];
     if (lookSign && lookSign !== a.lastSign) { a.rev++; a.lastSign = lookSign; }
     a.shake += lookMag;
-    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); swarms.throwDead(a.r, player.pos, player.yaw); msg('털어냈다'); sfx.shakeOff(); sfx.roachDie(1); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
+    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); swarms.throwDead(a.r, player.pos, player.yaw); msg('떼어냈다!'); sfx.shakeOff(); sfx.roachDie(1); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
   }
   swarms.showAttached(camera, G.attached, dt, t);
   { const on = G.attached.length > 0 || swarms.flyer.state === 'face', k = on ? (G.flashOn ? 0.3 : 0.22) : 0; swarms.faceAmb += (k - swarms.faceAmb) * Math.min(1, dt * 6); }
@@ -827,7 +827,7 @@ function frame(dtOverride) {
   G.inSafe = false;
   for (const l of lamps) {
     const d = Math.hypot(player.pos.x - l.x, player.pos.z - l.z);
-    if (!G.lampSeen && d < 7 && !l.on) { G.lampSeen = true; tip('전등 아래는 안전하다. 하지만 오래가지 않는다', 'lamp'); }
+    if (!G.lampSeen && d < 7 && !l.on) { G.lampSeen = true; tip('전등 아래는 안전하다. 오래가진 않겠지만', 'lamp'); }
     if (l.on) {
       l.t += dt;
       const left = 20 - l.t;
@@ -836,13 +836,13 @@ function frame(dtOverride) {
       sfx.lampLevel(l.x, l.z, f);
       l.bulb.material.emissiveIntensity = 3 * f;
       if (d < 4.2) G.inSafe = true;
-      if (l.t >= 20) { sfx.lampPop(l.x, l.z); l.on = false; l.burnt = true; l.light.intensity = 0; l.bulb.material.emissive.set(0x40220e); l.bulb.material.emissiveIntensity = 0.4; msg('전구가 터졌다'); }
+      if (l.t >= 20) { sfx.lampPop(l.x, l.z); l.on = false; l.burnt = true; l.light.intensity = 0; l.bulb.material.emissive.set(0x40220e); l.bulb.material.emissiveIntensity = 0.4; msg('전구가 나갔다...'); }
     }
   }
   $('#safe').classList.toggle('show', G.inSafe);
   // under a table: are you hidden, or giving yourself away?
   const hideEl = $('#hide');
-  const hideTxt = !player.inside || !G.started || G.dead ? '' : G.hidden ? '숨음' : G.flashOn ? '불빛 때문에 들킨다' : G.revealT > 0 ? '스프레이 소리에 들켰다' : player.speed >= 0.35 ? '움직이면 들킨다' : '';
+  const hideTxt = !player.inside || !G.started || G.dead ? '' : G.hidden ? '숨을 죽인다...' : G.flashOn ? '불빛 때문에 들키겠다' : G.revealT > 0 ? '스프레이 소리에 들켰다' : player.speed >= 0.35 ? '움직이면 들킨다' : '';
   hideEl.classList.toggle('show', !!hideTxt); hideEl.classList.toggle('on', G.hidden);
   if (hideTxt && hideEl.dataset.t !== hideTxt) { hideEl.dataset.t = hideTxt; hideEl.querySelector('span').textContent = hideTxt; }
 
@@ -851,7 +851,7 @@ function frame(dtOverride) {
     const target = r.on ? 7 * (0.85 + 0.15 * Math.sin(t * 2.1 + room.length)) : 0;
     r.light.intensity += (target - r.light.intensity) * (1 - Math.exp(-dt * 3));
     r.fixture.material.emissiveIntensity = r.on ? 4 : 0;
-    if (r.on && roomAt(player.pos.x, player.pos.z) === room) tip('붉은 빛은 벌레를 막지 못한다', 'red');
+    if (r.on && roomAt(player.pos.x, player.pos.z) === room) tip('붉은 비상등으로는 벌레를 못 막는다', 'red');
   }
   for (const g of genMeshes) if (g.on) g.g.position.y = 0.006 * Math.sin(t * 90);
 
@@ -888,14 +888,14 @@ function frame(dtOverride) {
       prompt = o.burnt ? '전구가 터져서 다시 켤 수 없다' : o.on ? `전등이 켜져 있다 (${Math.ceil(20 - o.t)}초)` : `${useLabel()} · 전등 레버 당기기`;
       if (pressed && !o.on && !o.burnt) {
         o.on = true; o.t = 0; o.leverPivot.rotation.z = -0.6; sfx.lampOn(o.x, o.z);
-        if (G.checkpoint !== o) { G.checkpoint = o; msg('체크포인트: 죽으면 이 전등에서 다시 시작한다'); }
+        if (G.checkpoint !== o) { G.checkpoint = o; msg('불을 켰다. 무슨 일이 생기면 여기로 돌아오자'); }
       }
     } else if (target.kind === 'note') {
       prompt = `${useLabel()} · 일지 읽기`;
       if (pressed) { o.read = true; o.m.visible = false; note(o.text); sfx.paper(); }
     } else if (target.kind === 'refill') {
       prompt = `${useLabel()} · 스프레이 리필 줍기`;
-      if (pressed) { refill.taken = true; refill.m.visible = false; G.spray += 2; sfx.canRattle(); msg('스프레이 +2회'); }
+      if (pressed) { refill.taken = true; refill.m.visible = false; G.spray += 2; sfx.canRattle(); msg('스프레이를 주웠다 (+2)'); }
     }
   } else G.holdT = 0;
   promptEl.classList.toggle('show', !!prompt);
@@ -969,7 +969,7 @@ $('#startBtn').addEventListener('click', () => {
   G.started = true;
   $('#start').classList.add('hide');
   if (!touch) { try { const p = el.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ignore */ } }
-  setTimeout(() => tip(touch ? '손전등 버튼으로 손전등을 켜라' : '좌클릭으로 손전등을 켜라', 'start'), 1200);
+  setTimeout(() => tip(touch ? '너무 어둡다. 손전등을 켜자 (손전등 버튼)' : '너무 어둡다. 손전등을 켜자 (좌클릭)', 'start'), 1200);
 });
 $('#againBtn').addEventListener('click', () => {
   sfx.start();

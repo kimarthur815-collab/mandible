@@ -36,7 +36,7 @@
   #minimap.show { display: block; }
   #minimap canvas { width: 100%; height: 100%; }
   #cross { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(255,255,255,.45); pointer-events: none; }
-  #tip { left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom)); font-size: 13px; color: rgba(255,255,255,.88); text-shadow: 0 1px 6px #000; opacity: 0; transition: opacity .3s; white-space: nowrap; }
+  #tip { left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom)); font-size: 16px; color: rgba(255,255,255,.92); text-shadow: 0 1px 6px #000, 0 0 2px #000; opacity: 0; transition: opacity .3s; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
   #tip.show { opacity: 1; }
   #msg { left: 50%; top: 22%; transform: translateX(-50%); font-size: 15px; letter-spacing: .06em; color: #fff; text-shadow: 0 1px 8px #000; opacity: 0; transition: opacity .4s; white-space: nowrap; }
   #msg.show { opacity: 1; }
@@ -44,7 +44,7 @@
   #note.show { opacity: 1; }
   #prompt { left: 50%; transform: translateX(-50%); bottom: calc(128px + env(safe-area-inset-bottom)); text-align: center; opacity: 0; transition: opacity .2s; }
   #prompt.show { opacity: 1; }
-  #prompt span { font-size: 13px; padding: 6px 12px; background: rgba(0,0,0,.55); border-radius: 8px; border: 1px solid var(--line); }
+  #prompt span { font-size: 15px; padding: 6px 12px; background: rgba(0,0,0,.55); border-radius: 8px; border: 1px solid var(--line); }
   #prompt .bar { width: 160px; height: 3px; margin: 8px auto 0; background: rgba(255,255,255,.15); border-radius: 2px; overflow: hidden; transition: opacity .2s; }
   #prompt .bar i { display: block; height: 100%; width: 0; background: var(--amber); }
   #status { left: calc(16px + env(safe-area-inset-left)); bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 6px; }
@@ -55,7 +55,7 @@
   #spray { font-size: 11px; color: var(--dim); }
   #safe { left: 50%; transform: translateX(-50%); top: calc(14px + env(safe-area-inset-top)); font-size: 12px; color: #ffb24a; opacity: 0; transition: opacity .3s; }
   #safe.show { opacity: .9; }
-  #hide { left: 50%; transform: translateX(-50%); bottom: calc(64px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 7px; font-size: 13px; color: #ffb24a; text-shadow: 0 1px 6px #000; opacity: 0; transition: opacity .25s, color .25s; white-space: nowrap; }
+  #hide { left: 50%; transform: translateX(-50%); bottom: calc(64px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 7px; font-size: 15px; color: #ffb24a; text-shadow: 0 1px 6px #000; opacity: 0; transition: opacity .25s, color .25s; white-space: nowrap; }
   #hide.show { opacity: .95; }
   #hide.on { color: rgba(225,232,240,.8); }
   #hide svg { width: 20px; height: 12px; }
@@ -148,6 +148,7 @@
     #minimap { top: calc(46px + env(safe-area-inset-top)); width: 120px; height: 190px; }
     body.touch #tip { bottom: calc(18px + env(safe-area-inset-bottom)); }
     body.touch #prompt { bottom: calc(44px + env(safe-area-inset-bottom)); }
+    body.touch #hide { bottom: calc(96px + env(safe-area-inset-bottom)); }
     #joyHint { display: none; }
     #dev { top: calc(62px + env(safe-area-inset-top)); max-height: calc(100% - 72px); width: 280px; }
     #msg { top: 16%; }
@@ -165,7 +166,7 @@
 <div id="hurt"></div><div id="hit"></div>
 <div id="crawl"></div>
 <button id="bShake">털기!</button>
-<div id="grab"><div class="t">거미에게 붙잡혔다</div><div class="bar"><i></i></div><div class="s only-desk">클릭 연타로 버텨라 · 우클릭 스프레이</div></div>
+<div id="grab"><div class="t">거미가 덮쳤다!</div><div class="bar"><i></i></div><div class="s only-desk">클릭 연타로 버텨라 · 우클릭 스프레이</div></div>
 <button id="bMash">버텨! 연타</button>
 <div id="devinfo"></div>
 <div id="dev">
