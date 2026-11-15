@@ -288,8 +288,8 @@ function definePoses() {
   // right (and still shows the back of the fist), so the hand doesn't look broken at the wrist.
   const ARM_R = new V3(-0.02, -0.06, 1).normalize();          // where the forearm runs, in the hand's frame
   const FPS_R = new V3(0.75, -0.55, 0.35).normalize();      // arms come in from the lower corner
-  // the back of the fist turned up and a little in, so the hand leans the same way the forearm comes in
-  const LIKE_R = new V3(-0.9, 0.35, 0.3).normalize();
+  // the back of the hand faces right (outward), so you see the fingers wrapped round the barrel and the thumb on top
+  const LIKE_R = new V3(0.85, 0.2, 0.5).normalize();
   const tanV = Math.tan(THREE.MathUtils.degToRad(27)), tanH = tanV * 1.78;
   const inView = (p) => p.z < -0.02 && Math.abs(p.x / -p.z) < tanH && Math.abs(p.y / -p.z) < tanV;
   const bestRoll = (grip, dir) => {
@@ -306,7 +306,7 @@ function definePoses() {
       if (inView(elbow)) c += 1.0;
       if (arm.y > -0.2) c += 1.0;                               // the forearm must come up from below
       if (arm.z < 0) c += 1.0;                                  // ...and not from beyond the hand
-      c += 2.0 * (1 - new V3(0, 1, 0).applyQuaternion(handQ).dot(LIKE_R));
+      c += 4.0 * (1 - new V3(0, 1, 0).applyQuaternion(handQ).dot(LIKE_R));
       if (!best || c < best.c) best = { c, up, handQ, wrist, elbow, mid };
     }
     return best;
