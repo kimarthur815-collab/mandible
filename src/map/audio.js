@@ -599,6 +599,29 @@ export class Sound {
     this.burst({ t: 0.32, dur: 0.012, f: 3200, q: 3, gain: 0.25, pan: 0.3 });
     this.burst({ t: 0.36, dur: 0.6, f: 5200, q: 0.7, gain: 0.05, attack: 0.04, pan: 0.3 });
   }
+  // the power dies: a relay clunk, everything electrical winding down, the building's hum gone
+  blackout() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    this.burst({ dur: 0.06, f: 180, q: 1.2, gain: 0.8, buf: this.brown });
+    this.burst({ t: 0.02, dur: 0.02, f: 2600, q: 4, gain: 0.25 });
+    this.tone({ f0: 120, f1: 28, dur: 1.5, gain: 0.22, type: 'sawtooth' });
+    this.tone({ f0: 3400, f1: 240, dur: 1.0, gain: 0.025 });
+    this.amb.gain.cancelScheduledValues(now); this.amb.gain.setTargetAtTime(0.12, now, 0.15); this.amb.gain.setTargetAtTime(0.9, now + 3.0, 0.4);
+  }
+  // and comes back: a thump, the tubes ticking and buzzing on
+  powerBack() {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.07, f: 140, q: 1, gain: 0.6, buf: this.brown });
+    for (let i = 0; i < 5; i++) this.burst({ t: 0.04 + i * 0.07 + Math.random() * 0.05, dur: 0.012, f: rnd(3600, 5200), q: 3, gain: 0.09 });
+    this.tone({ t: 0.05, f0: 100, f1: 100, dur: 0.6, gain: 0.05, type: 'sawtooth' });
+  }
+  // finding something you didn't want to: a low swell that won't resolve
+  sting() {
+    if (!this.ctx) return;
+    for (const [f, d] of [[73.4, 0], [77.8, 0.05], [110, 0.1], [155.6, 0.2]]) this.tone({ dest: this.mus, t: d, f0: f, f1: f * 0.985, dur: 2.6, gain: 0.12, type: 'sawtooth', attack: 0.6 });
+    this.burst({ dest: this.mus, dur: 2.2, f: 900, q: 0.6, gain: 0.05, attack: 0.8, buf: this.brown });
+  }
   // the metal ticking as it cools
   coolTick() { if (this.ctx) this.burst({ dur: 0.006, f: rnd(3800, 5600), q: 6, gain: rnd(0.03, 0.06), pan: 0.3 }); }
   // crouching / standing: the suit rustling

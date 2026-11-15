@@ -283,6 +283,29 @@ export class RoachSwarms {
     s.target.set(k >= 0 ? nav.cx(k) : P.x, 0, k >= 0 ? nav.cz(k) : P.z); s.tCell = -1;
   }
 
+  // the lights came back on: the nearest swarm is suddenly a lot closer than it was, mostly in front of you
+  ambushNear(P, yaw) {
+    let best = null;
+    for (const s of this.swarms) {
+      if (this.sealed && this.sealed.has(s.idx)) continue;
+      const c = this.centroid(s), d = Math.hypot(c.x - P.x, c.z - P.z);
+      if ((d < 16 && this.nav.sees(c.x, c.z, P.x, P.z)) || d < 9) { if (!best || d < best.d) best = { s, d }; }
+    }
+    if (!best) return false;
+    const s = best.s;
+    s.state = 'hunt'; s.target.copy(P); s.lostT = 0; s.huntT = 0; s.calmT = 0; s.bayT = 0;
+    let n = 0;
+    for (const r of this.roaches) {
+      if (r.sw !== s.idx || r === this.flyer || r.state === 'dead' || r.state === 'attached' || r.state === 'off' || r.state === 'escape' || r.state === 'fly' || r.state === 'face') continue;
+      for (let k = 0; k < 12; k++) {
+        const a = yaw + (Math.random() - 0.5) * 2.8, d = 2.4 + Math.random() * 3.4;
+        const x = P.x + Math.sin(a) * d, z = P.z + Math.cos(a) * d;
+        if (this.nav.free(x, z) && this.nav.sees(P.x, P.z, x, z)) { r.pos.set(x, 0, z); r.yaw = Math.atan2(P.x - x, P.z - z); r.mode = 'move'; r.state = 'idle'; r.speed = 0; r.waitT = 0; r.pounceT = 0; n++; break; }
+      }
+    }
+    return n > 0;
+  }
+
   alertNearest(p) {
     let best = null;
     for (const s of this.swarms) { const d = Math.hypot(s.x - p.x, s.z - p.z); if (!best || d < best.d) best = { s, d }; }
@@ -347,8 +370,10 @@ export class RoachSwarms {
       if (s.huntT > 14) { s.state = 'return'; s.target.set(s.x, 0, s.z); s.calmT = 10; s.huntT = 0; }
       s.calmT = Math.max(0, (s.calmT || 0) - dt);
       const calm = s.calmT > 0;
-      if (ctx.player.noise > 0 && dc < ctx.player.noise * 0.75 && (!calm || (ctx.player.noise >= 12 && dc < 5))) heard = P;
-      for (const e of ctx.events) if (Math.hypot(s.x - e.x, s.z - e.z) < e.r) heard = heard || new V3(e.x, 0, e.z);
+      // (a swarm shut in behind the passage web hears nothing it could get to)
+      const sealed = this.sealed && this.sealed.has(s.idx);
+      if (!sealed && ctx.player.noise > 0 && dc < ctx.player.noise * 0.75 && (!calm || (ctx.player.noise >= 12 && dc < 5))) heard = P;
+      if (!sealed) for (const e of ctx.events) if (Math.hypot(s.x - e.x, s.z - e.z) < e.r) heard = heard || new V3(e.x, 0, e.z);
       const hid = ctx.player.hidden;
       if (hid && s.state === 'hunt' && !ctx.frozen && !heard && (dc < 9 || Math.hypot(s.target.x - P.x, s.target.z - P.z) < 4)) this.startSearch(s, P);
       if (s.state === 'search' && !ctx.frozen) {

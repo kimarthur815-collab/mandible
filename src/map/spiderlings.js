@@ -1,4 +1,4 @@
-// Egg sacs on the lab ceiling and wall, and the cat-sized spiderlings inside them.
+// Egg sacs on the lab ceiling and wall, and the wolf spiderlings inside them (about 0.6 m across the legs, lots of them).
 // Loud noise within 5 m bursts them (generator 3 always does). The young swarm you for
 // 10 s, freeze in the beam, slow you 10% per touch (max 40%), and scatter into the dark.
 import * as THREE from 'three';
@@ -99,7 +99,7 @@ export function lingMaterial(uTime) {
 
 // ---------------------------------------------------------------- sacs + young
 export class EggNest {
-  constructor(scene, spots, silkMat, T, { perSac = 12 } = {}) {
+  constructor(scene, spots, silkMat, T, { perSac = 22 } = {}) {
     this.spots = spots.map((s) => new V3(...s));
     this.group = new THREE.Group();
     scene.add(this.group);
@@ -153,7 +153,7 @@ export class EggNest {
     this.mesh.frustumCulled = false; this.mesh.castShadow = true;
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.group.add(this.mesh);
-    this.L = Array.from({ length: this.N }, (_, i) => ({ i, alive: false, p: new V3(), vy: 0, yaw: 0, speed: 0, phase: 'fall', t: 0, ph: Math.random() * 6, sc: 0.85 + Math.random() * 0.35, cd: 0, mean: 0.3 + Math.random() * 0.6, meanF: 0.6 + Math.random() * 1.4, flip: 0, spin: 0, vx: 0, vz: 0 }));
+    this.L = Array.from({ length: this.N }, (_, i) => ({ i, alive: false, p: new V3(), vy: 0, yaw: 0, speed: 0, phase: 'fall', t: 0, ph: Math.random() * 6, sc: 0.85 + Math.random() * 0.35, cd: 0, mean: 0.3 + Math.random() * 0.5, meanF: 0.6 + Math.random() * 1.4, zigF: 6 + Math.random() * 5, flank: (Math.random() - 0.5) * 1.3, dart: 0, dartT: Math.random(), pause: 0, flip: 0, spin: 0, vx: 0, vz: 0 }));
     this.reset();
   }
 
@@ -244,17 +244,28 @@ export class EggNest {
             const gx = lost.x + Math.sin(a) * rr - l.p.x, gz = lost.z + Math.cos(a) * rr - l.p.z, L = Math.hypot(gx, gz) || 1;
             D.x = gx / L; D.z = gz / L;
           } else if (!nav.descend(ctx.field, l.p.x, l.p.z, D)) { const L = Math.hypot(P.x - l.p.x, P.z - l.p.z) || 1; D.x = (P.x - l.p.x) / L; D.z = (P.z - l.p.z) / L; }
-          let ang = Math.atan2(D.x, D.z) + Math.sin(t * l.meanF + l.ph) * l.mean;
+          // never a straight line: a slow wander, a quick zigzag on top, sudden sidesteps and dead stops,
+          // and many come round from the side rather than head on
+          const dP0 = Math.hypot(P.x - l.p.x, P.z - l.p.z);
+          l.dartT -= dt; l.pause -= dt;
+          if (l.dartT <= 0) {
+            l.dartT = 0.25 + Math.random() * 0.9;
+            l.dart = Math.random() < 0.35 ? (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.6) : 0;
+            if (Math.random() < 0.18) l.pause = 0.12 + Math.random() * 0.35;
+          }
+          const far = clamp((dP0 - 1.2) / 3, 0, 1);
+          let ang = Math.atan2(D.x, D.z) + Math.sin(t * l.meanF + l.ph) * l.mean + Math.sin(t * l.zigF + l.ph * 3) * 0.55 + (l.dart + l.flank) * (0.3 + 0.7 * far);
           dx = Math.sin(ang); dz = Math.cos(ang);
-          want = lit || ctx.frozen ? 0 : 2.7 + (l.ph % 1) * 0.6;
+          want = lit || ctx.frozen || l.pause > 0 ? 0 : (2.7 + (l.ph % 1) * 0.6) * (l.dart ? 1.25 : 1);
           // lamps: they stop at the edge of a lit safe zone
           if (nav.lit[nav.idx(l.p.x + dx * 0.35, l.p.z + dz * 0.35)] === 2) want = 0;
           const dP = Math.hypot(P.x - l.p.x, P.z - l.p.z);
-          if (dP < 0.55 && l.cd <= 0 && !ctx.frozen && !ctx.hidden) { l.cd = 2.2; ctx.onTouch && ctx.onTouch(l); l.speed = -2.5; }
+          if (dP < 0.45 && l.cd <= 0 && !ctx.frozen && !ctx.hidden) { l.cd = 2.2; ctx.onTouch && ctx.onTouch(l); l.speed = -2.5; }
         } else {
           // scatter away from you into the dark, then gone
           if (!nav.descend(ctx.field, l.p.x, l.p.z, D, -1)) { D.x = l.p.x - P.x; D.z = l.p.z - P.z; }
-          dx = D.x; dz = D.z; want = 3.4;
+          const ang = Math.atan2(D.x, D.z) + Math.sin(t * l.meanF + l.ph) * l.mean * 1.2 + Math.sin(t * l.zigF + l.ph * 3) * 0.4;
+          dx = Math.sin(ang); dz = Math.cos(ang); want = 3.4;
           if (l.t > 3) { l.sc *= 0.9; if (l.sc < 0.05) l.alive = false; }
         }
         if (Math.hypot(dx, dz) > 1e-4) {
@@ -275,16 +286,16 @@ export class EggNest {
       this.iPhase.array[l.i] = l.ph;
       this.iMove.array[l.i] = l.phase === 'swept' ? 1.6 : l.phase === 'fall' ? 1.2 : clamp(Math.abs(l.speed) / 1.6, 0, 1.2);
       q.setFromEuler(e.set(0, l.yaw + l.spin, Math.PI * l.flip));
-      M.compose(new V3(l.p.x, l.p.y + (l.flip > 0 ? 0.16 * l.flip : 0), l.p.z), q, sc.setScalar(l.sc * 1.9));
+      M.compose(new V3(l.p.x, l.p.y + (l.flip > 0 ? 0.1 * l.flip : 0), l.p.z), q, sc.setScalar(l.sc * 1.15));
       this.mesh.setMatrixAt(l.i, M);
     }
-    // spread out: push apart anything closer than 0.45 m
+    // spread out: push apart anything closer than 0.3 m
     for (let a = 0; a < this.N; a++) {
       const A = this.L[a]; if (!A.alive || A.phase === 'fall' || A.t < 0) continue;
       for (let b2 = a + 1; b2 < this.N; b2++) {
         const Bq = this.L[b2]; if (!Bq.alive || Bq.phase === 'fall' || Bq.t < 0) continue;
         const dx = Bq.p.x - A.p.x, dz = Bq.p.z - A.p.z, d2 = dx * dx + dz * dz;
-        if (d2 < 0.2 && d2 > 1e-6) { const d = Math.sqrt(d2), push = (0.45 - d) * 0.5 / d; A.p.x -= dx * push; A.p.z -= dz * push; Bq.p.x += dx * push; Bq.p.z += dz * push; }
+        if (d2 < 0.09 && d2 > 1e-6) { const d = Math.sqrt(d2), push = (0.3 - d) * 0.5 / d; A.p.x -= dx * push; A.p.z -= dz * push; Bq.p.x += dx * push; Bq.p.z += dz * push; }
       }
     }
     this.mesh.instanceMatrix.needsUpdate = true; this.iPhase.needsUpdate = true; this.iMove.needsUpdate = true;

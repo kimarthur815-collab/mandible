@@ -12,6 +12,7 @@ import { MapSpiders } from './spiders.js';
 import { EggNest } from './spiderlings.js';
 import { GhostBrood } from './ghostlings.js';
 import { MapCentipede } from './centi.js';
+import { PassageGate, Phantom, DeadWorker, GATE, BODY } from './scares.js';
 
 const $ = (s) => document.querySelector(s);
 const touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -175,6 +176,10 @@ scene.add(shutter);
 const shCol = { x0: -2.6, x1: 2.6, z0: 0.05, z1: 0.35 };
 colliders.push(shCol);
 spiders.setColliders(colliders);
+// (made after the spiders took their feet surfaces, so their legs don't reach for these)
+const gate = new PassageGate(scene, silk, BT, colliders);
+const phantom = new Phantom(scene, silk, BT);
+const deadMan = new DeadWorker(scene, silk, colliders);
 const indicators = [0, 1, 2].map((i) => {
   const m = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 10), new THREE.MeshStandardMaterial({ color: 0x200000, emissive: new THREE.Color(0xff2010), emissiveIntensity: 1.4 }));
   m.position.set(-0.6 + i * 0.6, 4.85, 0.45);
@@ -195,9 +200,9 @@ function resetGame() {
     emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: 3, inSafe: false,
     tipped: {}, lampSeen: false, hp: 3, dead: false, attached: [], scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
-    hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false,
+    hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
   });
-  swarms.reset();
+  swarms.reset(); swarms.sealed = new Set([3]); gate.setOpen(false); phantom.hide();
   spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); $('#bMash').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
@@ -379,6 +384,7 @@ function useSpray() {
   const sp = spiders.spray(o, d);
   const lings = eggs.spray(o, d) + brood.spray(o, d);
   const c = centi.spray(o, d);
+  if (gate.spray(o, d)) { tip('거미줄이 너무 두껍다. 스프레이로는 안 된다'); const p = gate.s.bodyWorld; sfx.spiderFlinch(p.x, p.y, p.z); }
   if (sp.webs) { tip('거미줄이 녹아내린다', 'webmelt'); for (const w of spiders.webs) if (w.state === 'melting') sfx.webMelt(w.x, w.z); }
   if (G.grab && sp.spiders.includes(G.grab.sp)) endGrab(true);
   if (c) sfx.centiHiss(centi.head.x, centi.head.z);
@@ -414,6 +420,7 @@ function endGrab(sprayed) {
 // ------------------------------------------------------------------ actions
 function toggleFlash() {
   if (!G.started) return;
+  if (G.blackT > 0) tip('손전등도 안 켜진다...');
   if (!G.flashOn && G.drained) { if (window.__SFX) window.__SFX.click(false); tip('손전등이 아직 뜨겁다'); return; }
   G.flashOn = !G.flashOn;
   $('#bFlash').classList.toggle('on', G.flashOn);
@@ -429,6 +436,22 @@ function toggleBright() {
   scene.fog.density = bright ? 0.012 : 0.05;
   document.querySelectorAll('[data-act="bright"]').forEach((b) => b.classList.toggle('on', bright));
 }
+// a generator coming on overloads the old wiring: every light in the place dies for 3 s
+// (the flashlight too). The first time, something drops on its line in front of you meanwhile;
+// and when the lights come back, the nearest roaches are suddenly a lot closer.
+function startBlackout() {
+  G.blackT = 3.0; G.backT = 0;
+  G.blackPhantom = !G.blackDone; G.blackDone = true;
+  for (const r of Object.values(reds)) r.light.intensity = 0;
+  sfx.blackout();
+  setTimeout(() => { if (G.blackT > 0) tip('...불이 다 나갔다'); }, 500);
+}
+function endBlackout() {
+  G.blackT = 0; G.backT = 0.4;
+  sfx.powerBack();
+  phantom.lightsBack();
+  if (swarms.ambushNear(player.pos, player.yaw)) tip('...언제 이렇게 가까이 왔지');
+}
 function genOn(g) {
   g.on = true;
   G.gens++;
@@ -438,6 +461,8 @@ function genOn(g) {
   r.on = true;
   indicators[G.gens - 1].material.emissive.set(0x30ff60);
   msg(G.gens === 3 ? '마지막 발전기다. 됐다!' : `발전기가 돌아간다. ${['', '두 대', '한 대'][G.gens]} 남았다`);
+  startBlackout();
+  if (G.gens === 3) { gate.setOpen(true); swarms.sealed.clear(); }
   sfx.generatorStart(g.x, g.z);
   tip('발전기 소리에 벌레들이 몰려오겠다...', 'gen');
   if (g.room === 'hall' && !centi.active) { sfx.silence(1.4); setTimeout(() => { if (!G.dead) centi.wake(); }, 1300); }
@@ -497,6 +522,7 @@ function respawnAtLamp(l) {
   sfx.lampOn(l.x, l.z);
   // the bugs go back where they started
   swarms.regroup(); spiders.regroup(); eggs.clearYoung(); brood.reset(); centi.regroup(l);
+  G.blackT = 0; G.backT = 0; phantom.hide();
   G.started = true;
   sfx.respawn();
   msg('...정신이 든다. 전등 아래다');
@@ -608,7 +634,7 @@ function frame(dtOverride) {
     G.tickT = (G.tickT || 0) - dt;
     if (G.tickT <= 0) { G.tickT = 0.5 + Math.random() * 1.2; sfx.coolTick(); }
     if (G.battery >= 1) { G.drained = false; tip('손전등이 식었다'); }
-  } else if (G.flashOn) G.battery -= dt / 30;
+  } else if (G.flashOn && G.blackT <= 0) G.battery -= dt / 30;
   else G.battery += dt * 0.02 * (G.inSafe ? 2 : 1);
   G.battery = Math.min(1, G.battery);
   if (G.battery <= 0 && !G.drained) {
@@ -630,6 +656,20 @@ function frame(dtOverride) {
   const b = G.battery;
   battK += ((b <= 0 ? 0.09 : 0.09 + 0.91 * Math.pow(b, 1.3)) - battK) * Math.min(1, dt * 3);
   fl *= battK;
+  // the blackout: everything electric is dead for 3 s, then stutters back
+  if (G.blackT > 0) {
+    G.blackT -= dt;
+    if (G.blackPhantom && G.blackT < 1.1 && !phantom.active) {
+      const rm = ROOMS[roomAt(player.pos.x, player.pos.z)] || ROOMS.machine;
+      const at = phantom.show(camera.position, player.yaw, rm.h, rm);
+      G.blackPhantom = false;
+      sfx.creak(at.x, rm.h - 0.3, at.z);
+    }
+    if (G.blackT <= 0) endBlackout();
+  }
+  G.backT = Math.max(0, G.backT - dt);
+  const powerK = G.blackT > 0 ? (G.blackT > 2.85 && Math.random() < 0.5 ? 0.5 : 0) : G.backT > 0 ? (Math.random() < 0.55 ? 1 : 0.1) : 1;
+  fl *= powerK;
   flash.color.setRGB(1, 0.93 - (1 - Math.min(1, b / 0.35)) * 0.17, 0.87 - (1 - Math.min(1, b / 0.35)) * 0.38);
   player.forward(fwd);
   ray.set(camera.position, fwd);
@@ -665,7 +705,7 @@ function frame(dtOverride) {
   // dark adaptation: builds up over ~7 s with the light off, gone almost at once when it comes on
   adapt = G.flashOn ? Math.max(0, adapt - dt / 0.6) : Math.min(1, adapt + dt / 7);
   nightEye.position.copy(camera.position);
-  nightEye.intensity = bright ? 0 : Math.pow(adapt, 1.5) * NIGHT_K;
+  nightEye.intensity = bright || G.blackT > 0 ? 0 : Math.pow(adapt, 1.5) * NIGHT_K;
   bounce.position.copy(camera.position).addScaledVector(fwd, Math.min(hd * 0.75, 4.5));
   bounce.intensity = G.flashOn ? 2.2 * fl * Math.min(1, nearK * 1.6) : 0;
   dress.update(dt, camera.position, flash.position, beamDir.subVectors(flash.target.position, flash.position).normalize(), G.flashOn ? fl : 0, renderer.domElement.height * 1.2);
@@ -688,7 +728,7 @@ function frame(dtOverride) {
     dt, t, camera, frozen: dev.freeze || !G.started,
     player: { pos: player.pos, noise, alive: !G.dead && !G.won, hidden: G.hidden, under: !!player.inside },
     flash: { on: beamPow > 20, pos: flash.position, dir: beamDir.subVectors(flash.target.position, flash.position).normalize() },
-    lamps: lamps.map((l) => ({ x: l.x, z: l.z, on: l.on })),
+    lamps: lamps.map((l) => ({ x: l.x, z: l.z, on: l.on && G.blackT <= 0 })),
     events: G.events, playerSafe: G.inSafe,
     onAttach,
     onFirstFlee: () => tip('바퀴들이 빛을 피한다', 'roachlight'),
@@ -704,7 +744,7 @@ function frame(dtOverride) {
   const light = { on: beamPow > 20, pos: flash.position.clone(), dir: beamDir.clone() };
   const frozen = dev.freeze || !G.started;
   let safeLamp = null;
-  for (const l of lamps) if (l.on && Math.hypot(player.pos.x - l.x, player.pos.z - l.z) < 4.2) safeLamp = { x: l.x, z: l.z, r: 4.2 };
+  for (const l of lamps) if (l.on && G.blackT <= 0 && Math.hypot(player.pos.x - l.x, player.pos.z - l.z) < 4.2) safeLamp = { x: l.x, z: l.z, r: 4.2 };
   spiders.update({
     dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god, hidden: G.hidden,
     nav: swarms.nav, field: swarms.fPlayer,
@@ -719,6 +759,16 @@ function frame(dtOverride) {
     onCatch: (sp) => startGrab(sp),
     onWebLit: () => tip('거미줄이다. 스프레이로 녹일 수 있겠다', 'weblit'),
   });
+  // the spider walling off the passage, the one from the blackout, the dead man in the corridor
+  gate.update({ dt, cam: camera.position, light, playerPos: player.pos,
+    onNear: () => tip('저 안으로는... 못 가겠다', 'gate'),
+    onShake: (x, y, z) => sfx.spiderFlinch(x, y, z),
+    onTouch: () => tip('거미줄이 너무 두껍다. 지나갈 수 없다') });
+  phantom.update({ dt, cam: camera.position, light, onRetract: (x, y, z) => sfx.spiderFlinch(x, y, z) });
+  deadMan.update(dt);
+  if (G.started && !G.tipped.body && Math.hypot(player.pos.x - BODY.x, player.pos.z - BODY.z) < 5.5) {
+    G.tipped.body = true; sfx.sting(); tip('...나랑 같은 방역복이다. 먼저 들어온 사람인가');
+  }
   if (G.started && !G.dead && !G.grab) {
     const tr = spiders.threadAt(player.pos, camera.position.y + 0.12);
     if (tr) { spiders.snapThread(tr); sfx.threadSnap(player.pos.x, 1.4, player.pos.z); msg('실을 끊어 버렸다...'); }
@@ -739,7 +789,7 @@ function frame(dtOverride) {
     dt, player: { pos: player.pos }, nav: swarms.nav, field: swarms.fPlayer, light, frozen, hidden: G.hidden,
     onTouch: () => {
       if (dev.god) return;
-      G.lingSlow = Math.min(0.4, G.lingSlow + 0.1); G.lingT = 0;
+      G.lingSlow = Math.min(0.4, G.lingSlow + 0.07); G.lingT = 0;
       sfx.burst && sfx.ctx && sfx.burst({ dur: 0.12, f: 3800, q: 1, gain: 0.3 });
       tip('새끼들은 스프레이 한 번이면 쓸려 나가겠다', 'lings');
     },
@@ -831,11 +881,12 @@ function frame(dtOverride) {
     if (l.on) {
       l.t += dt;
       const left = 20 - l.t;
-      const f = left < 5 ? (Math.sin(t * (18 + (5 - left) * 6)) > -0.2 ? 1 : 0.15) : 1;
+      const f = (left < 5 ? (Math.sin(t * (18 + (5 - left) * 6)) > -0.2 ? 1 : 0.15) : 1) * (G.blackT > 0 ? 0 : G.backT > 0 ? (Math.random() < 0.5 ? 1 : 0) : 1);
+      if (G.blackT > 0) l.t -= dt;          // (the bulb isn't burning meanwhile)
       l.light.intensity = 9 * f;
       sfx.lampLevel(l.x, l.z, f);
       l.bulb.material.emissiveIntensity = 3 * f;
-      if (d < 4.2) G.inSafe = true;
+      if (d < 4.2 && G.blackT <= 0) G.inSafe = true;
       if (l.t >= 20) { sfx.lampPop(l.x, l.z); l.on = false; l.burnt = true; l.light.intensity = 0; l.bulb.material.emissive.set(0x40220e); l.bulb.material.emissiveIntensity = 0.4; msg('전구가 나갔다...'); }
     }
   }
@@ -848,9 +899,9 @@ function frame(dtOverride) {
 
   // ---- red emergency lights
   for (const [room, r] of Object.entries(reds)) {
-    const target = r.on ? 7 * (0.85 + 0.15 * Math.sin(t * 2.1 + room.length)) : 0;
+    const target = r.on && G.blackT <= 0 ? 7 * (0.85 + 0.15 * Math.sin(t * 2.1 + room.length)) : 0;
     r.light.intensity += (target - r.light.intensity) * (1 - Math.exp(-dt * 3));
-    r.fixture.material.emissiveIntensity = r.on ? 4 : 0;
+    r.fixture.material.emissiveIntensity = r.on && G.blackT <= 0 ? 4 : 0;
     if (r.on && roomAt(player.pos.x, player.pos.z) === room) tip('붉은 비상등으로는 벌레를 못 막는다', 'red');
   }
   for (const g of genMeshes) if (g.on) g.g.position.y = 0.006 * Math.sin(t * 90);
@@ -1033,7 +1084,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, gate, phantom, deadMan, genOn, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { G.started = true; $('#start').classList.add('hide'); },

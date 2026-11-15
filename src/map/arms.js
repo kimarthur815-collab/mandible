@@ -104,7 +104,7 @@ export class Arms {
   // where the spray comes out (world space)
   nozzleWorld(camera, out) {
     this.root.updateMatrixWorld(true);
-    const w = this.can.localToWorld(new V3(0.016, 0, 0.1105));
+    const w = this.can.localToWorld(new V3(-0.016, 0, 0.1105));
     return camera.localToWorld(this.toGameView(camera, w, out));
   }
 

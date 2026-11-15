@@ -88,7 +88,7 @@ export function makeCan() {
   const capMat = new THREE.MeshStandardMaterial({ color: 0xf0eee8, roughness: 0.55 });
   const cap = new THREE.Mesh(lathe([[0, 0.1190], [0.0115, 0.1185], [0.0132, 0.1160], [0.0135, 0.0965], [0.0128, 0.0950]], 48), capMat);
   const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.0022, 0.0022, 0.004, 16).rotateZ(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 }));
-  nozzle.position.set(0.0128, 0, 0.1105);
+  nozzle.position.set(-0.0128, 0, 0.1105);       // on the side away from the label's front: it sprays away from you
   for (const m of [bottom, lab, top, cap, nozzle]) { m.castShadow = true; m.receiveShadow = true; g.add(m); }
   // the label's text faces outward on the visible side
   lab.rotation.z = -Math.PI * 0.1;
