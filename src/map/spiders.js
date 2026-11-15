@@ -397,6 +397,17 @@ export class MapSpiders {
   }
 
   states() { return this.spiders.map((sp) => (sp.grabbed ? 'grab' : sp.mode === 'trip' && sp.g ? sp.g.phase : sp.s.state)); }
+  // spiders crawling across the ceiling (for their footsteps)
+  emitters(P) {
+    const out = [];
+    this.spiders.forEach((sp, i) => {
+      const s = sp.s;
+      if (s.state !== 'crawl' || !(s.speed > 0.05)) return;
+      const p = s.root.position, d = Math.hypot(p.x - P.x, p.z - P.z);
+      if (d < 16) out.push({ key: 's' + i, kind: 'big', x: p.x, y: p.y, z: p.z, d, sp: Math.min(1, 0.4 + s.speed) });
+    });
+    return out;
+  }
   // where the chasing ghost is (for its footsteps)
   ghostInfo() { const g = this.ghost && this.ghost.g; return g && g.phase !== 'descend' ? { x: g.pos.x, y: g.surf === 'floor' ? 0.1 : g.h, z: g.pos.z, speed: this.ghost.s.speed || 0 } : null; }
 }

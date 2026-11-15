@@ -45,6 +45,12 @@ export class Sound {
     this.genBuf = this.makeGenerator(2.0);
     this.lampBuf = this.makeLampHum(2.0);
     this.tapBuf = this.makeTaps(2.0);
+    // one bug's own feet, by size
+    this.stepBufs = {
+      roach: this.makeLegSteps(2.2, { stride: 9, legs: 3, f0: 2600, f1: 4200, len: 0.0025, scrape: 0.3 }),
+      ling: this.makeLegSteps(2.2, { stride: 6, legs: 4, f0: 900, f1: 1800, len: 0.005, scrape: 0.2 }),
+      big: this.makeLegSteps(2.6, { stride: 2.6, legs: 4, f0: 320, f1: 760, len: 0.012, scrape: 0.45 }),
+    };
     this.startAmbience();
     this.startTension();
   }
@@ -105,6 +111,34 @@ export class Sound {
     // a faint rustle under the clicks
     for (let i = 0; i < n; i++) d[i] = d[i] * 0.55 + (Math.random() * 2 - 1) * 0.015;
     this.loopFade(d, sr);
+    return b;
+  }
+
+  // a single bug walking: tripod gait, so groups of quick leg ticks. Sharp transients are
+  // what the ear uses to place a sound, so these localise far better than a wash of noise.
+  makeLegSteps(sec, { stride, legs, f0, f1, len, scrape }) {
+    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(sec * sr), b = ctx.createBuffer(1, n, sr), d = b.getChannelData(0);
+    let t = 0.01;
+    while (t < sec - 0.03) {
+      for (let k = 0; k < legs; k++) {
+        const i0 = Math.floor((t + k * rnd(0.003, 0.009)) * sr), L = Math.floor(rnd(len * 0.7, len * 1.3) * sr), amp = rnd(0.45, 1) * (k ? 0.7 : 1);
+        const w = 2 * Math.PI * rnd(f0, f1) / sr;
+        let ph = Math.random() * 6;
+        for (let j = 0; j < L && i0 + j < n; j++) { const env = Math.exp(-j / (L * 0.22)); d[i0 + j] += (Math.sin(ph += w) * 0.6 + (Math.random() * 2 - 1) * 0.5) * env * amp; }
+      }
+      if (Math.random() < scrape) {
+        // a leg dragging a little
+        const i0 = Math.floor((t + 0.01) * sr), L = Math.floor(0.025 * sr);
+        let lp = 0;
+        for (let j = 0; j < L && i0 + j < n; j++) { const wv = Math.random() * 2 - 1; lp = lp * 0.5 + wv * 0.5; d[i0 + j] += (wv - lp) * 0.15 * Math.sin(Math.PI * j / L); }
+      }
+      t += rnd(0.8, 1.2) / (stride * 2);
+      if (Math.random() < 0.06) t += rnd(0.05, 0.15);     // stop-start
+    }
+    this.loopFade(d, sr);
+    let pk = 0;
+    for (let i = 0; i < n; i++) pk = Math.max(pk, Math.abs(d[i]));
+    for (let i = 0; i < n; i++) d[i] /= pk || 1;
     return b;
   }
 
@@ -194,6 +228,27 @@ export class Sound {
     p.refDistance = ref; p.rolloffFactor = roll; p.maxDistance = 60;
     this.setPos(p, x, y, z);
     return p;
+  }
+  // a positioned source with a front/back cue: things behind you sound duller.
+  // (HRTF alone places left/right well, but front and back are easy to confuse on earphones.)
+  spot(x, y, z, ref = 1.2, roll = 1.3, dest = this.sfx) {
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 9000; lp.Q.value = 0.5;
+    const p = this.panner(x, y, z, ref, roll);
+    lp.connect(p); p.connect(dest);
+    const sp = { in: lp, lp, p };
+    this.place(sp, x, y, z, true);
+    return sp;
+  }
+  place(sp, x, y, z, snap = false) {
+    const t = this.ctx.currentTime, P = sp.p;
+    if (snap && P.positionX) { P.positionX.cancelScheduledValues(t); P.positionY.cancelScheduledValues(t); P.positionZ.cancelScheduledValues(t); P.positionX.setValueAtTime(x, t); P.positionY.setValueAtTime(y, t); P.positionZ.setValueAtTime(z, t); }
+    else this.setPos(P, x, y, z);
+    const L = this._lis;
+    if (!L) return;
+    const dx = x - L.x, dz = z - L.z, d = Math.hypot(dx, dz);
+    const ahead = d > 0.3 ? (dx * L.fx + dz * L.fz) / d : 1;
+    const behind = Math.max(0, -ahead);
+    sp.lp.frequency.setTargetAtTime(9000 - 6400 * behind, t, snap ? 0.005 : 0.05);
   }
   setPos(p, x, y, z) {
     if (p.positionX) { const t = this.ctx.currentTime; p.positionX.setTargetAtTime(x, t, 0.03); p.positionY.setTargetAtTime(y, t, 0.03); p.positionZ.setTargetAtTime(z, t, 0.03); }
@@ -518,6 +573,42 @@ export class Sound {
     this.intensity = 0;
   }
 
+  // ------------------------------------------------------------ individual bugs
+  // the closest few moving bugs each get a voice that follows them; a voice keeps its bug
+  // as long as it stays among the closest, and only fully silent voices are handed on.
+  updateVoices(emit, dt, now) {
+    const N = 6, GAIN = { roach: 1.1, ling: 1.0, big: 1.5 };
+    if (!this.voices) { this.voices = []; for (let i = 0; i < N; i++) this.voices.push({ sp: this.spot(0, 0.1, 0, 1.0, 1.4), src: null, g: null, kind: null, key: null, c: null, idle: 1 }); }
+    const cands = emit.slice().sort((a, b) => a.d - b.d).slice(0, N);
+    const taken = new Set();
+    for (const v of this.voices) {
+      const c = v.key ? cands.find((c) => c.key === v.key) : null;
+      if (c) { v.c = c; taken.add(c.key); } else { if (v.key) { v.key = null; v.idle = 0; } v.c = null; }
+    }
+    for (const c of cands) {
+      if (taken.has(c.key)) continue;
+      const v = this.voices.find((v) => !v.key && v.idle > 0.15);
+      if (!v) break;
+      if (v.kind !== c.kind) {
+        if (v.src) { v.src.stop(); v.g.disconnect(); }
+        const l = this.loop(this.stepBufs[c.kind], v.sp.in, 0, 1);
+        v.src = l.s; v.g = l.g; v.kind = c.kind;
+      }
+      v.key = c.key; v.c = c; taken.add(c.key);
+      this.place(v.sp, c.x, c.y, c.z, true);
+    }
+    for (const v of this.voices) {
+      if (v.c) {
+        this.place(v.sp, v.c.x, v.c.y, v.c.z);
+        v.g.gain.setTargetAtTime(GAIN[v.kind] * v.c.sp, now, 0.04);
+        v.src.playbackRate.setTargetAtTime(0.7 + 0.5 * v.c.sp, now, 0.1);
+      } else {
+        v.idle += dt;
+        if (v.g) v.g.gain.setTargetAtTime(0, now, 0.04);
+      }
+    }
+  }
+
   // ------------------------------------------------------------ per frame
   // s: { dt, camera, swarms:[{x,z,moving}], near:{x,z,d}|null, attached, intensity, gens:[{x,z,on}], pounce }
   update(s) {
@@ -533,25 +624,21 @@ export class Sound {
       L.forwardX.setTargetAtTime(f.x, now, 0.02); L.forwardY.setTargetAtTime(f.y, now, 0.02); L.forwardZ.setTargetAtTime(f.z, now, 0.02);
       L.upX.setTargetAtTime(e[4], now, 0.02); L.upY.setTargetAtTime(e[5], now, 0.02); L.upZ.setTargetAtTime(e[6], now, 0.02);
     } else { L.setPosition(p.x, p.y, p.z); L.setOrientation(f.x, f.y, f.z, e[4], e[5], e[6]); }
+    { const fl = Math.hypot(f.x, f.z) || 1; this._lis = { x: p.x, z: p.z, fx: f.x / fl, fz: f.z / fl }; }
 
     // swarm skitter, one positional loop per swarm
     s.swarms.forEach((w, i) => {
       if (!this.swarmSrc[i]) {
-        const pn = this.panner(w.x, 0.15, w.z, 1.2, 1.25); pn.connect(this.sfx);
-        const l = this.loop(this.skitBufs[i % 3], pn, 0, 0.9 + (i % 3) * 0.12);
-        this.swarmSrc[i] = { ...l, p: pn };
+        const sp = this.spot(w.x, 0.15, w.z, 1.2, 1.25);
+        const l = this.loop(this.skitBufs[i % 3], sp.in, 0, 0.9 + (i % 3) * 0.12);
+        this.swarmSrc[i] = { ...l, sp };
       }
       const src = this.swarmSrc[i];
-      this.setPos(src.p, w.x, 0.15, w.z);
-      src.g.gain.setTargetAtTime(Math.min(1, w.moving / 6) * 0.38 + (w.moving > 0 ? 0.02 : 0), now, 0.12);
+      this.place(src.sp, w.x, 0.15, w.z);
+      src.g.gain.setTargetAtTime(Math.min(1, w.moving / 6) * 0.24 + (w.moving > 0 ? 0.015 : 0), now, 0.12);
     });
-    // the closest roach gets its own crisp skitter
-    if (!this.nearSrc) {
-      const pn = this.panner(0, 0.1, 0, 0.5, 1.6); pn.connect(this.sfx);
-      this.nearSrc = { ...this.loop(this.skitBufs[1], pn, 0, 1.25), p: pn };
-    }
-    if (s.near && s.near.d < 3) { this.setPos(this.nearSrc.p, s.near.x, 0.1, s.near.z); this.nearSrc.g.gain.setTargetAtTime(0.22 * (1 - s.near.d / 3) * s.near.speed, now, 0.05); }
-    else this.nearSrc.g.gain.setTargetAtTime(0, now, 0.1);
+    // every bug close by gets its own footsteps on its own voice
+    this.updateVoices(s.emit || [], s.dt, now);
     // crawling on you
     if (!this.onMe) {
       this.onMe = { crinkle: this.loop(this.crinkleBuf, this.sfx, 0, 1), skit: this.loop(this.skitBufs[2], this.sfx, 0, 1.4) };
@@ -561,19 +648,19 @@ export class Sound {
     this.onMe.skit.g.gain.setTargetAtTime(a ? 0.1 + a * 0.05 : 0, now, 0.05);
     if (s.pounce) this.burst({ dur: 0.3, f: 5000, q: 0.7, gain: 0.1, attack: 0.03 });
     // the centipede: faster ticks the faster it runs, so you can hear how close it is
-    if (!this.tapSrc) { const pn = this.panner(0, 0.3, 0, 1.6, 1.0); pn.connect(this.sfx); this.tapSrc = { ...this.loop(this.tapBuf, pn, 0, 0.6), p: pn }; }
+    if (!this.tapSrc) { const sp = this.spot(0, 0.3, 0, 1.6, 1.0); this.tapSrc = { ...this.loop(this.tapBuf, sp.in, 0, 0.6), sp }; }
     if (s.centi) {
-      this.setPos(this.tapSrc.p, s.centi.x, 0.3, s.centi.z);
+      this.place(this.tapSrc.sp, s.centi.x, 0.3, s.centi.z);
       const v = Math.min(1, s.centi.speed / 4.5);
       this.tapSrc.g.gain.setTargetAtTime(s.centi.speed > 0.2 ? 0.35 + v * 0.75 : 0, now, 0.08);
       this.tapSrc.s.playbackRate.setTargetAtTime(0.45 + v * 0.9, now, 0.1);
     } else this.tapSrc.g.gain.setTargetAtTime(0, now, 0.1);
     // the ghost spider running at you: long legs ticking fast on concrete and tiles
-    if (!this.ghostSrc) { const pn = this.panner(0, 0.1, 0, 1.4, 1.1); pn.connect(this.sfx); this.ghostSrc = { ...this.loop(this.tapBuf, pn, 0, 1.4), p: pn }; }
-    if (s.ghost) { this.setPos(this.ghostSrc.p, s.ghost.x, s.ghost.y, s.ghost.z); this.ghostSrc.g.gain.setTargetAtTime(Math.min(1, s.ghost.speed / 4) * 0.35, now, 0.05); }
+    if (!this.ghostSrc) { const sp = this.spot(0, 0.1, 0, 1.4, 1.1); this.ghostSrc = { ...this.loop(this.tapBuf, sp.in, 0, 1.4), sp }; }
+    if (s.ghost) { this.place(this.ghostSrc.sp, s.ghost.x, s.ghost.y, s.ghost.z); this.ghostSrc.g.gain.setTargetAtTime(Math.min(1, s.ghost.speed / 4) * 0.35, now, 0.05); }
     else this.ghostSrc.g.gain.setTargetAtTime(0, now, 0.1);
-    if (!this.lingSrc) { const pn = this.panner(0, 0.1, 0, 1.2, 1.2); pn.connect(this.sfx); this.lingSrc = { ...this.loop(this.skitBufs[0], pn, 0, 1.5), p: pn }; }
-    if (s.lings && s.lings.moving) { this.setPos(this.lingSrc.p, s.lings.cx, 0.1, s.lings.cz); this.lingSrc.g.gain.setTargetAtTime(Math.min(0.7, s.lings.moving / 14), now, 0.1); }
+    if (!this.lingSrc) { const sp = this.spot(0, 0.1, 0, 1.2, 1.2); this.lingSrc = { ...this.loop(this.skitBufs[0], sp.in, 0, 1.5), sp }; }
+    if (s.lings && s.lings.moving) { this.place(this.lingSrc.sp, s.lings.cx, 0.1, s.lings.cz); this.lingSrc.g.gain.setTargetAtTime(Math.min(0.45, s.lings.moving / 20), now, 0.1); }
     else this.lingSrc.g.gain.setTargetAtTime(0, now, 0.15);
 
     // chase music follows how close the hunt is

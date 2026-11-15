@@ -700,7 +700,8 @@ function frame(dtOverride) {
   if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
   sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce,
-    centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.speed } : null, lings: lingInfo, ghost: spiders.ghostInfo() });
+    centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.speed } : null, lings: lingInfo, ghost: spiders.ghostInfo(),
+    emit: G.started ? ai.emit.concat(lingInfo.emit || [], spiders.emitters(player.pos)) : [] });
   if (G.started && !G.scared && !dev.freeze && Math.hypot(player.pos.x - nests[0].x, player.pos.z - nests[0].z) < 7.5) { G.scared = true; swarms.jumpScare(camera, 0); }
   for (const a of G.attached) a.age += dt;
   // roaches on you: no damage, but they slow you down and crawl over your face until shaken off

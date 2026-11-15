@@ -201,12 +201,13 @@ export class EggNest {
         s.m.scale.set(br, br * 1.04, br);
       }
     }
-    if (!this.active) return { moving: 0, cx: 0, cz: 0 };
+    if (!this.active) return { moving: 0, cx: 0, cz: 0, emit: [] };
     this.t += dt;
     const P = ctx.player.pos, nav = ctx.nav;
     const M = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new V3();
     const D = { x: 0, z: 0 };
     let alive = 0, moving = 0, cx = 0, cz = 0;
+    const emit = [];
     const cosC = Math.cos(0.42);
     for (const l of this.L) {
       if (!l.alive) { M.makeScale(0, 0, 0); this.mesh.setMatrixAt(l.i, M); continue; }
@@ -252,7 +253,11 @@ export class EggNest {
         l.speed += clamp(want - l.speed, -18 * dt, 14 * dt);
         const nx = l.p.x + Math.sin(l.yaw) * l.speed * dt, nz = l.p.z + Math.cos(l.yaw) * l.speed * dt;
         if (nav.free(nx, nz)) { l.p.x = nx; l.p.z = nz; } else if (nav.free(nx, l.p.z)) l.p.x = nx; else if (nav.free(l.p.x, nz)) l.p.z = nz;
-        if (Math.abs(l.speed) > 0.4) { moving++; cx += l.p.x; cz += l.p.z; }
+        if (Math.abs(l.speed) > 0.4) {
+          moving++; cx += l.p.x; cz += l.p.z;
+          const d = Math.hypot(l.p.x - P.x, l.p.z - P.z);
+          if (d < 12) emit.push({ key: 'l' + l.i, kind: 'ling', x: l.p.x, y: l.p.y, z: l.p.z, d, sp: clamp(Math.abs(l.speed) / 2.5, 0.3, 1) });
+        }
       }
       l.ph += Math.abs(l.speed) * dt * 7;
       this.iPhase.array[l.i] = l.ph;
@@ -272,7 +277,7 @@ export class EggNest {
     }
     this.mesh.instanceMatrix.needsUpdate = true; this.iPhase.needsUpdate = true; this.iMove.needsUpdate = true;
     if (alive === 0) { this.active = false; this.hide(); }
-    return { moving, cx: moving ? cx / moving : 0, cz: moving ? cz / moving : 0 };
+    return { moving, cx: moving ? cx / moving : 0, cz: moving ? cz / moving : 0, emit };
   }
 
   // spray cone sweeps them away

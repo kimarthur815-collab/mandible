@@ -609,11 +609,15 @@ export class RoachSwarms {
   audioInfo(P) {
     const out = this.swarms.map(() => ({ x: 0, z: 0, moving: 0, n: 0, hunt: false }));
     let near = null;
-    for (const r of this.roaches) {
+    const emit = [];
+    for (let i = 0; i < this.roaches.length; i++) {
+      const r = this.roaches[i];
       if (r.sw < 0 || r.state === 'attached' || r.state === 'off' || r.state === 'fly' || r.state === 'face') continue;
       const o = out[r.sw];
       if (r.speed > 0.5) { o.moving++; o.x += r.pos.x; o.z += r.pos.z; o.n++; }
       const d = Math.hypot(r.pos.x - P.x, r.pos.z - P.z);
+      // the closest ones get their own footsteps, so you can hear exactly where they are
+      if (r.speed > 0.35 && d < 12) emit.push({ key: 'r' + i, kind: 'roach', x: r.pos.x, y: 0.05, z: r.pos.z, d, sp: clamp(r.speed / 3, 0.3, 1) });
       if (!near || d < near.d) near = { x: r.pos.x, z: r.pos.z, d, speed: clamp(r.speed / 3, 0, 1) };
     }
     out.forEach((o, i) => {
@@ -622,6 +626,6 @@ export class RoachSwarms {
       o.d = Math.hypot(o.x - P.x, o.z - P.z);
     });
     const pounce = !!this.pounceFlag; this.pounceFlag = false;
-    return { swarms: out, near, pounce };
+    return { swarms: out, near, pounce, emit };
   }
 }
