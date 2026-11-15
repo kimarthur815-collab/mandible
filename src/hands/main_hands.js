@@ -280,7 +280,10 @@ function definePoses() {
     const away = new V3(0, -1, 0);          // the barrel's far side from the palm (hand frame)
     return axisP.addScaledVector(away, rr);
   };
-  const rightAng = solveGrip(R, fq.q, fq.pos, flashSDF, { thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
+  const rightAngTight = solveGrip(R, fq.q, fq.pos, flashSDF, { thumb: { target: barrelThumb(GRIP.zf + 0.03, 0.0135 + 0.0105) } });
+  // a light hold: the fingers only partly close round the barrel (the last joints stay open)
+  const LOOSE = [0.85, 0.7, 0.55];
+  const rightAng = rightAngTight.map((a, c) => c < 4 ? [a[0] * LOOSE[0], a[1] * LOOSE[1], a[2] * LOOSE[2], a[3], a[4]] : a.slice());
   // The right hand holds the flashlight like the reference photo: the back of the hand faces right,
   // the fingers wrap round the barrel toward you, the thumb is on top and the head stands up out of
   // the fist. The forearm comes up from the lower right and runs straight into the hand.
