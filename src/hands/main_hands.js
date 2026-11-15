@@ -314,11 +314,11 @@ function definePoses() {
   };
   const leftRelaxed = { wrist: new V3(-0.17, -0.15, -0.41), handQ: frameQ(new V3(0, 0, -1), new V3(0, 1, 0), new V3(0.32, 0.02, -1), new V3(-0.25, 0.9, 0.35)), elbow: new V3(-0.3, -0.62, 0.0), held: null, ang: presetAngles('relaxed') };
   // the right arm reaches out a little (the grip point further from the eye along the same line of sight)
-  const REACH = 1.2;
-  const holding = () => rightHand(new V3(0.15, -0.16, -0.42).multiplyScalar(REACH), new V3(-0.08, -0.5, -1), new V3(0.95, 0.25, 0.25), -0.3, 30);
+  const REACH = 1.3;
+  const holding = () => rightHand(new V3(0.145, -0.175, -0.42).multiplyScalar(REACH), new V3(-0.08, -0.5, -1), new V3(0.95, 0.25, 0.25), -0.3, 30);
   POSES.default = { R: holding(), L: leftRelaxed, light: true };
   // light off: the hand drops a little and the flashlight tips forward
-  POSES.off = { R: rightHand(new V3(0.155, -0.175, -0.415).multiplyScalar(REACH), new V3(-0.08, -0.6, -1), new V3(0.95, 0.25, 0.25), -0.4, 30), L: { ...leftRelaxed, wrist: new V3(-0.19, -0.185, -0.38) }, light: false };
+  POSES.off = { R: rightHand(new V3(0.15, -0.19, -0.415).multiplyScalar(REACH), new V3(-0.08, -0.6, -1), new V3(0.95, 0.25, 0.25), -0.4, 30), L: { ...leftRelaxed, wrist: new V3(-0.19, -0.185, -0.38) }, light: false };
   // left hand open, reaching to take hold of something
   POSES.use = {
     R: holding(),
