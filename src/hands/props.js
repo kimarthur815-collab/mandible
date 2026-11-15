@@ -40,7 +40,7 @@ export function makeFlashlight() {
   const P = FLASH_PROFILE;
   const tail = new THREE.Mesh(lathe([[0, -0.0868], ...P.slice(0, 7)], 64), body);
   const grip = new THREE.Mesh(lathe(P.slice(6, 10), 96), knurl);
-  const headMat = body.clone(); headMat.emissive = new THREE.Color(0xd8320c); headMat.emissiveIntensity = 0;    // glows when it overheats
+  const headMat = body.clone(); headMat.emissive = new THREE.Color(0xb8501e); headMat.emissiveIntensity = 0;    // glows when it overheats
   const head = new THREE.Mesh(lathe([...P.slice(9), [0.0172, 0.0842]], 96), headMat);
   // the reflector: a parabolic mirror down to the emitter
   const refl = [];
