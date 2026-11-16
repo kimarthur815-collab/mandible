@@ -197,6 +197,7 @@ const player = new Player(camera, colliders);
 const G = {};
 function resetGame() {
   sfx.resetWorld();
+  clearTips();
   Object.assign(G, {
     battery: 1, flashOn: false, locked: false, holdT: 0, holdKey: null, shutter: 0, shutterOpening: false,
     emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: 3, inSafe: false,
@@ -226,11 +227,25 @@ function resetGame() {
 const tipEl = $('#tip'), msgEl = $('#msg'), noteEl = $('#note'), promptEl = $('#prompt'), barEl = $('#prompt .bar i');
 let tipTimer = 0, msgTimer = 0, noteTimer = 0;
 const shownTips = {};
+// the lines at the bottom wait their turn: a new one queues behind the one showing instead of replacing it
+const tipQueue = [];
+let tipBusy = false;
 function tip(text, key) {
   if (key) { shownTips[key] = (shownTips[key] || 0) + 1; if (shownTips[key] > 2) return; }
-  tipEl.textContent = text; tipEl.classList.add('show');
-  clearTimeout(tipTimer); tipTimer = setTimeout(() => tipEl.classList.remove('show'), 3500);
+  if ((tipBusy && tipEl.textContent === text) || tipQueue.includes(text)) return;   // already showing or waiting
+  tipQueue.push(text);
+  if (tipQueue.length > 4) tipQueue.shift();                                         // don't let a backlog build up
+  if (!tipBusy) nextTip();
 }
+function nextTip() {
+  const text = tipQueue.shift();
+  if (text == null) { tipBusy = false; return; }
+  tipBusy = true;
+  tipEl.textContent = text; tipEl.classList.add('show');
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(() => { tipEl.classList.remove('show'); tipTimer = setTimeout(nextTip, 400); }, tipQueue.length ? 3000 : 3500);
+}
+function clearTips() { tipQueue.length = 0; clearTimeout(tipTimer); tipBusy = false; tipEl.classList.remove('show'); }
 function msg(text) {
   msgEl.textContent = text; msgEl.classList.add('show');
   clearTimeout(msgTimer); msgTimer = setTimeout(() => msgEl.classList.remove('show'), 2600);
@@ -532,6 +547,7 @@ const dev = { god: false, battery: false, noclip: false, freeze: false, fast: fa
 // health is back to 3, the spray keeps what was left, the lamp comes on again for 10 s and
 // every bug goes back to where it started.
 function respawnAtLamp(l) {
+  clearTips();
   Object.assign(G, { dead: false, hp: 3, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
@@ -1107,6 +1123,7 @@ intro = TEST && !new URLSearchParams(location.search).has('intro') ? null : crea
       if (!who) { el.classList.remove('show'); return; }
       el.querySelector('b').textContent = who === '나' ? '나' : '무전'; el.querySelector('span').textContent = text;
       el.classList.toggle('me', who === '나'); el.classList.add('show');
+      el.querySelector('i').textContent = touch ? '터치 ▸' : '엔터 ▸';
     },
     radioButton(x, y) { const b = $('#startBtn'); if (x == null) { b.style.visibility = 'hidden'; return; } b.style.visibility = ''; b.style.left = `${x}px`; b.style.top = `${y}px`; },
     skip(on) { $('#skipBtn').classList.toggle('show', on); },
@@ -1133,6 +1150,7 @@ $('#startBtn').addEventListener('click', () => {
 });
 $('#skipBtn').addEventListener('click', (e) => { e.stopPropagation(); if (intro && intro.active) intro.skip(); });
 addEventListener('pointerdown', (e) => { if (intro && intro.active && e.target.id !== 'skipBtn') intro.tap(); });
+addEventListener('keydown', (e) => { if (intro && intro.active && (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space')) { e.preventDefault(); intro.tap(); } });
 $('#againBtn').addEventListener('click', () => {
   sfx.start();
   resetGame(); G.started = true;
@@ -1195,7 +1213,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, gate, phantom, deadMan, genOn, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, gate, phantom, deadMan, genOn, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { beginGame({ quiet: true }); },

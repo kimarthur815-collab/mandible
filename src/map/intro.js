@@ -60,8 +60,8 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     if (i >= LINES.length) { ui.subtitle(null); return; }
     const [who, text, dur] = LINES[i];
     ui.subtitle(who, text);
-    sfx.squelch();
-    if (who === '본부') sfx.chatter(dur - 0.6);
+    if (who === '본부') { sfx.squelch(); sfx.chatter(dur - 0.6); }
+    else sfx.mumble(Math.min(2.2, 0.5 + text.length * 0.06));
   };
 
   const api = {
@@ -75,7 +75,8 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
       go('call'); showLine(0);
     },
     // a tap: hurry the radio along
-    tap() { if (state === 'call' && line < LINES.length && lineT > 0.35) showLine(line + 1); },
+    // a tap or Enter: the next line (the talk waits for it)
+    tap() { if (state === 'call' && lineT > 0.35) { if (line < LINES.length - 1) showLine(line + 1); else { showLine(LINES.length); go('fadeout'); } } },
     skip() { if (state !== 'title' && state !== 'out') go('out'); },
     stop() {
       api.active = false;
@@ -105,8 +106,6 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
         lineT += dt;
         // look at the radio while it's answered, then back at the road
         if (line <= 1) { want.yaw = -0.62; want.pitch = -0.36; } else { want.yaw = -0.06 + Math.sin(time * 0.3) * 0.04; want.pitch = -0.13; }
-        if (line < LINES.length && lineT > LINES[line][2]) showLine(line + 1);
-        if (line >= LINES.length && lineT > 0.6) go('fadeout');
       } else if (state === 'fadeout') {
         fadeK = ease(st / 1.4); speed = SPEED * (1 - fadeK * 0.5);
         if (st >= 1.6) {

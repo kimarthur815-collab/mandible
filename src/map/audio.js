@@ -314,8 +314,26 @@ export class Sound {
   // the radio calling: two short tones
   radioBeep() {
     if (!this.ctx) return;
-    this.tone({ f0: 1450, f1: 1450, dur: 0.16, gain: 0.05, type: 'square', attack: 0.004, pan: -0.25 });
-    this.tone({ t: 0.22, f0: 1150, f1: 1150, dur: 0.16, gain: 0.05, type: 'square', attack: 0.004, pan: -0.25 });
+    for (const [t, f] of [[0, 1450], [0.3, 1150]]) {
+      this.tone({ t, f0: f, f1: f, dur: 0.24, gain: 0.22, type: 'square', attack: 0.004, pan: -0.25 });
+      this.tone({ t, f0: f * 2, f1: f * 2, dur: 0.24, gain: 0.06, type: 'sine', attack: 0.004, pan: -0.25 });
+    }
+  }
+  // the driver talking into the mic: the press-to-talk click, a few low muffled syllables, the release
+  mumble(dur) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    this.burst({ dur: 0.012, f: 3200, q: 3, gain: 0.3, pan: -0.2 });
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.7; lp.connect(this.sfx);
+    for (let x = 0.12; x < dur; x += rnd(0.12, 0.22)) {
+      const now = ctx.currentTime + x, len = rnd(0.07, 0.15), f = rnd(125, 175);
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, now); o.frequency.linearRampToValueAtTime(f * rnd(0.85, 1.12), now + len);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(rnd(0.12, 0.2), now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + len);
+      o.connect(g); g.connect(lp); o.start(now); o.stop(now + len + 0.05);
+    }
+    this.burst({ t: dur + 0.05, dur: 0.012, f: 2600, q: 3, gain: 0.25, pan: -0.2 });
+    this.burst({ t: dur + 0.07, dur: 0.18, f: 1800, q: 0.7, gain: 0.12 });
   }
   // keying the radio: a burst of static and the roger beep
   squelch() {
