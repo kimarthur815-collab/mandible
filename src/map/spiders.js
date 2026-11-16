@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Spider } from '../spider.js';
 import { Thread, makeDoorWeb, sagLine, segmentsGeometry } from '../silk.js';
 import { eggSacGeometry } from './ghostlings.js';
-import { catchUp } from './centi.js';
+import { catchUp, HUNT } from './centi.js';
 
 const V3 = THREE.Vector3;
 
@@ -303,7 +303,7 @@ export class MapSpiders {
     // jerky rhythm: bursts and dead stops
     g.burst -= dt;
     if (g.burst <= 0) { g.go = Math.random() < (srch ? 0.55 : 0.8); g.burst = g.go ? 0.35 + Math.random() * 0.8 : srch ? 0.4 + Math.random() * 1.0 : 0.1 + Math.random() * 0.3; }
-    let speed = g.cowerT > 0 ? 0 : srch ? (Math.abs(g.pos.z - g.spz) > 3 ? 3.4 : g.go ? 1.8 : 0) : g.go ? 4.4 : 0.3;
+    let speed = g.cowerT > 0 ? 0 : srch ? (Math.abs(g.pos.z - g.spz) > 3 ? 3.4 : g.go ? 1.8 : 0) : g.go ? 4.4 * HUNT.speed : 0.3;
     if (g.giveup) speed = 3.2;
     // pick a surface: floor <-> walls
     g.switchT -= dt;
@@ -834,6 +834,16 @@ export class MapSpiders {
       const p = s.root.position, d = Math.hypot(p.x - P.x, p.z - P.z);
       if (d < 16) out.push({ key: 's' + i, kind: 'big', x: p.x, y: p.y, z: p.z, d, sp: Math.min(1, 0.4 + s.speed) });
     });
+    return out;
+  }
+  // spiders after you right now: running at you or dropping on you (for the chase music)
+  chasers() {
+    const out = [];
+    for (const sp of this.spiders) {
+      if (sp.grabbed) continue;
+      const ph = sp.g ? sp.g.phase : sp.s.state;
+      if (ph === 'chase' || ph === 'drop' || ph === 'hang' || ph === 'swing') { const p = sp.s.bodyWorld; out.push({ x: p.x, z: p.z }); }
+    }
     return out;
   }
   // spiders searching for you where you hid

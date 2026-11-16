@@ -11,7 +11,7 @@ import { dressLevel } from './dressing.js';
 import { MapSpiders } from './spiders.js';
 import { EggNest } from './spiderlings.js';
 import { GhostBrood } from './ghostlings.js';
-import { MapCentipede } from './centi.js';
+import { MapCentipede, HUNT } from './centi.js';
 import { PassageGate, Phantom, DeadWorker, GATE, BODY } from './scares.js';
 import { createIntro } from './intro.js';
 
@@ -36,10 +36,25 @@ scene.background = new THREE.Color(0x000000);
 scene.fog = new THREE.FogExp2(0x000000, 0.05);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 140);
 let intro = null;   // the opening drive (built near the end, see createIntro)
+// settings, kept in this browser: look sensitivity, volume, brightness, quality (see the settings panel)
+const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal' };
+// difficulty: health, spray cans, how fast hunters run, how fast the flashlight heats, how far your
+// footsteps carry, the starter cord's green zone and speed, and how hard a grab is to fight off
+const DIFF = {
+  easy: { label: '쉬움', hp: 5, spray: 5, speed: 0.82, heat: 0.7, hear: 0.75, zone: 1.35, cord: 0.8, mash: 0.7 },
+  normal: { label: '보통', hp: 3, spray: 3, speed: 1, heat: 1, hear: 1, zone: 1, cord: 1, mash: 1 },
+  hard: { label: '어려움', hp: 2, spray: 2, speed: 1.15, heat: 1.3, hear: 1.3, zone: 0.75, cord: 1.25, mash: 1.3 },
+};
+const D = () => DIFF[SET.diff] || DIFF.normal;
+let devTools = (() => { try { return localStorage.getItem('mandible.dev') === '1'; } catch (e) { return false; } })();
+const SET = (() => { try { return { ...SET_DEFAULT, ...JSON.parse(localStorage.getItem('mandible.settings') || '{}') }; } catch (e) { return { ...SET_DEFAULT }; } })();
+// draw with the brightness setting on top of whatever exposure the scene uses
+function withBright(fn) { const e = renderer.toneMappingExposure; renderer.toneMappingExposure = e * SET.bright; fn(); renderer.toneMappingExposure = e; }
 
 // ------------------------------------------------------------------ level
 const { group: levelGroup, colliders, labels: roomLabels } = buildLevel(scene);
 const markers = buildBugMarkers(scene);
+markers.visible = false;              // a developer aid (F1)
 const silk = makeSilkMaterial();
 // set dressing (boxes, racks, pipes, stains, signs...) adds its footprints to the colliders before the bugs map the floor
 const dress = dressLevel(scene, { colliders, T: 0.3, silkMat: silk });
@@ -150,12 +165,159 @@ for (const [room, p] of Object.entries(SPOTS.redLights)) {
   reds[room] = { fixture, light, on: false };
 }
 
+// the notes: crumpled, torn-out notebook pages written in pen (the handwriting font loads in the page)
+const HAND = '"Nanum Pen Script", "Comic Sans MS", cursive';
+function drawPage(c, text, seed) {
+  const W = c.width, H = c.height, x = c.getContext('2d');
+  let r = seed * 9301 + 49297; const rnd = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
+  x.clearRect(0, 0, W, H);
+  // the page, its torn top edge (transparent where torn)
+  x.save(); x.beginPath(); x.moveTo(0, H);
+  x.lineTo(0, 14);
+  for (let i = 0; i <= 40; i++) x.lineTo((i / 40) * W, 6 + rnd() * 14);
+  x.lineTo(W, H); x.closePath(); x.clip();
+  x.fillStyle = '#e6dfc8'; x.fillRect(0, 0, W, H);
+  // grime: a yellowed edge, smudges, a coffee ring
+  const g = x.createRadialGradient(W / 2, H / 2, W * 0.3, W / 2, H / 2, W * 0.85);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(120,90,40,.35)'); x.fillStyle = g; x.fillRect(0, 0, W, H);
+  for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(${90 + rnd() * 40},${70 + rnd() * 30},40,${rnd() * 0.07})`; x.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 3, 1 + rnd() * 3); }
+  for (let i = 0; i < 3; i++) { const sx = rnd() * W, sy = rnd() * H, sr = 20 + rnd() * 50, sg = x.createRadialGradient(sx, sy, 0, sx, sy, sr); sg.addColorStop(0, 'rgba(70,55,35,.16)'); sg.addColorStop(1, 'rgba(70,55,35,0)'); x.fillStyle = sg; x.fillRect(sx - sr, sy - sr, sr * 2, sr * 2); }
+  { const cx = W * (0.6 + rnd() * 0.25), cy = H * (0.62 + rnd() * 0.25), cr = W * 0.17; x.strokeStyle = 'rgba(110,70,30,.22)'; x.lineWidth = 5; x.beginPath(); x.arc(cx, cy, cr, 0.3, Math.PI * 1.85); x.stroke(); x.lineWidth = 2; x.strokeStyle = 'rgba(110,70,30,.14)'; x.beginPath(); x.arc(cx + 3, cy - 2, cr - 6, 0, Math.PI * 2); x.stroke(); }
+  // ruled lines and the margin
+  const top = H * 0.13, gap = H * 0.07;
+  x.strokeStyle = 'rgba(90,120,170,.35)'; x.lineWidth = 1.5;
+  for (let y = top; y < H; y += gap) { x.beginPath(); x.moveTo(0, y); x.lineTo(W, y); x.stroke(); }
+  x.strokeStyle = 'rgba(190,70,70,.35)'; x.beginPath(); x.moveTo(W * 0.12, 0); x.lineTo(W * 0.12, H); x.stroke();
+  // the writing: blue-black ballpoint, a little crooked
+  x.fillStyle = '#1e2546'; x.strokeStyle = '#1e2546'; x.textBaseline = 'alphabetic';
+  const fs = gap * 0.95; x.font = `${fs}px ${HAND}`;
+  text.split('\n').forEach((ln, i) => {
+    const y = top + gap * (i + 1) - gap * 0.18;
+    x.save(); x.translate(W * 0.15 + rnd() * 6, y); x.rotate((rnd() - 0.5) * 0.04);
+    let px = 0;
+    for (const [j, part] of ln.split('~~').entries()) {
+      x.fillText(part, px, 0);
+      const w = x.measureText(part).width;
+      if (j % 2 === 1) { x.lineWidth = 2.5; x.beginPath(); x.moveTo(px - 3, -fs * 0.3); x.lineTo(px + w + 3, -fs * 0.34); x.moveTo(px - 2, -fs * 0.22); x.lineTo(px + w + 2, -fs * 0.27); x.stroke(); }
+      px += w;
+    }
+    x.restore();
+  });
+  // creases: faint light/dark lines where it was folded and crushed
+  for (let i = 0; i < 5; i++) {
+    const a = rnd() * Math.PI, cx = rnd() * W, cy = rnd() * H, dx = Math.cos(a) * W, dy = Math.sin(a) * W;
+    x.lineWidth = 2; x.strokeStyle = 'rgba(255,255,255,.22)'; x.beginPath(); x.moveTo(cx - dx, cy - dy); x.lineTo(cx + dx, cy + dy); x.stroke();
+    x.lineWidth = 1; x.strokeStyle = 'rgba(60,45,25,.18)'; x.beginPath(); x.moveTo(cx - dx + 2, cy - dy + 2); x.lineTo(cx + dx + 2, cy + dy + 2); x.stroke();
+  }
+  x.restore();
+}
+function crumpledPage(seed) {
+  const geo = new THREE.PlaneGeometry(0.15, 0.2, 12, 16); geo.rotateX(-Math.PI / 2);
+  const p = geo.attributes.position;
+  let r = seed * 7919 + 13; const rnd = () => ((r = (r * 9301 + 49297) % 233280) / 233280);
+  const folds = Array.from({ length: 4 }, () => { const a = rnd() * Math.PI; return { nx: Math.cos(a), nz: Math.sin(a), o: (rnd() - 0.5) * 0.08, h: 0.002 + rnd() * 0.004, s: rnd() < 0.5 ? 1 : -1 }; });
+  for (let i = 0; i < p.count; i++) {
+    const vx = p.getX(i), vz = p.getZ(i);
+    let y = 0.0015;
+    for (const f of folds) { const d = Math.abs(vx * f.nx + vz * f.nz - f.o); y += f.h * Math.max(0, 1 - d / 0.03) * f.s; }
+    const ex = Math.abs(vx) / 0.075, ez = Math.abs(vz) / 0.1;
+    y += 0.012 * Math.pow(Math.max(ex, ez), 3) * (0.5 + rnd() * 0.5);       // the edges curl up off the bench
+    y += (rnd() - 0.5) * 0.0015;
+    p.setY(i, Math.max(0.0008, y));
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
 const noteMeshes = SPOTS.notes.map((n, i) => {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.01, 0.4), new THREE.MeshStandardMaterial({ color: 0xe8e2d0, emissive: new THREE.Color(0x40382a), emissiveIntensity: 0.4 }));
-  m.position.set(n.x, n.y, n.z); m.rotation.y = 0.3 * i;
+  const c = document.createElement('canvas'); c.width = 384; c.height = 512;
+  drawPage(c, n.text, i + 1);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const m = new THREE.Mesh(crumpledPage(i + 3), new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.92, emissive: new THREE.Color(0x2a2418), emissiveIntensity: 0.35, emissiveMap: tex }));
+  m.position.set(n.x, n.y, n.z); m.rotation.y = 0.5 + 1.1 * i;
+  m.receiveShadow = true;
   scene.add(m);
-  return { ...n, idx: i, m, read: false };
+  return { ...n, idx: i, m, c, tex, read: false };
 });
+// redraw the pages once the handwriting font is in
+if (document.fonts && document.fonts.load) document.fonts.load(`40px ${HAND}`, '약쳤는데').then(() => { for (const n of noteMeshes) { drawPage(n.c, n.text, n.idx + 1); n.tex.needsUpdate = true; } }).catch(() => {});
+// ------------------------------------------------------------------ voices at the bottom: radio calls and recordings, one after another
+const voice = (() => {
+  const q = []; let cur = null, t = 0;
+  const show = (v) => {
+    const el = $('#subtitle');
+    if (!v) { el.classList.remove('show'); return; }
+    el.querySelector('b').textContent = v.label; el.querySelector('span').textContent = v.text; el.querySelector('i').textContent = '';
+    el.classList.toggle('me', v.who === '나'); el.classList.add('show');
+    if (v.who === '나') sfx.mumble(Math.min(2.2, 0.5 + v.text.length * 0.06));
+    else if (v.kind === 'tape') sfx.tape(Math.max(0.4, v.dur - 0.4));
+    else { sfx.squelch(); if (/사각|기어/.test(v.text)) sfx.radioSkitter(v.dur - 0.4); else sfx.chatter(v.dur - 0.6); }
+  };
+  return {
+    // lines: [[who, text, seconds?]]; kind: 'radio' or 'tape'
+    say(lines, kind = 'radio') {
+      for (const [who, text, dur] of lines) q.push({ who, text, kind, label: who === '나' ? '나' : kind === 'tape' ? `녹음 · ${who}` : '무전', dur: dur || Math.min(6, 1.9 + text.length * 0.09) });
+    },
+    update(dt) {
+      if (cur) { t += dt; if (t >= cur.dur) { cur = null; show(null); t = -0.35; } }
+      else if (t < 0) t += dt;
+      else if (q.length) { cur = q.shift(); t = 0; show(cur); }
+    },
+    clear() { q.length = 0; cur = null; t = 0; show(null); },
+    get busy() { return !!cur || q.length > 0; },
+  };
+})();
+// the base on the radio as the generators come on, and now and then something else on the channel
+const RADIO_GEN = [
+  [['본부', '치익— 3조, 발전기 돌아가는 소리가 잡힌다. 두 대 남았다.'], ['나', '...알겠습니다.']],
+  [['본부', '한 대 남았다. ...3조, 방금 그 소리는 뭐야? 응답하라.']],
+  [['본부', '셔터 열렸다! 3조, 당장 나와!']],
+];
+const RADIO_ODD = [
+  [['본부', '치익... ...3조... 들...리...']],
+  [['본부', '(지직거림 속에 누군가의 숨소리가 섞여 있다)']],
+  [['본부', '치익— ...안에... 아직...']],
+];
+// pocket recorders left by Lee Jeong-hun of team 2, on the tables
+const TAPES = [
+  { x: 11.25, y: 0.931, z: 20.0, lines: [['이정훈', '방역팀 2조 이정훈. 오후 4시 10분, 하역장으로 들어왔다.'], ['이정훈', '...바닥이 움직이는 줄 알았는데, 전부 바퀴다. 보통 양이 아니야.']] },
+  { x: 13.5, y: 0.921, z: 18.9, lines: [['이정훈', '발전기 시동줄... 박자 맞춰 당겨야 걸린다.'], ['이정훈', '헛돌면 펑 하고 터지는데, 그 소리에 놈들이 몰려와. 조심해.']] },
+  { x: 20.8, y: 0.931, z: 63.1, lines: [['이정훈', '생산 홀. 천장에 뭔가 붙어 있다. 다리가 사람 팔만 해.'], ['이정훈', '테이블 밑마다 야광봉 놔뒀다. 숨을 땐 불 끄고... 숨도 참아.']] },
+  { x: -16.6, y: 0.931, z: 60.0, lines: [['이정훈', '실험실 기록을 봤다. 여기서 만든 건 살충제가 아니었어.'], ['이정훈', '벽 안에서 뭔가 긴 게 움직인다... 3조가 오면, 셔터로 바로—'], ['이정훈', '(녹음이 뚝 끊긴다)', 2.2]] },
+];
+const tapes = TAPES.map((r, i) => {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.022, 0.125), new THREE.MeshStandardMaterial({ color: 0x2a2c2e, roughness: 0.55, metalness: 0.2 }));
+  const grill = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.003, 0.04), new THREE.MeshStandardMaterial({ color: 0x111213, roughness: 0.9 }));
+  grill.position.set(0, 0.012, 0.03);
+  const btn = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.006, 0.012), new THREE.MeshStandardMaterial({ color: 0x8a8c8e, roughness: 0.4 }));
+  btn.position.set(0.015, 0.013, -0.04);
+  const led = new THREE.Mesh(new THREE.SphereGeometry(0.004, 8, 6), new THREE.MeshStandardMaterial({ color: 0x300000, emissive: 0xff2010, emissiveIntensity: 2 }));
+  led.position.set(-0.02, 0.012, -0.045);
+  g.add(body, grill, btn, led); body.castShadow = true;
+  g.position.set(r.x, r.y, r.z); g.rotation.y = 0.5 + i * 1.3;
+  scene.add(g);
+  return { ...r, g, led, played: false };
+});
+// the generators' starter cord: a marker swings across; pull while it is in the green (narrower each time)
+const pullEl = $('#pull'), pullZone = $('#pull b'), pullMark = $('#pull i');
+const pullMarker = (o) => 0.5 - 0.5 * Math.cos(o.ph || 0);
+function newZone(o) { const w = [0.24, 0.19, 0.15][Math.min(2, o.pulls || 0)] * D().zone; o.zone = { w, c: w / 2 + 0.04 + Math.random() * (0.92 - w) }; }
+function pullCord(o) {
+  const m = pullMarker(o), hit = Math.abs(m - o.zone.c) <= o.zone.w / 2 + 0.01;
+  sfx.pullCord(hit, o.x, o.z);
+  if (hit) {
+    o.pulls = (o.pulls || 0) + 1;
+    if (o.pulls >= 3) { o.pulls = 0; o.zone = null; genOn(o); return; }
+    if (o.pulls === 1) tip('걸릴 것 같다... 한 번 더');
+  } else {
+    // it coughs and bangs: everything nearby heard that
+    o.pulls = Math.max(0, (o.pulls || 0) - 1);
+    G.events.push({ x: o.x, z: o.z, r: 16 });
+    shakeScreen();
+    tip('펑! 헛돌았다... 소리가 너무 컸다');
+  }
+  newZone(o);
+}
 const refill = (() => {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.28, 14), new THREE.MeshStandardMaterial({ color: 0xc8b23a, metalness: 0.6, roughness: 0.35, emissive: new THREE.Color(0x302808), emissiveIntensity: 0.6 }));
   m.position.set(SPOTS.refill.x, 0.14, SPOTS.refill.z);
@@ -200,8 +362,8 @@ function resetGame() {
   clearTips();
   Object.assign(G, {
     battery: 1, flashOn: false, locked: false, holdT: 0, holdKey: null, shutter: 0, shutterOpening: false,
-    emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: 3, inSafe: false,
-    tipped: {}, lampSeen: false, hp: 3, dead: false, kill: null, attached: [], attachCd: 0, scared: false, events: [],
+    emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: D().spray, inSafe: false,
+    tipped: {}, lampSeen: false, hp: D().hp, dead: false, kill: null, attached: [], attachCd: 0, chasing: false, chaseLen: 0, stingAt: -99, scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
   });
@@ -211,7 +373,9 @@ function resetGame() {
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   player.place(SPOTS.start.x, SPOTS.start.z, SPOTS.start.yaw);
   for (const l of lamps) { l.on = false; l.burnt = false; l.t = 0; l.light.intensity = 0; l.bulb.material.emissive.set(0xffa24a); l.bulb.material.emissiveIntensity = 0; l.leverPivot.rotation.z = 0.6; }
-  for (const g of genMeshes) { g.on = false; g.led.material.emissive.set(0xff2a10); }
+  for (const g of genMeshes) { g.on = false; g.pulls = 0; g.zone = null; g.led.material.emissive.set(0xff2a10); }
+  for (const r of tapes) { r.played = false; }
+  voice.clear(); G.oddN = 0; G.oddT = 70 + Math.random() * 50;
   for (const r of Object.values(reds)) { r.on = false; r.light.intensity = 0; r.fixture.material.emissiveIntensity = 0; }
   for (const n of noteMeshes) { n.read = false; n.m.visible = true; }
   refill.taken = false; refill.m.visible = true;
@@ -253,8 +417,16 @@ function msg(text) {
   clearTimeout(msgTimer); msgTimer = setTimeout(() => msgEl.classList.remove('show'), 2600);
 }
 function note(text) {
-  noteEl.textContent = text; noteEl.classList.add('show');
-  clearTimeout(noteTimer); noteTimer = setTimeout(() => noteEl.classList.remove('show'), 4800);
+  noteEl.textContent = '';
+  for (const ln of text.split('\n')) {
+    const row = document.createElement('div');
+    ln.split('~~').forEach((part, j) => { const e = document.createElement(j % 2 ? 's' : 'span'); e.textContent = part; row.appendChild(e); });
+    if (!ln) row.innerHTML = '&nbsp;';
+    noteEl.appendChild(row);
+  }
+  noteEl.style.setProperty('--tilt', `${(Math.random() - 0.5) * 3}deg`);
+  noteEl.classList.add('show');
+  clearTimeout(noteTimer); noteTimer = setTimeout(() => noteEl.classList.remove('show'), 4000 + text.length * 60);
 }
 const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 function updateHud() {
@@ -272,7 +444,7 @@ addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'KeyF') toggleFlash();
   if (e.code === 'KeyM') toggleMap();
-  if (e.code === 'KeyB') toggleBright();
+  if (e.code === 'KeyB' && devTools) toggleBright();
   if (e.code === 'KeyE') input.usePressed = true;
   if (e.code === 'KeyQ') useSpray();
   if (e.code === 'Space' && G.grab) mashGrab();
@@ -314,9 +486,10 @@ addEventListener('mouseup', () => { drag = null; });
 addEventListener('mousemove', (e) => {
   mouseX = null;
   if (viaTouch()) return;
-  if (locked) { input.lookX += e.movementX * 0.0022; input.lookY += e.movementY * 0.0022; }
-  else if (freeLook) { if (e.target === el) { mouseX = e.clientX; input.lookX += e.movementX * 0.004; input.lookY += e.movementY * 0.004; } }
-  else if (drag) { input.lookX += (e.clientX - drag.x) * 0.004; input.lookY += (e.clientY - drag.y) * 0.004; drag = { x: e.clientX, y: e.clientY }; }
+  const k = SET.sens;
+  if (locked) { input.lookX += e.movementX * 0.0022 * k; input.lookY += e.movementY * 0.0022 * k; }
+  else if (freeLook) { if (e.target === el) { mouseX = e.clientX; input.lookX += e.movementX * 0.004 * k; input.lookY += e.movementY * 0.004 * k; } }
+  else if (drag) { input.lookX += (e.clientX - drag.x) * 0.004 * k; input.lookY += (e.clientY - drag.y) * 0.004 * k; drag = { x: e.clientX, y: e.clientY }; }
 });
 document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) mouseX = null; });
 el.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -341,7 +514,7 @@ el.addEventListener('pointermove', (e) => {
     joy.x = dx / R; joy.y = dy / R;
     joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
   } else if (e.pointerId === look.id) {
-    input.lookX += (e.clientX - look.x) * 0.006; input.lookY += (e.clientY - look.y) * 0.006;
+    input.lookX += (e.clientX - look.x) * 0.006 * SET.sens; input.lookY += (e.clientY - look.y) * 0.006 * SET.sens;
     look.x = e.clientX; look.y = e.clientY;
   }
 });
@@ -525,6 +698,7 @@ function genOn(g) {
     setTimeout(() => { if (!G.dead && eggs.burst()) sfx.eggBurst(-7.6, 4, 62.6); centi.enrage(player.pos); }, 600);
   }
   if (G.gens === 3) { G.shutterOpening = true; setTimeout(() => msg('셔터가 열린다. 하역장으로 가야 해!'), 2800); sfx.doorRumble(0, 0.5, 3.4); }
+  { const n = G.gens; setTimeout(() => { if (!G.dead && !G.won && G.gens === n) voice.say(RADIO_GEN[n - 1]); }, 4300); }
   updateHud();
 }
 
@@ -545,7 +719,10 @@ function findTarget() {
   };
   for (const g of genMeshes) consider('gen', g, g.x, g.z, 2.4);
   for (const l of lamps) consider('lamp', l, l.x, l.z, 1.9);
-  for (const n of noteMeshes) if (!n.read) consider('note', n, n.x, n.z, 1.9);
+  // notes and recorders only from inside the same room (not through a wall)
+  const pr = roomAt(player.pos.x, player.pos.z), same = (x, z) => !pr || roomAt(x, z) === pr;
+  for (const n of noteMeshes) if (!n.read && same(n.x, n.z)) consider('note', n, n.x, n.z, 1.9);
+  for (const r of tapes) if (!r.played && same(r.x, r.z)) consider('tape', r, r.x, r.z, 1.9);
   if (!refill.taken) consider('refill', refill, refill.x, refill.z, 1.6);
   return best;
 }
@@ -558,8 +735,8 @@ const dev = { god: false, battery: false, noclip: false, freeze: false, fast: fa
 // health is back to 3, the spray keeps what was left, the lamp comes on again for 10 s and
 // every bug goes back to where it started.
 function respawnAtLamp(l) {
-  clearTips();
-  Object.assign(G, { dead: false, kill: null, hp: 3, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
+  clearTips(); voice.clear();
+  Object.assign(G, { dead: false, kill: null, chasing: false, chaseLen: 0, hp: D().hp, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   // stand beside the pole, on the side with the most room, facing out
@@ -588,7 +765,7 @@ function hurt(reason = '뛰는 소리에 바퀴들이 몰려왔다') {
   G.hp--;
   sfx.hurt();
   const f = $('#hit'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
-  $('#hurt').style.opacity = (3 - G.hp) * 0.28;
+  $('#hurt').style.opacity = (1 - G.hp / D().hp) * 0.84;
   if (G.hp <= 0) die(reason);
 }
 function die(deathTip) {
@@ -766,8 +943,8 @@ function frame(dtOverride) {
   const dt = dtOverride != null ? dtOverride : Math.min(clock.getDelta(), 1 / 20);
   t += dt;
   // the opening drive has its own scene; the game waits until you step inside
-  if (intro && intro.active) { if (!needRotate) intro.update(dt); if (intro.active) { if (!window.__NORENDER) intro.render(); return; } }
-  if (needRotate) { renderer.render(scene, camera); return; }
+  if (intro && intro.active) { if (!needRotate) intro.update(dt); if (intro.active) { if (!window.__NORENDER) withBright(() => intro.render()); return; } }
+  if (needRotate) { withBright(() => renderer.render(scene, camera)); return; }
   const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
   if (G.started && !G.won && !G.dead && !G.grab && !G.kill) player.update(dt, applyFocus(dt, inp));
@@ -785,7 +962,7 @@ function frame(dtOverride) {
     G.tickT = (G.tickT || 0) - dt;
     if (G.tickT <= 0) { G.tickT = 0.5 + Math.random() * 1.2; sfx.coolTick(); }
     if (G.battery >= 1) { G.drained = false; tip('손전등이 식었다'); }
-  } else if (G.flashOn && G.blackT <= 0) G.battery -= dt / 30;
+  } else if (G.flashOn && G.blackT <= 0) G.battery -= dt / 30 * D().heat;
   else G.battery += dt * 0.02 * (G.inSafe ? 2 : 1);
   G.battery = Math.min(1, G.battery);
   if (G.battery <= 0 && !G.drained) {
@@ -875,7 +1052,7 @@ function frame(dtOverride) {
   G.hiddenT = G.hidden ? G.hiddenT + dt : 0;
   if (player.inside && G.started) tip(`불을 끄고 가만히 있자 (${KEY.flash}). 그럼 못 찾을 거야`, 'hide');
   // ---- roaches
-  const noise = !G.started || G.dead || G.hidden || !player.moving || player.speed < 0.3 ? 0 : player.crouch ? 1 : player.running ? 12 : 5;
+  const noise = !G.started || G.dead || G.hidden || !player.moving || player.speed < 0.3 ? 0 : (player.crouch ? 1 : player.running ? 12 : 5) * D().hear;
   swarms.update({
     dt, t, camera, frozen: dev.freeze || !G.started,
     player: { pos: player.pos, noise, alive: !G.dead && !G.won, hidden: G.hidden, under: !!player.inside },
@@ -984,7 +1161,7 @@ function frame(dtOverride) {
   // grabbed: the meter drains; keep it up for 2 s
   if (G.grab && !G.dead) {
     const gr = G.grab;
-    gr.t += dt; gr.meter -= dt * 0.42;
+    gr.t += dt; gr.meter -= dt * 0.42 * D().mash;
     $('#grab .bar i').style.width = `${Math.max(0, gr.meter) * 100}%`;
     if (gr.meter <= 0) die('붙잡혔을 때 스프레이를 썼어야 했다');
     else if (gr.t >= 2) endGrab(false);
@@ -1023,7 +1200,18 @@ function frame(dtOverride) {
   if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
   if (broodInfo.moving > 4) inten = Math.max(inten, 0.4);
-  sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce,
+  // who's after you: a spider or the centipede chasing drives the chase music, something searching keeps a low pulse
+  let chaseD = 99;
+  for (const q of spiders.chasers()) chaseD = Math.min(chaseD, Math.hypot(q.x - player.pos.x, q.z - player.pos.z));
+  if (centi.active && (centi.state === 'chase' || centi.state === 'emerge')) chaseD = Math.min(chaseD, Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z));
+  const chasing = G.started && !G.dead && !G.won && chaseD < 99;
+  const searching = G.started && !G.dead && (spiders.searchers().length > 0 || centi.state === 'search');
+  let chaseK = chasing ? 0.45 + 0.55 * Math.max(0, Math.min(1, 1 - (chaseD - 2) / 16)) : searching ? 0.2 : 0;
+  if (G.grab || G.kill) chaseK = 1;
+  if (chasing && !G.chasing && t - G.stingAt > 8) { sfx.chaseStinger(); G.stingAt = t; }        // found you
+  if (!chasing && G.chasing && G.chaseLen > 3 && !G.dead) sfx.chaseOver();                  // lost you
+  G.chaseLen = chasing ? G.chaseLen + dt : 0; G.chasing = chasing;
+  sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce, chase: G.won ? 0 : chaseK,
     centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.speed } : null, lings: lingInfo, ghost: spiders.ghostInfo(),
     brood: broodInfo, hush: G.hidden,
     emit: G.started ? ai.emit.concat(lingInfo.emit || [], broodInfo.emit, spiders.emitters(player.pos)) : [] });
@@ -1086,15 +1274,23 @@ function frame(dtOverride) {
   }
   shutterGlow.color.set(G.gens === 3 ? 0x30ff60 : 0xff2010);
   if (!G.won && G.shutter > 0.55 && player.pos.z < -1.0) {
-    G.won = true; G.timing = false; sfx.win();
+    G.won = true; G.timing = false;
     $('#winTime').textContent = fmt(G.time);
-    $('#win').classList.add('show');
     if (document.pointerLockElement) document.exitPointerLock();
+    const showWin = () => { document.body.classList.remove('ending'); renderer.toneMappingExposure = 1.22; sfx.introMode(false); sfx.engine(false); sfx.win(); $('#win').classList.add('show'); };
+    if (intro) {
+      // out in the yard: back to the truck and one last call (see intro.ending)
+      clearTips(); voice.clear(); promptEl.classList.remove('show'); pullEl.classList.remove('show');
+      document.body.classList.add('ending'); sfx.introMode(true);
+      intro.ending(player.pos.x, showWin);
+      return;
+    }
+    showWin();
   }
 
   // ---- interaction
   const target = G.started && !G.won ? findTarget() : null;
-  let prompt = '';
+  let prompt = '', pullGen = null;
   const pressed = inp.usePressed || (inp.use && !prevUse);
   prevUse = inp.use; input.usePressed = false;
   if (target) {
@@ -1102,8 +1298,12 @@ function frame(dtOverride) {
     if (target.kind === 'gen') {
       if (o.on) prompt = '발전기 가동 중';
       else {
-        prompt = `${useLabel()} 꾹 누르기 · 발전기 켜기`;
-        if (inp.use) { G.holdT += dt; if (G.holdT >= 3) { G.holdT = 0; genOn(o); } } else G.holdT = 0;
+        // the starter cord: pull when the marker is in the green
+        pullGen = o;
+        if (!o.zone) newZone(o);
+        o.ph = (o.ph || 0) + dt * (1.7 + 0.45 * (o.pulls || 0)) * D().cord;
+        prompt = `${useLabel()} · 초록 칸에서 시동줄 당기기 ${o.pulls || 0}/3`;
+        if (pressed) pullCord(o);
       }
     } else if (target.kind === 'lamp') {
       prompt = o.burnt ? '전구가 터져서 다시 켤 수 없다' : o.on ? `전등이 켜져 있다 (${Math.ceil(20 - o.t)}초)` : `${useLabel()} · 전등 레버 당기기`;
@@ -1114,6 +1314,9 @@ function frame(dtOverride) {
     } else if (target.kind === 'note') {
       prompt = `${useLabel()} · 일지 읽기`;
       if (pressed) { o.read = true; o.m.visible = false; note(o.text); sfx.paper(); }
+    } else if (target.kind === 'tape') {
+      prompt = `${useLabel()} · 녹음기 재생`;
+      if (pressed) { o.played = true; o.led.material.emissiveIntensity = 0; voice.say(o.lines, 'tape'); }
     } else if (target.kind === 'refill') {
       prompt = `${useLabel()} · 스프레이 리필 줍기`;
       if (pressed) { refill.taken = true; refill.m.visible = false; G.spray += 2; sfx.canRattle(); msg('스프레이를 주웠다 (+2)'); }
@@ -1122,6 +1325,13 @@ function frame(dtOverride) {
   promptEl.classList.toggle('show', !!prompt);
   if (prompt) { $('#prompt span').textContent = prompt; barEl.style.width = `${(G.holdT / 3) * 100}%`; }
   $('#prompt .bar').style.opacity = G.holdT > 0 ? 1 : 0;
+  if (pullGen && (pullGen.on || !pullGen.zone)) pullGen = null;     // it just started
+  pullEl.classList.toggle('show', !!pullGen);
+  if (pullGen) { const z = pullGen.zone; pullZone.style.left = `${(z.c - z.w / 2) * 100}%`; pullZone.style.width = `${z.w * 100}%`; pullMark.style.left = `${pullMarker(pullGen) * 100}%`; }
+  // recorders still to play blink their red light; the radio and recordings run at the bottom
+  for (const r of tapes) if (!r.played) r.led.material.emissiveIntensity = Math.sin(t * 4 + r.x) > 0.2 ? 2.2 : 0.15;
+  voice.update(dt);
+  if (G.started && !G.dead && !G.won && G.oddN < RADIO_ODD.length && (G.oddT -= dt) <= 0 && !voice.busy) { voice.say(RADIO_ODD[G.oddN++]); G.oddT = 80 + Math.random() * 70; }
 
   // ---- HUD
   $('#stamina').style.opacity = player.stamina < 0.999 ? 1 : 0;
@@ -1132,12 +1342,11 @@ function frame(dtOverride) {
   if (showMap) drawMap();
   if (dev.info && Math.floor(t * 4) !== Math.floor((t - dt) * 4)) {
     fpsN++;
-    $('#devinfo').textContent = `FPS ${Math.round(1 / Math.max(1e-3, fpsAvg))}  위치 ${player.pos.x.toFixed(1)}, ${player.pos.z.toFixed(1)}  방 ${(ROOMS[roomAt(player.pos.x, player.pos.z)] || {}).name || '-'}\n체력 ${G.hp}/3  열 ${Math.round((1 - G.battery) * 100)}%${G.drained ? ' 과열' : ''}  소음 반경 ${noise}m  붙은 바퀴 ${G.attached.length}\n숨기 ${G.hidden ? '숨음' : player.inside ? '들킴' : '-'}  바퀴 떼 ${swarms.states().map((x, i) => `${i + 1}:${({ hide: '숨음', hunt: '추적', search: '수색', return: '복귀' })[x]}`).join('  ')}\n거미 ${spiders.states().join(' / ')}  지네 ${centi.info()}  알집 ${eggs.burstDone ? '터짐' : '그대로'}  느려짐 ${Math.round((1 - player.slowMul) * 100)}%`;
+    $('#devinfo').textContent = `FPS ${Math.round(1 / Math.max(1e-3, fpsAvg))}  위치 ${player.pos.x.toFixed(1)}, ${player.pos.z.toFixed(1)}  방 ${(ROOMS[roomAt(player.pos.x, player.pos.z)] || {}).name || '-'}\n체력 ${G.hp}/${D().hp}  열 ${Math.round((1 - G.battery) * 100)}%${G.drained ? ' 과열' : ''}  소음 반경 ${noise}m  붙은 바퀴 ${G.attached.length}\n숨기 ${G.hidden ? '숨음' : player.inside ? '들킴' : '-'}  바퀴 떼 ${swarms.states().map((x, i) => `${i + 1}:${({ hide: '숨음', hunt: '추적', search: '수색', return: '복귀' })[x]}`).join('  ')}\n거미 ${spiders.states().join(' / ')}  지네 ${centi.info()}  알집 ${eggs.burstDone ? '터짐' : '그대로'}  느려짐 ${Math.round((1 - player.slowMul) * 100)}%`;
   }
   fpsAvg += (dt - fpsAvg) * 0.05;
   if (window.__NORENDER) return;
-  renderer.render(scene, camera);
-  arms.render(renderer, camera);
+  withBright(() => { renderer.render(scene, camera); arms.render(renderer, camera); });
 }
 let fpsAvg = 1 / 60, fpsN = 0;
 
@@ -1179,7 +1388,7 @@ addEventListener('keydown', firstSound, { once: true, capture: true });
 // the main screen wants the whole screen; browsers only allow that from a tap, so the first tap on it asks
 addEventListener('pointerup', (e) => {
   if (!(intro && intro.active) || fsEl() || standalone || !fsOK()) return;
-  if (e.target.closest && e.target.closest('#tools, #dev')) return;
+  if (e.target.closest && e.target.closest('#tools, #dev, #settings')) return;
   enterFullscreen().catch(() => {});
 }, { capture: true });
 document.querySelectorAll('[data-act="snd"]').forEach((b) => b.addEventListener('click', (e) => {
@@ -1220,6 +1429,7 @@ function beginGame({ fromIntro = false, quiet = false } = {}) {
   sfx.introMode(false); sfx.engine(false);
   if (G.started) return;
   G.started = true;
+  G.hp = D().hp; G.spray = D().spray;
   if (fromIntro) sfx.slam();                      // the shutter comes down behind you
   if (!quiet) setTimeout(() => tip(`너무 어둡다. 손전등을 켜자 (${KEY.flash})`, 'start'), fromIntro ? 1800 : 1200);
 }
@@ -1231,13 +1441,54 @@ $('#startBtn').addEventListener('click', () => {
   else beginGame();
 });
 $('#skipBtn').addEventListener('click', (e) => { e.stopPropagation(); if (intro && intro.active) intro.skip(); });
-addEventListener('pointerdown', (e) => { if (intro && intro.active && e.target.id !== 'skipBtn') intro.tap(); });
+addEventListener('pointerdown', (e) => { if (intro && intro.active && !(e.target.closest && e.target.closest('#skipBtn, #tools, #settings, #dev'))) intro.tap(); });
 addEventListener('keydown', (e) => { if (intro && intro.active && (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space')) { e.preventDefault(); intro.tap(); } });
 $('#againBtn').addEventListener('click', () => {
   sfx.start();
   resetGame(); G.started = true;
   if (!viaTouch()) requestLock();
 });
+
+// ------------------------------------------------------------------ settings
+// quality: how sharp the picture is drawn, and (low) no shadows
+function applyQuality() {
+  const q = SET.quality, cap = q === 'high' ? (touch ? 1.35 : 1.75) : q === 'mid' ? (touch ? 1 : 1.25) : 0.7;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+  const sh = q !== 'low';
+  if (renderer.shadowMap.enabled !== sh) {
+    renderer.shadowMap.enabled = sh;
+    const redo = (o) => o.traverse((m) => { if (m.material) (Array.isArray(m.material) ? m.material : [m.material]).forEach((x) => { x.needsUpdate = true; }); });
+    redo(scene); if (intro) redo(intro.scene);
+  }
+}
+const setPanel = $('#settings');
+const SET_UI = { sens: [$('#setSens'), (v) => `${v.toFixed(2)}×`], vol: [$('#setVol'), (v) => `${Math.round(v * 100)}%`], bright: [$('#setBright'), (v) => `${Math.round(v * 100)}%`] };
+function syncSettings() {
+  for (const [k, [inp, f]] of Object.entries(SET_UI)) { inp.value = SET[k]; inp.parentElement.querySelector('b').textContent = f(SET[k]); }
+  setPanel.querySelectorAll('[data-q]').forEach((b) => b.classList.toggle('on', b.dataset.q === SET.quality));
+  setPanel.querySelectorAll('[data-diff]').forEach((b) => b.classList.toggle('on', b.dataset.diff === SET.diff));
+  $('#diffNote b').textContent = D().label;
+}
+function saveSettings() { try { localStorage.setItem('mandible.settings', JSON.stringify(SET)); } catch (e) { /* private mode */ } }
+function applySettings() { sfx.setVolume(SET.vol); HUNT.speed = D().speed; applyQuality(); syncSettings(); saveSettings(); }
+for (const [k, [inp]] of Object.entries(SET_UI)) inp.addEventListener('input', () => { SET[k] = +inp.value; applySettings(); });
+setPanel.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { SET.quality = b.dataset.q; applySettings(); }));
+setPanel.querySelectorAll('[data-diff]').forEach((b) => b.addEventListener('click', () => {
+  if (SET.diff === b.dataset.diff) return;
+  SET.diff = b.dataset.diff; applySettings();
+  if (G.started && !G.won) msg(`난이도 ${D().label}: 체력·스프레이 수는 다시 시작할 때부터`);
+}));
+$('#setReset').addEventListener('click', () => { Object.assign(SET, SET_DEFAULT); applySettings(); });
+function toggleSettings(on = !setPanel.classList.contains('show')) {
+  setPanel.classList.toggle('show', on);
+  document.querySelectorAll('[data-act="set"]').forEach((b) => b.classList.toggle('on', on));
+  if (on && document.pointerLockElement) document.exitPointerLock();
+}
+$('#setClose').addEventListener('click', () => { toggleSettings(false); if (G.started && !G.won && !viaTouch() && !(intro && intro.active)) requestLock(); });
+document.querySelectorAll('[data-act="set"]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(); }));
+setPanel.addEventListener('pointerdown', (e) => e.stopPropagation());
+setPanel.addEventListener('keydown', (e) => e.stopPropagation());
+applySettings();
 
 // ------------------------------------------------------------------ landscape on phones
 let needRotate = false;
@@ -1257,7 +1508,30 @@ const TP = {
 const devPanel = $('#dev');
 function toggleDev() { devPanel.classList.toggle('show'); document.querySelectorAll('[data-act="dev"]').forEach((b) => b.classList.toggle('on', devPanel.classList.contains('show'))); if (devPanel.classList.contains('show') && document.pointerLockElement) document.exitPointerLock(); }
 document.querySelectorAll('[data-act="dev"]').forEach((b) => b.addEventListener('click', toggleDev));
-addEventListener('keydown', (e) => { if (e.code === 'Backquote') toggleDev(); });
+addEventListener('keydown', (e) => { if (e.code === 'Backquote' && devTools) toggleDev(); });
+// the developer buttons (개발 · 벌레 위치 · 밝게) stay hidden: F1 shows/hides them (on a phone: hold 설정 for 1.5 s)
+function setDevTools(on) {
+  devTools = on;
+  document.body.classList.toggle('devtools', on);
+  try { localStorage.setItem('mandible.dev', on ? '1' : '0'); } catch (e) { /* private mode */ }
+  if (!on) {
+    if (devPanel.classList.contains('show')) toggleDev();
+    if (bright) toggleBright();
+    if (markers.visible) { markers.visible = false; document.querySelectorAll('[data-act="marks"], [data-dev="marks"]').forEach((x) => x.classList.remove('on')); }
+  }
+  msg(on ? '개발자 도구 표시 (F1로 숨기기)' : '개발자 도구 숨김');
+}
+addEventListener('keydown', (e) => { if (e.code === 'F1') { e.preventDefault(); if (!e.repeat) setDevTools(!devTools); } }, { capture: true });
+addEventListener('help', (e) => e.preventDefault());
+{
+  let holdT = 0, held = false;
+  document.querySelectorAll('[data-act="set"]').forEach((b) => {
+    b.addEventListener('pointerdown', () => { held = false; clearTimeout(holdT); holdT = setTimeout(() => { held = true; setDevTools(!devTools); }, 1500); });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, () => clearTimeout(holdT));
+    b.addEventListener('click', (e) => { if (held) { e.stopImmediatePropagation(); held = false; } }, { capture: true });
+  });
+}
+document.body.classList.toggle('devtools', devTools);
 devPanel.addEventListener('pointerdown', (e) => e.stopPropagation());
 devPanel.querySelectorAll('[data-tp]').forEach((b) => b.addEventListener('click', () => {
   const [x, z, yaw, pitch] = TP[b.dataset.tp];

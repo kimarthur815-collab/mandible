@@ -1,7 +1,8 @@
 // The opening. The main screen is the cab of the pest-control truck driving a forest road at dusk, on
 // and on, while the radio on the dash rings. Answering it plays the orders over the radio; then a fade
 // to night: the truck stands in the yard, you climb out, walk to the dock shutter, it rolls up, and you
-// step into the dark - where the game starts. It has its own scene (the outside, the truck, their own
+// step into the dark - where the game starts. The same scene plays the ending: out through the shutter at
+// night, back to the truck, and one last call on the radio. It has its own scene (the outside, the truck, their own
 // lights) so none of it weighs on the game once you are inside.
 import * as THREE from 'three';
 import { buildExterior, ROAD_PERIOD } from './exterior.js';
@@ -22,6 +23,15 @@ const LINES = [
   ['본부', '...안에서 뭘 보든, 손전등은 끄지 마라.', 3.0],
   ['나', '...알겠습니다. 곧 도착합니다.', 2.4],
 ];
+// the ending's call: tap-advanced like the opening
+const END_LINES = [
+  ['나', '본부, 3조. 발전기 세 대 다 돌리고 나왔습니다.', 2.8],
+  ['본부', '치익————', 1.6],
+  ['본부', '......3...조... 들리나... 여기... 2조...', 3.4],
+  ['나', '...2조? 이정훈 씨? 살아 있어요?', 2.2],
+  ['본부', '(사각사각사각— 무언가 마이크 위를 기어 다닌다)', 3.6],
+];
+const AROUND = new V3(0.9, 1.62, -8.6);          // past the truck's nose on the way to its door
 const ease = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
 const lerp = THREE.MathUtils.lerp;
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -54,14 +64,21 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
 
   let state = 'title', st = 0, time = 0, line = -1, lineT = 0, speed = SPEED, stepPhase = 0, fadeK = 0, ringT = 0;
   let from = null, to = null, yaw0 = 0, yaw1 = 0;
+  let lines = LINES, finish = () => onDone(true), path = null, pathI = 0;
   const go = (s) => { state = s; st = 0; };
   const showLine = (i) => {
     line = i; lineT = 0;
-    if (i >= LINES.length) { ui.subtitle(null); return; }
-    const [who, text, dur] = LINES[i];
+    if (i >= lines.length) { ui.subtitle(null); return; }
+    const [who, text, dur] = lines[i];
     ui.subtitle(who, text);
-    if (who === '본부') { sfx.squelch(); sfx.chatter(dur - 0.6); }
+    if (who === '본부') { sfx.squelch(); if (/사각|기어/.test(text)) sfx.radioSkitter(dur); else sfx.chatter(dur - 0.6); }
     else sfx.mumble(Math.min(2.2, 0.5 + text.length * 0.06));
+  };
+  // a footstep each half stride while walking
+  const stepSound = (dt, speedK = 1) => {
+    const ph = stepPhase; stepPhase += dt * WALK * speedK / 0.7 * Math.PI;
+    if (Math.floor(stepPhase / Math.PI) !== Math.floor(ph / Math.PI)) sfx.step('walk', Math.floor(stepPhase / Math.PI) % 2 === 0);
+    return 1.62 + Math.abs(Math.sin(stepPhase)) * 0.035 - 0.02;
   };
 
   const api = {
@@ -76,8 +93,24 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     },
     // a tap: hurry the radio along
     // a tap or Enter: the next line (the talk waits for it)
-    tap() { if (state === 'call' && lineT > 0.35) { if (line < LINES.length - 1) showLine(line + 1); else { showLine(LINES.length); go('fadeout'); } } },
+    tap() {
+      if ((state === 'call' || state === 'outTalk') && lineT > 0.35) {
+        if (line < lines.length - 1) showLine(line + 1);
+        else { showLine(lines.length); go(state === 'call' ? 'fadeout' : 'outFade'); }
+      }
+    },
     skip() { if (state !== 'title' && state !== 'out') go('out'); },
+    // the ending: out of the shutter at night, back to the truck, one more call. done() when it fades out
+    ending(x, done) {
+      api.active = true; lines = END_LINES; finish = done; api._shut = false;
+      setTime('night'); renderer.toneMappingExposure = 1.3;
+      g.position.copy(PARK); g.rotation.set(0, 0, 0); truck.setRinging(false);
+      ext.dockShutter.position.y = 4.35;
+      seated = false; fadeK = 1; line = -1; ui.skip(true); ui.radioButton(null);
+      stand.pos.set(THREE.MathUtils.clamp(x, -2, 2), 1.62, -0.6); stand.yaw = Math.PI; stand.pitch = 0;
+      path = [SHUTTER_FRONT.clone(), AROUND.clone(), toWorld(DOOR_OUT)]; pathI = 0;
+      go('outWalk');
+    },
     stop() {
       api.active = false;
       ui.subtitle(null); ui.skip(false); ui.radioButton(null); ui.fade(0);
@@ -151,9 +184,41 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
         fadeK = ease((st - 1.5) / 1.1);
         if (Math.floor(st * 4.2) !== Math.floor((st - dt) * 4.2)) sfx.step('walk', Math.floor(st * 4.2) % 2 === 0);
         if (st >= 2.6) { api.stop(); onDone(true); return; }
-      } else if (state === 'out') {                       // skipped: a quick fade, then in
+      } else if (state === 'outWalk') {
+        // out into the yard and around the truck's nose to the driver's door
+        fadeK = 1 - ease(st / 1.2);
+        const p = path[pathI], d = tmp.subVectors(p, stand.pos).setY(0), len = d.length();
+        const stepLen = WALK * 1.15 * dt;
+        if (len <= stepLen) { stand.pos.x = p.x; stand.pos.z = p.z; pathI++; }
+        else stand.pos.addScaledVector(d, stepLen / len);
+        const next = path[Math.min(pathI, path.length - 1)];
+        const face = pathI >= path.length ? -Math.PI / 2 : Math.atan2(next.x - stand.pos.x, next.z - stand.pos.z);
+        stand.yaw += wrap(face - stand.yaw) * Math.min(1, dt * 2.6);
+        stand.pitch += (-0.04 - stand.pitch) * Math.min(1, dt * 2);
+        stand.pos.y = stepSound(dt, 1.15);
+        if (pathI >= path.length) { sfx.truckDoor(true); from = stand.pos.clone(); to = toWorld(truck.eye); yaw0 = stand.yaw; go('outIn'); }
+      } else if (state === 'outIn') {
+        // turn to the open door, climb in, settle facing the road
+        if (!seated) {
+          stand.yaw = yaw0 + wrap(-Math.PI / 2 - yaw0) * ease(st / 0.6);
+          const k = ease((st - 0.5) / 1.4);
+          stand.pos.lerpVectors(from, to, k); stand.pos.y = lerp(from.y, to.y, k) + Math.sin(k * Math.PI) * 0.12;
+          if (st >= 1.9) { seated = true; head.yaw = stand.yaw; head.pitch = stand.pitch; want.yaw = 0; want.pitch = -0.08; }
+        }
+        if (st >= 2.4 && !api._shut) { api._shut = true; sfx.truckDoor(false); }
+        if (st >= 3.4) { sfx.engine(true); go('outTalk'); showLine(0); }
+      } else if (state === 'outTalk') {
+        lineT += dt;
+        // the radio, then the last line: a start, staring at it
+        if (line >= lines.length - 1) { want.yaw = -0.66 + Math.sin(time * 37) * 0.01; want.pitch = -0.4; }
+        else if (line >= 1) { want.yaw = -0.62; want.pitch = -0.36; }
+        else { want.yaw = -0.3; want.pitch = -0.2; }
+      } else if (state === 'outFade') {
+        fadeK = ease(st / 2.0);
+        if (st >= 2.2) { api.stop(); finish(); return; }
+      } else if (state === 'out') {                       // skipped: a quick fade, then on
         fadeK = Math.min(1, fadeK + dt / 0.35);
-        if (fadeK >= 1) { api.stop(); onDone(true); return; }
+        if (fadeK >= 1) { api.stop(); finish(); return; }
       }
       ui.fade(fadeK);
 

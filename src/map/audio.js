@@ -8,6 +8,7 @@ export class Sound {
   constructor() {
     this.ctx = null;
     this.muted = false;
+    this.vol = 1;            // the settings' volume (0..1)
     this.intensity = 0;
     this.nextEvent = 3;
     this.nextBeat = 0;
@@ -25,7 +26,7 @@ export class Sound {
     if (this.ctx) { if (this.ctx.state !== 'running') this.ctx.resume(); return; }
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* iOS 17+: play even with the silent switch on */ }
     const ctx = this.ctx = new AC();
-    this.master = ctx.createGain(); this.master.gain.value = this.muted ? 0 : 0.9;
+    this.master = ctx.createGain(); this.master.gain.value = this.muted ? 0 : 0.9 * this.vol;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.25;
     this.master.connect(comp); comp.connect(ctx.destination);
@@ -54,11 +55,16 @@ export class Sound {
     };
     this.startAmbience();
     this.startTension();
+    this.startChase();
   }
 
   setMuted(m) {
     this.muted = m;
-    if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.05);
+    if (this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.9 * this.vol, this.ctx.currentTime, 0.05);
+  }
+  setVolume(v) {
+    this.vol = v;
+    if (this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.9 * v, this.ctx.currentTime, 0.05);
   }
 
   bus(gain, send) {
@@ -363,6 +369,41 @@ export class Sound {
     for (let i = 0; i < dur * 7; i++) this.burst({ t: i / 7 + rnd(0, 0.08), dur: 0.05, f: rnd(700, 1500), q: 6, gain: 0.14 });
     this.tone({ t: dur, f0: 90, f1: 45, dur: 0.35, gain: 0.5 });
   }
+  // a pocket recorder playing back: the button, tape hiss, a thin voice
+  tape(dur) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    this.burst({ dur: 0.02, f: 2200, q: 2, gain: 0.3 });
+    this.burst({ t: 0.05, dur, f: 4500, q: 0.5, gain: 0.04, attack: 0.08 });
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1300; bp.Q.value = 0.9; bp.connect(this.sfx);
+    for (let x = 0.25; x < dur - 0.1; x += rnd(0.11, 0.21)) {
+      if (Math.random() < 0.1) { x += 0.25; continue; }
+      const now = ctx.currentTime + x, len = rnd(0.07, 0.14), f = rnd(140, 200);
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, now); o.frequency.linearRampToValueAtTime(f * rnd(0.85, 1.15), now + len);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(rnd(0.1, 0.18), now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + len);
+      o.connect(g); g.connect(bp); o.start(now); o.stop(now + len + 0.05);
+    }
+    this.burst({ t: dur, dur: 0.02, f: 1800, q: 2, gain: 0.25 });
+  }
+  // something crawling over the far end's mic: legs scratching, through the radio
+  radioSkitter(dur = 2.5) {
+    if (!this.ctx) return;
+    this.burst({ dur, f: 2000, q: 0.5, gain: 0.05, attack: 0.1 });
+    for (let x = 0; x < dur; x += rnd(0.012, 0.05)) this.burst({ t: x, dur: rnd(0.006, 0.02), f: rnd(1400, 3200), q: rnd(3, 8), gain: rnd(0.08, 0.22) });
+  }
+  // a pull on the generator's starter cord: the rope, then it catches (ok) or coughs and bangs (missed)
+  pullCord(ok, x, z) {
+    if (!this.ctx) return;
+    const f = this.burst({ dur: 0.28, f: 700, q: 1.2, gain: 0.35, attack: 0.01 });
+    f.frequency.linearRampToValueAtTime(2200, this.ctx.currentTime + 0.25);
+    if (ok) { this.tone({ t: 0.22, f0: 70, f1: 40, dur: 0.35, gain: 0.6 }); this.burst({ t: 0.22, dur: 0.3, f: 160, q: 1, gain: 0.5, buf: this.brown }); return; }
+    const p = this.panner(x, 0.8, z, 4, 0.6); p.connect(this.sfx);
+    for (let i = 0; i < 4; i++) this.burst({ dest: p, t: 0.25 + i * 0.09, dur: 0.07, f: rnd(120, 260), q: 1, gain: 0.7, buf: this.brown });
+    this.tone({ dest: p, t: 0.62, f0: 90, f1: 30, dur: 0.5, gain: 1.0, attack: 0.002 });
+    this.burst({ dest: p, t: 0.62, dur: 0.4, f: 900, q: 0.6, gain: 0.8, attack: 0.002 });
+  }
+
   // the shutter coming down behind you
   slam() {
     if (!this.ctx) return;
@@ -449,6 +490,44 @@ export class Sound {
       const g = ctx.createGain(); g.gain.value = 0.012; o.connect(g); g.connect(this.highGain); o.start();
       const v = ctx.createOscillator(); v.frequency.value = rnd(4, 7); const vg = ctx.createGain(); vg.gain.value = 9; v.connect(vg); vg.connect(o.frequency); v.start();
     }
+  }
+
+  // ------------------------------------------------------------ chase music
+  // a driving pulse while a spider or the centipede is after you: taiko in 3+3+2, a growling bass a half
+  // step apart, metal clanks, and (close behind you) ticking and stabbing strings that climb bar by bar
+  startChase() {
+    const ctx = this.ctx;
+    this.chBus = ctx.createGain(); this.chBus.gain.value = 0; this.chBus.connect(this.mus);
+    this.chLP = ctx.createBiquadFilter(); this.chLP.type = 'lowpass'; this.chLP.frequency.value = 420; this.chLP.Q.value = 2.5; this.chLP.connect(this.chBus);
+    this.chDrone = ctx.createGain(); this.chDrone.gain.value = 0; this.chDrone.connect(this.chLP);
+    for (const f of [36.7, 38.9, 73.4]) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = f > 50 ? 0.05 : 0.1; o.connect(g); g.connect(this.chDrone); o.start(); }
+    this.ch = { lvl: 0, next: 0, step: 0, bar: 0, run: false };
+  }
+  chaseStep(t, i, bar, L) {
+    const D = this.chBus, B = this.chLP;
+    const lift = Math.pow(2, (bar % 4) / 12);
+    if ((i === 0 || i === 3 || i === 6 || i === 8 || i === 11 || i === 14) && L > 0.2) {
+      this.tone({ dest: D, t, f0: i % 8 === 0 ? 120 : 95, f1: 42, dur: 0.28, gain: (i === 0 ? 0.9 : 0.6) * (0.5 + L * 0.5), attack: 0.004 });
+      this.burst({ dest: D, t, dur: 0.07, f: 300, q: 1, type: 'lowpass', gain: 0.35 * L, buf: this.brown });
+    }
+    if (i % 2 === 0) { const f = i === 14 ? 155.6 : 146.8; this.tone({ dest: B, t, f0: f, f1: f * 0.99, dur: 0.13, gain: 0.32, type: 'sawtooth', attack: 0.004 }); }
+    if ((i === 4 || i === 12) && L > 0.4) this.burst({ dest: D, t, dur: 0.18, f: 2300 * lift, q: 9, gain: 0.22 * L });
+    if (L > 0.6) this.burst({ dest: D, t, dur: 0.025, f: 7500, q: 0.8, type: 'highpass', gain: (i % 4 === 2 ? 0.09 : 0.045) * L });
+    if (L > 0.72 && i % 4 < 2) for (const f of [587.3, 622.3]) this.tone({ dest: D, t, f0: f * lift, f1: f * lift * 0.995, dur: 0.07, gain: 0.03, type: 'sawtooth', attack: 0.006 });
+  }
+  // found: a hit and a scream of strings
+  chaseStinger() {
+    if (!this.ctx) return;
+    this.tone({ dest: this.mus, f0: 90, f1: 30, dur: 1.3, gain: 1.0, attack: 0.005 });
+    this.burst({ dest: this.mus, dur: 0.9, f: 160, q: 0.8, type: 'lowpass', gain: 0.6, buf: this.brown });
+    for (const f of [146.8, 155.6, 220, 233.1]) this.tone({ dest: this.mus, f0: f, f1: f * 0.97, dur: 0.9, gain: 0.08, type: 'sawtooth', attack: 0.01 });
+    for (const [f, t] of [[1661, 0], [1760, 0.09], [1865, 0.18]]) this.tone({ dest: this.mus, t, f0: f, f1: f * 1.04, dur: 0.5, gain: 0.04, type: 'sawtooth', attack: 0.01 });
+  }
+  // it lost you: the pulse lets go
+  chaseOver() {
+    if (!this.ctx) return;
+    this.tone({ dest: this.mus, f0: 73.4, f1: 72, dur: 3.5, gain: 0.25, type: 'triangle', attack: 0.05 });
+    this.burst({ dest: this.mus, dur: 2.5, f: 600, q: 0.5, gain: 0.1, attack: 0.02, buf: this.brown });
   }
 
   heartbeat(level) {
@@ -886,11 +965,23 @@ export class Sound {
     // chase music follows how close the hunt is
     this.intensity += (s.intensity - this.intensity) * Math.min(1, s.dt * (s.intensity > this.intensity ? 2.5 : 0.5));
     const I = this.intensity;
-    // hiding: the music drops away and leaves the heartbeat
+    // the chase music (s.chase: ~0.2 while something searches for you, up to 1 with it right behind you)
+    const ch = this.ch, want = s.chase || 0;
+    ch.lvl += (want - ch.lvl) * Math.min(1, s.dt * (want > ch.lvl ? 3 : 0.45));
+    const Lc = ch.lvl;
+    this.chBus.gain.setTargetAtTime(Math.min(1, Lc * 1.8) * 0.6 * (s.hush ? 0.35 : 1), now, 0.15);
+    this.chDrone.gain.setTargetAtTime(Lc > 0.03 ? 0.5 + Lc * 0.5 : 0, now, 0.3);
+    this.chLP.frequency.setTargetAtTime(300 + Lc * 900, now, 0.2);
+    if (Lc > 0.03) {
+      if (!ch.run || ch.next < now - 0.25) { ch.run = true; ch.next = now + 0.05; ch.step = 0; ch.bar = 0; }
+      const stepDur = 60 / (128 + Lc * 40) / 4;
+      while (ch.next < now + 0.12) { this.chaseStep(Math.max(0, ch.next - now), ch.step, ch.bar, Lc); ch.next += stepDur; if (++ch.step >= 16) { ch.step = 0; ch.bar++; } }
+    } else ch.run = false;
+    // hiding: the music drops away and leaves the heartbeat (which also steps aside for the chase drums)
     const hush = s.hush ? 0.2 : 1;
-    this.tenGain.gain.setTargetAtTime(Math.pow(I, 1.4) * 0.5 * hush, now, s.hush ? 0.6 : 0.2);
+    this.tenGain.gain.setTargetAtTime(Math.pow(I, 1.4) * 0.5 * hush * (1 - Lc * 0.5), now, s.hush ? 0.6 : 0.2);
     this.highGain.gain.setTargetAtTime(Math.max(0, I - 0.4) * 0.6 * hush, now, 0.3);
-    if (I > 0.08) {
+    if (I > 0.08 && (s.hush || Lc < 0.3)) {
       this.nextBeat -= s.dt;
       if (this.nextBeat <= 0) { this.heartbeat(I); this.nextBeat = 60 / (58 + I * 70); }
     } else this.nextBeat = 0.2;

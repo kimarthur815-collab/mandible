@@ -9,7 +9,9 @@ import { Centipede } from '../centipede.js';
 
 const V3 = THREE.Vector3;
 // chasing: slower up close (you can still outrun it), faster when far behind (it catches up)
-export const catchUp = (d) => { const t = Math.min(1, Math.max(0, (d - 3) / 13)); return 0.75 + 0.7 * t * t * (3 - 2 * t); };
+// difficulty scales how fast the hunters run (set from the game's settings)
+export const HUNT = { speed: 1 };
+export const catchUp = (d) => { const t = Math.min(1, Math.max(0, (d - 3) / 13)); return HUNT.speed * (0.75 + 0.7 * t * t * (3 - 2 * t)); };
 
 const VENT = { x: 15, z: 69.7, y: 0.55 };
 const PATROL = [[20.5, 52], [12.5, 61], [7.2, 50], [18.5, 44], [18.5, 30], [17.5, 15], [18.5, 24], [18.5, 46.5], [14, 66]];
