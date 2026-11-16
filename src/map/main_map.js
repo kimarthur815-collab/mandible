@@ -228,6 +228,8 @@ const tipEl = $('#tip'), msgEl = $('#msg'), noteEl = $('#note'), promptEl = $('#
 let tipTimer = 0, msgTimer = 0, noteTimer = 0;
 const shownTips = {};
 // the lines at the bottom wait their turn: a new one queues behind the one showing instead of replacing it
+// what to press, named in lines that tell you to do something: "손전등을 켜자 (좌클릭)"
+const KEY = touch ? { flash: '손전등 버튼', crouch: '웅크리기 버튼', spray: '스프레이 버튼' } : { flash: '좌클릭', crouch: 'Ctrl', spray: '우클릭' };
 const tipQueue = [];
 let tipBusy = false;
 function tip(text, key) {
@@ -276,6 +278,11 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Space' && G.grab) mashGrab();
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
+// crouching is Ctrl, so while playing, Ctrl+key shortcuts (Ctrl+W closes the tab!) are kept from the browser where it allows:
+// held back here, captured outright in fullscreen (keyboard lock, see enterFullscreen), and leaving asks first
+addEventListener('keydown', (e) => { if (G.started && !G.won && e.ctrlKey && e.code !== 'ControlLeft' && e.code !== 'ControlRight') e.preventDefault(); }, { capture: true });
+addEventListener('beforeunload', (e) => { if (G.started && !G.won && !G.dead) { e.preventDefault(); e.returnValue = ''; } });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });   // a key let go while away would stay down
 const el = renderer.domElement;
 // tablets count as touch devices but can have a mouse too: decide per event, not per device.
 // A tap also fires (fake) mouse events after it, so mouse events count only while the mouse was the last pointer used.
@@ -369,7 +376,7 @@ function readInput(dt) {
   input.mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + joy.x;
   input.mz = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0) - joy.y;
   input.run = !!(keys.ShiftLeft || keys.ShiftRight || hold.run);
-  input.crouch = !!(keys.KeyC || hold.crouch);
+  input.crouch = !!(keys.ControlLeft || keys.ControlRight || keys.KeyC || hold.crouch);
   input.use = !!(keys.KeyE || hold.use);
   return input;
 }
@@ -427,7 +434,8 @@ function useSpray() {
   const sp = spiders.spray(o, d);
   const lings = eggs.spray(o, d) + brood.spray(o, d);
   const c = centi.spray(o, d);
-  if (gate.spray(o, d)) { tip('거미줄이 너무 두껍다. 스프레이로는 안 된다'); const p = gate.s.bodyWorld; sfx.spiderFlinch(p.x, p.y, p.z); }
+  if (G.grab && G.grab.sp === gate) { const p = gate.s.bodyWorld; sfx.spiderFlinch(p.x, p.y, p.z); endGrab(true); }
+  else if (gate.spray(o, d)) { tip('거미줄이 너무 두껍다. 스프레이로는 안 된다'); const p = gate.s.bodyWorld; sfx.spiderFlinch(p.x, p.y, p.z); }
   if (sp.webs) { tip('거미줄이 녹아내린다', 'webmelt'); for (const w of spiders.webs) if (w.state === 'melting') sfx.webMelt(w.x, w.z); }
   if (G.grab && sp.spiders.includes(G.grab.sp)) endGrab(true);
   if (c) sfx.centiHiss(centi.head.x, centi.head.z);
@@ -437,8 +445,9 @@ function useSpray() {
 }
 
 // ------------------------------------------------------------------ grabbed by a spider: struggle 2 s
+const releaseGrabber = (sp) => { if (sp === gate) gate.release(); else spiders.release(sp); };
 function startGrab(sp) {
-  if (dev.god) { spiders.release(sp); return; }
+  if (dev.god) { releaseGrabber(sp); return; }
   G.grab = { sp, meter: 0.65, t: 0 };
   G.attached.forEach((a) => swarms.drop(a.r, player.pos, player.pos)); G.attached.length = 0;
   sfx.grab(); shakeScreen();
@@ -454,8 +463,10 @@ function endGrab(sprayed) {
   document.body.classList.remove('grabbed');
   $('#grab').classList.remove('show');
   { const p = g.sp.s.bodyWorld; sfx.escape(p.x, p.y, p.z); }
+  // the big one on the passage web lets go and you stagger back from it
+  if (g.sp === gate) { gate.release(); player.place(Math.max(player.pos.x, GATE.x + 1.9), player.pos.z, player.yaw); }
   if (sprayed) { msg('스프레이로 떼어냈다. 살았다'); return; }
-  spiders.release(g.sp);
+  if (g.sp !== gate) spiders.release(g.sp);
   msg('하아... 겨우 빠져나왔다');
   hurt('붙잡혔을 때 스프레이를 썼어야 했다');
 }
@@ -584,7 +595,7 @@ function die(deathTip) {
   if (G.dead) return;
   G.dead = true; G.timing = false;
   sfx.death();
-  if (G.grab) { G.grab = null; document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); }
+  if (G.grab) { if (G.grab.sp === gate) gate.release(); G.grab = null; document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); }
   G.attached.length = 0;
   $('#crawl').classList.remove('show');
   $('#dead').classList.add('show');
@@ -716,7 +727,7 @@ function frame(dtOverride) {
     if (G.flashOn) toggleFlash();
     sfx.overheat(); tip('손전등이 과열되었다');
   }
-  if (G.flashOn && G.battery < 0.3) tip('손전등이 뜨거워진다... 잠깐 꺼 둬야겠다', 'battery');
+  if (G.flashOn && G.battery < 0.3) tip(`손전등이 뜨거워진다... 잠깐 꺼 둬야겠다 (${KEY.flash})`, 'battery');
   flickT -= dt;
   if (flickT < 0) {
     // it stutters more often as the battery runs down
@@ -795,7 +806,7 @@ function frame(dtOverride) {
   G.stillT = quiet ? (G.stillT || 0) + dt : 0;
   G.hidden = G.stillT > 0.6;          // a moment of keeping still first
   G.hiddenT = G.hidden ? G.hiddenT + dt : 0;
-  if (player.inside && G.started) tip('불을 끄고 가만히 있자. 그럼 못 찾을 거야', 'hide');
+  if (player.inside && G.started) tip(`불을 끄고 가만히 있자 (${KEY.flash}). 그럼 못 찾을 거야`, 'hide');
   // ---- roaches
   const noise = !G.started || G.dead || G.hidden || !player.moving || player.speed < 0.3 ? 0 : player.crouch ? 1 : player.running ? 12 : 5;
   swarms.update({
@@ -808,7 +819,7 @@ function frame(dtOverride) {
     onFirstFlee: () => tip('바퀴들이 빛을 피한다', 'roachlight'),
     onEscape: (p, dur) => sfx.wingTakeoff(p.x, p.z, dur),
     onFirstWait: () => tip('빛 밖에서 기다리고 있다... 불을 돌리면 덮치겠지', 'roachwait'),
-    onFirstHunt: () => tip('소리를 듣고 오는 건가... 몸을 낮추고 걷자', 'roachsound'),
+    onFirstHunt: () => tip(`소리를 듣고 오는 건가... 몸을 낮추고 걷자 (${KEY.crouch})`, 'roachsound'),
     onFlyerLaunch: (p) => sfx.scareLaunch(p.x, p.y, p.z),
     onFlyerOff: () => { sfx.shakeOff(); sfx.roachDie(1); },
     onFlyerHit: () => {
@@ -826,7 +837,7 @@ function frame(dtOverride) {
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드렸다... 뭔가 깨어났다', 'tripwake'); },
     onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추니 움츠러든다', 'ghostlit'); },
-    onThreadLit: () => tip('실이 쳐져 있다. 숙이고 지나가야겠다', 'trip'),
+    onThreadLit: () => tip(`실이 쳐져 있다. 숙이고 지나가야겠다 (${KEY.crouch})`, 'trip'),
     onSacBurst: (p) => {
       brood.burst(p); sfx.sacDrop(p.x, p.z); sfx.eggBurst(p.x, 0.2, p.z);
       G.broodGone = false; tip('알집이 터졌다... 새끼들이 쏟아져 나온다!'); lookToward(new THREE.Vector3(p.x, 0.15, p.z), 0.6);
@@ -834,10 +845,12 @@ function frame(dtOverride) {
     onFirstLit: () => tip('위에서 뭔가 기다리고 있었다. 천장을 잘 봐야겠다', 'spiderlit'),
     onDrop: (sp) => sfx.creak(sp.s.root.position.x, sp.ceil - 0.3, sp.s.root.position.z),
     onCatch: (sp) => startGrab(sp),
-    onWebLit: () => tip('거미줄이다. 스프레이로 녹일 수 있겠다', 'weblit'),
+    onWebLit: () => tip(`거미줄이다. 스프레이로 녹일 수 있겠다 (${KEY.spray})`, 'weblit'),
   });
   // the spider walling off the passage, the one from the blackout, the dead man in the corridor
   gate.update({ dt, cam: camera.position, light, playerPos: player.pos,
+    canCatch: G.started && !G.dead && !G.won && !G.grab && !dev.god && !dev.freeze,
+    onCatch: (g) => startGrab(g),
     onNear: () => { tip('저 안으로는... 못 가겠다', 'gate'); if (!G.tipped.seeGate) { G.tipped.seeGate = true; lookToward(gate.s.bodyWorld); } },
     onShake: (x, y, z) => sfx.spiderFlinch(x, y, z),
     onTouch: () => tip('거미줄이 너무 두껍다. 지나갈 수 없다') });
@@ -869,7 +882,7 @@ function frame(dtOverride) {
   if (G.started && !G.dead) {
     if (noise >= 12) eggs.hear(player.pos.x, player.pos.z, noise) && sfx.eggBurst(-7.6, 4, 62.6);
     for (const e of G.events) if (eggs.hear(e.x, e.z, e.r)) sfx.eggBurst(-7.6, 4, 62.6);
-    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip('알집이다... 소리 내지 말자', 'eggs'); }
+    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip(`알집이다... 소리 내지 말자 (${KEY.crouch}로 웅크려 걷기)`, 'eggs'); }
   }
   const lingInfo = eggs.update({
     dt, player: { pos: player.pos }, nav: swarms.nav, field: swarms.fPlayer, light, frozen, hidden: G.hidden,
@@ -877,7 +890,7 @@ function frame(dtOverride) {
       if (dev.god) return;
       G.lingSlow = Math.min(0.4, G.lingSlow + 0.07); G.lingT = 0;
       sfx.burst && sfx.ctx && sfx.burst({ dur: 0.12, f: 3800, q: 1, gain: 0.3 });
-      tip('새끼들은 스프레이 한 번이면 쓸려 나가겠다', 'lings');
+      tip(`새끼들은 스프레이 한 번이면 쓸려 나가겠다 (${KEY.spray})`, 'lings');
     },
   });
   const broodInfo = brood.update({ dt, player: { pos: player.pos }, nav: swarms.nav, frozen });
@@ -938,7 +951,7 @@ function frame(dtOverride) {
   if (G.hidden) inten = Math.max(inten * 0.6, searchK * 0.9);
   // being chased with somewhere to hide close by
   if (inten > 0.6 && !player.under && !G.tipped.hideHint && hideSpots.some((c) => Math.max(c.x0 - player.pos.x, 0, player.pos.x - c.x1) + Math.max(c.z0 - player.pos.z, 0, player.pos.z - c.z1) < 6)) {
-    G.tipped.hideHint = true; tip('테이블이나 컨베이어 밑에 기어 들어가 숨자', 'hidehint');
+    G.tipped.hideHint = true; tip(`테이블이나 컨베이어 밑에 기어 들어가 숨자 (${KEY.crouch}로 웅크리기)`, 'hidehint');
   }
   if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
@@ -1071,6 +1084,8 @@ function enterFullscreen() {
   let req = null;
   try { req = d.requestFullscreen ? d.requestFullscreen({ navigationUI: 'hide' }) : d.webkitRequestFullscreen ? d.webkitRequestFullscreen() : null; } catch (e) { return Promise.reject(e); }
   return Promise.resolve(req).then(() => {
+    // desktop Chrome/Edge: in fullscreen the game keys, Ctrl combinations included, go to the game and not the browser
+    try { const kb = navigator.keyboard; if (kb && kb.lock) kb.lock(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ', 'KeyF', 'KeyM', 'KeyB', 'KeyC', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight']).catch(() => {}); } catch (e) { /* not supported */ }
     // phones: hold the screen sideways while in fullscreen (Android); the rotate prompt covers the rest
     try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}); } catch (e) { /* not supported */ }
   });
@@ -1139,7 +1154,7 @@ function beginGame({ fromIntro = false, quiet = false } = {}) {
   if (G.started) return;
   G.started = true;
   if (fromIntro) sfx.slam();                      // the shutter comes down behind you
-  if (!quiet) setTimeout(() => tip(touch ? '너무 어둡다. 손전등을 켜자 (손전등 버튼)' : '너무 어둡다. 손전등을 켜자 (좌클릭)', 'start'), fromIntro ? 1800 : 1200);
+  if (!quiet) setTimeout(() => tip(`너무 어둡다. 손전등을 켜자 (${KEY.flash})`, 'start'), fromIntro ? 1800 : 1200);
 }
 $('#startBtn').addEventListener('click', () => {
   sfx.start();

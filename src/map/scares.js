@@ -113,6 +113,7 @@ export class PassageGate {
     scene.add(s.root);
     this.s = s;
     this.t = 0; this.cd = 0; this.lean = 0; this.near = false; this.touchCd = 0;
+    this.grabbing = false; this.grabCd = 0; this.reach = 0;
     this.setOpen(false);
   }
 
@@ -123,8 +124,11 @@ export class PassageGate {
     for (const p of this.sheets) p.visible = !open;
     this.lines.visible = !open;
     this.rags.visible = open;
-    this.near = false;
+    this.near = false; this.grabbing = false; this.reach = 0;
   }
+
+  // you broke free (or sprayed it): it lets go and pulls back onto the web for a while
+  release() { this.grabbing = false; this.grabCd = 6; this.s.whirl = 1.6; }
 
   // the spray hits the web? (it can't melt it)
   spray(origin, dir, range = 3.4) {
@@ -137,11 +141,11 @@ export class PassageGate {
     return true;
   }
 
-  // ctx: { dt, cam, light, playerPos, onNear(), onShake(x,y,z), onTouch() }
+  // ctx: { dt, cam, light, playerPos, canCatch, onNear(), onShake(x,y,z), onTouch(), onCatch(gate) }
   update(ctx) {
     if (this.open) return;
     const s = this.s, dt = ctx.dt, P = ctx.playerPos;
-    this.t += dt; this.cd -= dt; this.touchCd -= dt;
+    this.t += dt; this.cd -= dt; this.touchCd -= dt; this.grabCd -= dt;
     const front = P.x > GATE.x - 0.2;
     const d = Math.hypot(P.x - GATE.x, P.z - clamp(P.z, GATE.z0, GATE.z1));
     const lit = s.isLit(ctx.light);
@@ -156,10 +160,19 @@ export class PassageGate {
       ctx.onShake && ctx.onShake(GATE.x + 0.4, 1.7, GATE.cz);
     }
     if (front && d < 0.5 && this.touchCd <= 0) { this.touchCd = 4; s.whirl = 2; ctx.onTouch && ctx.onTouch(); }
+    // right up to the web: it comes off it and grabs you, like the others
+    if (front && d < 1.4 && !this.grabbing && this.grabCd <= 0 && ctx.canCatch) { this.grabbing = true; s.whirl = 2; ctx.onCatch && ctx.onCatch(this); }
+    this.reach += ((this.grabbing ? 1 : 0) - this.reach) * Math.min(1, dt * (this.grabbing ? 9 : 2.5));
+    if (this.grabbing) s.whirl = Math.max(s.whirl, 0.6);
     // body: head down, turned a little toward you, pulled off the web as it leans out
     const toward = clamp((P.z - GATE.cz) * 0.25, -0.5, 0.5);
     const q = surfQuat(new V3(1, 0, 0), new V3(0, -1, toward));
     const body = new V3(GATE.x + s.P.H * 2.35 + this.lean * 0.28, 1.75 - this.lean * 0.15 + 0.02 * Math.sin(this.t * 1.3), GATE.cz + toward * 0.3);
+    if (this.reach > 0.001) {   // lunging out at your face
+      const at = new V3(ctx.cam.x - 0.55, ctx.cam.y - 0.25, ctx.cam.z);
+      at.x = Math.max(at.x, GATE.x + 0.35);
+      body.lerp(at, this.reach * 0.85);
+    }
     s.setBodyAt(body, q);
     s.speed = 0;
     s.update(dt, { light: ctx.light, cam: ctx.cam, bounds: { x0: -12, x1: -11, z0: 27, z1: 30 } });
