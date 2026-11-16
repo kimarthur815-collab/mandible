@@ -151,7 +151,7 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
     for (let i = 0; i < 5; i++) floorDecal(rm, 4, -11 + R() * 22, 11 + R() * 20, 1.2 + R());
     // structure overhead
     for (const z of [12, 16, 20, 24, 28]) P.ibeam(B, rm, [-11.7, z], [11.7, z], 6.6, 0.45);
-    for (const x of [-6, 2, 10]) P.ibeam(B, rm, [x, 10.3], [x, 31.7], 6.25, 0.25);
+    for (const x of [-6, 2, 10]) P.ibeam(B, rm, [x, 10.3], [x, 31.7], 6.22, 0.25);   // just under the main beams: at 6.25 their flanges shared a plane
     for (const x of [-6.5, -2.5, 1.5, 5.5, 9.5]) fluoroRow(rm, [x, 12], [x, 31], 5.8, Math.PI / 2, 4.5, 0.25);
     P.fluoro(B, rm, -6.5, 4.8, 18.2, 0.3, R, 1.1);
     P.cable(B, rm, [-6, 6.2, 14], [-6, 6.2, 22], 2.4); P.cable(B, rm, [2, 6.2, 20], [6, 6.2, 20], 1.5);
@@ -310,11 +310,11 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
     P.labBench(B, rm, -12.5, 56.4, 3.2, 1.0, 0, R); P.labBench(B, rm, -12.5, 60.0, 3.2, 1.0, Math.PI, R); P.labBench(B, rm, -12.0, 63.2, 2.4, 0.8, Math.PI, R);
     // CRT and microscope
     let g = P.box(0.42, 0.38, 0.42); g.translate(-13.4, 1.1, 60.1); B.add('metal', rm, g, C('#c9c3b2'));
-    P.quad(B, 'glass', rm, [0, 0, 1, 1], 0.3, 0.24, -13.4, 1.12, 59.885, '-z');
+    P.quad(B, 'glass', rm, [0, 0, 1, 1], 0.3, 0.24, -13.4, 1.12, 59.878, '-z');   // clear of the case's front (it can grow 4.8 mm)
     g = P.box(0.18, 0.04, 0.24); g.translate(-11.6, 0.92, 56.4); B.add('metal', rm, g, C('#ddd'));
     g = P.box(0.05, 0.26, 0.05); g.translate(-11.6, 1.05, 56.5); B.add('metal', rm, g, C('#ddd'));
     g = P.cyl(0.025, 0.03, 0.2, 10); g.rotateX(0.5); g.translate(-11.6, 1.18, 56.42); B.add('metal', rm, g, C('#222'));
-    for (let i = 0; i < 4; i++) P.paperSheet(B, rm, -14 + R() * 3, 0.9, 56.2 + R() * 0.3, R() * 6, R);
+    for (let i = 0; i < 4; i++) P.paperSheet(B, rm, -14 + R() * 3, 0.905, 56.2 + R() * 0.3, R() * 6, R);
     // metal shelving with bottles and binders
     for (const z of [60.05, 62.95]) for (const x of [-19.75, -19.05]) { g = P.box(0.04, 2.2, 0.04); g.translate(x, 1.1, z); B.add('metal', rm, g, C('#9ba0a0')); }
     for (const y of [0.15, 0.7, 1.25, 1.8, 2.15]) {
@@ -322,7 +322,7 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
       if (y > 2) continue;
       for (let z = 60.2; z < 62.8; z += 0.12 + R() * 0.2) {
         const k = R();
-        if (k < 0.45) { g = P.cyl(0.04, 0.045, 0.2 + R() * 0.1, 10); g.translate(-19.4 + (R() - 0.5) * 0.3, y + 0.13, z); B.add(R() < 0.6 ? 'amber' : 'glass', rm, g, C('#fff')); }
+        if (k < 0.45) { const h = 0.2 + R() * 0.1; g = P.cyl(0.04, 0.045, h, 10); g.translate(-19.4 + (R() - 0.5) * 0.3, y + 0.0045 + h / 2, z); B.add(R() < 0.6 ? 'amber' : 'glass', rm, g, C('#fff')); }   // standing on the shelf (base just inside it)
         else if (k < 0.75) { g = P.box(0.3, 0.3, 0.06); g.translate(-19.45, y + 0.16, z); g.rotateX(0); B.add('metal', rm, g, C(['#1d4f8a', '#8a1d1d', '#2f5a33', '#c9a21c'][Math.floor(R() * 4)])); }
       }
     }

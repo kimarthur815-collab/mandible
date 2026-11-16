@@ -49,7 +49,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
   const setTime = (k) => {
     ext.setTime(k); truck.setTime(k);
     sunOff.subVectors(sun.position, sun.target.position);
-    if (k === 'dusk') { scene.fog.near = 25; scene.fog.far = 210; renderer.toneMappingExposure = 1.3; }   // the yard stays out of sight down the road
+    if (k === 'dusk') { scene.fog.near = 25; scene.fog.far = 210; renderer.toneMappingExposure = 1.4; }   // the yard stays out of sight down the road
   };
   setTime('dusk');
   g.position.set(LANE_X, 0, LOOP_FROM);
@@ -103,7 +103,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     // the ending: out of the shutter at night, back to the truck, one more call. done() when it fades out
     ending(x, done) {
       api.active = true; lines = END_LINES; finish = done; api._shut = false;
-      setTime('night'); renderer.toneMappingExposure = 1.3;
+      setTime('night'); renderer.toneMappingExposure = 1.4;
       g.position.copy(PARK); g.rotation.set(0, 0, 0); truck.setRinging(false);
       ext.dockShutter.position.y = 4.35;
       seated = false; fadeK = 1; line = -1; ui.skip(true); ui.radioButton(null);

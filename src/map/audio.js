@@ -530,6 +530,13 @@ export class Sound {
     this.burst({ dest: this.mus, dur: 2.5, f: 600, q: 0.5, gain: 0.1, attack: 0.02, buf: this.brown });
   }
 
+  // out of breath: a short, husky exhale (k: how winded, 0..1)
+  exhale(k) {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.28 + k * 0.18, f: 820 + Math.random() * 260, q: 0.8, gain: 0.035 + k * 0.06, attack: 0.04, buf: this.white });
+    this.burst({ t: 0.03, dur: 0.22 + k * 0.12, f: 380, q: 0.6, type: 'lowpass', gain: 0.03 + k * 0.04, attack: 0.05, buf: this.brown });
+  }
+
   heartbeat(level) {
     const g = 0.35 + level * 0.5;
     this.tone({ dest: this.mus, f0: 62, f1: 38, dur: 0.16, gain: g, attack: 0.008 });
@@ -612,6 +619,7 @@ export class Sound {
 
   lampOn(x, z) {
     if (!this.ctx) return;
+    this.stopLampHum(x, z);                 // pulled again while it was on: one hum, not two
     const p = this.panner(x, 2.6, z, 1.5, 1.2); p.connect(this.sfx);
     this.tone({ dest: p, f0: 180, f1: 70, dur: 0.12, gain: 0.5 });
     this.burst({ dest: p, dur: 0.06, f: 1800, q: 4, gain: 0.4 });
@@ -622,6 +630,18 @@ export class Sound {
   lampLevel(x, z, k) {
     const l = this.lampSrc.get(`${x},${z}`);
     if (l) l.g.gain.setTargetAtTime(0.35 * k, this.ctx.currentTime, 0.01);
+  }
+  stopLampHum(x, z) {
+    const l = this.lampSrc.get(`${x},${z}`);
+    if (l) { l.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.03); l.s.stop(this.ctx.currentTime + 0.3); this.lampSrc.delete(`${x},${z}`); }
+  }
+  // the timer runs out: the relay drops with a clunk and the hum dies away (it can be pulled on again)
+  lampOff(x, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 2.6, z, 1.5, 1.2); p.connect(this.sfx);
+    this.tone({ dest: p, f0: 120, f1: 55, dur: 0.14, gain: 0.45 });
+    this.burst({ dest: p, dur: 0.05, f: 1400, q: 3, gain: 0.25 });
+    this.stopLampHum(x, z);
   }
   lampPop(x, z) {
     if (!this.ctx) return;

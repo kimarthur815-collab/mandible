@@ -217,11 +217,11 @@ export function rack(B, room, atlas, x, z0, z1, R) {
       for (const sx of [-1, 1]) { const bm = box(0.05, 0.11, span - 0.07, 1.5); bm.translate(x + sx * 0.55, y, zc); B.add('metal', room, bm, ORANGE); }
       const deck = new THREE.PlaneGeometry(1.05, span - 0.1).rotateX(-Math.PI / 2);
       const du = deck.attributes.uv; for (let i = 0; i < du.count; i++) du.setXY(i, du.getX(i) * 6.5, du.getY(i) * (span - 0.1) * 6);
-      deck.translate(x, y + 0.0615, zc);
+      deck.translate(x, y + 0.064, zc);                  // 4+ mm above the beams (boxes grow by up to 4.8 mm)
       B.add('mesh', room, deck, C('#9aa0a6'));
     }
     // the load on each level (ground, two decks, top)
-    for (const y of [0, ...levels.map((v) => v + 0.065)]) {
+    for (const y of [0, ...levels.map((v) => v + 0.074)]) {   // pallets stand 5+ mm above the deck, never in its plane
       const k = R();
       if (y > 3 && k < 0.35) continue;
       if (k < 0.45) { pallet(B, room, mtx(x, y, zc, Math.PI / 2 + (R() - 0.5) * 0.1), R, R() < 0.1); boxStack(B, room, atlas, x, y + 0.145, zc, Math.PI / 2, R, 1 + Math.floor(R() * (y > 3 ? 3 : 2)), 1.2); }
@@ -258,7 +258,7 @@ export function pipe(B, room, pts, r, color, R, opt = {}) {
         const w = opt.wall; // { axis:'x'|'z', at: wall coordinate }
         const bp = at.clone();
         const dist = Math.abs((w.axis === 'x' ? bp.x : bp.z) - w.at);
-        const br = box(w.axis === 'x' ? dist : 0.05, 0.05, w.axis === 'x' ? 0.05 : dist);
+        const br = box(w.axis === 'x' ? dist : 0.036, 0.05, w.axis === 'x' ? 0.036 : dist);   // thinner than the 5 cm flange
         br.translate(w.axis === 'x' ? (bp.x + w.at) / 2 : bp.x, bp.y - r - 0.02, w.axis === 'x' ? bp.z : (bp.z + w.at) / 2);
         B.add('metal', room, br, C('#555555'));
       }
@@ -329,7 +329,8 @@ export function doorFrame(B, room, cx, cz, axis, w, h) {
     j.translate(along ? cx + s * (w / 2 + 0.06 - k) : cx, (h - k) / 2, along ? cz : cz + s * (w / 2 + 0.06 - k));
     B.add('metal', room, j, col);
   }
-  const hd = box(along ? w + 0.24 - 2 * k : 0.42, 0.14, along ? 0.42 : w + 0.24 - 2 * k); hd.translate(cx, h + 0.07 - k, cz); B.add('metal', room, hd, col);
+  // the header stands a little proud of the jambs all round, so its faces never share their planes
+  const hd = box(along ? w + 0.256 - 2 * k : 0.44, 0.14, along ? 0.44 : w + 0.256 - 2 * k); hd.translate(cx, h + 0.07 - k, cz); B.add('metal', room, hd, col);
 }
 // fire extinguisher on a bracket
 export function extinguisher(B, room, x, y, z, ry) {
@@ -352,7 +353,7 @@ export function forklift(B, room, x, z, ry, R) {
   const Y = C('#d39a17'), D = C('#1c1c1c'), G = C('#3a3a3a');
   const add = (g, c, mat = 'metal') => B.add(mat, room, g, c, m);
   let g = box(1.0, 0.55, 1.55); g.translate(0, 0.5, -0.1); add(g, Y);
-  g = cyl(0.5, 0.5, 1.0, 20); g.rotateZ(Math.PI / 2); g.scale(1, 0.85, 0.55); g.translate(0, 0.62, -0.85); add(g, G);
+  g = cyl(0.5, 0.5, 1.04, 20); g.rotateZ(Math.PI / 2); g.scale(1, 0.85, 0.55); g.translate(0, 0.62, -0.85); add(g, G);   // 2 cm proud of the body's sides
   g = box(0.5, 0.12, 0.45); g.translate(0, 0.84, -0.3); add(g, D, 'rubber');                                 // seat
   g = box(0.45, 0.5, 0.1); g.translate(0, 1.05, -0.5); add(g, D, 'rubber');
   g = new THREE.TorusGeometry(0.16, 0.02, 6, 16); g.rotateX(1.1); g.translate(0, 1.15, 0.25); add(g, D, 'rubber');
@@ -410,8 +411,8 @@ export function steelTable(B, room, x, z, w, d, ry, R, inset = 0.06) {
   if (R() < 0.7) { g = box(0.3, 0.02, 0.24); g.rotateY(R() * 2); g.translate(w * 0.05, 0.928, d * 0.12); B.add('paper', room, g, C('#d8d2c2'), m); }
   // a rag hanging over the edge
   g = new THREE.PlaneGeometry(0.22, 0.32, 3, 4).rotateX(-Math.PI / 2);
-  const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const zz = p.getZ(i); if (zz > 0.04) { p.setY(i, -(zz - 0.04) * 1.4); p.setZ(i, 0.04 + (zz - 0.04) * 0.25); } p.setY(i, p.getY(i) + (R() - 0.5) * 0.01); }
-  g.computeVertexNormals(); g.translate(w * 0.38, 0.922, d / 2 - 0.06); B.add('paper', room, g, C('#6b6250'), m);
+  const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const zz = p.getZ(i); if (zz > 0.04) { p.setY(i, -(zz - 0.04) * 1.4); p.setZ(i, 0.04 + (zz - 0.04) * 0.25); } p.setY(i, p.getY(i) + R() * 0.006); }
+  g.computeVertexNormals(); g.translate(w * 0.38, 0.926, d / 2 - 0.06);   // the top is at most 0.9223 B.add('paper', room, g, C('#6b6250'), m);
 }
 
 // ---------------------------------------------------------------- big vertical tank with ribs, ladder, pipes
@@ -453,15 +454,15 @@ export function labBench(B, room, x, z, w, d, ry, R, glassMat = 'glass') {
     else if (kind < 0.65) { g = new THREE.LatheGeometry([[0, 0], [0.07, 0.005], [0.075, 0.03], [0.04, 0.12], [0.018, 0.15], [0.018, 0.21], [0.022, 0.215]].map(([a, b]) => new THREE.Vector2(a, b)), 14); }
     else if (kind < 0.85) { g = new THREE.LatheGeometry([[0, 0], [0.045, 0], [0.045, 0.16], [0.02, 0.2], [0.016, 0.24]].map(([a, b]) => new THREE.Vector2(a, b)), 12); }
     else { g = cyl(0.03, 0.03, 0.08, 10); g.rotateZ(Math.PI / 2); g.translate(0, 0.03, 0); }  // fallen tube
-    g.translate(gx, 0.9, gz);
+    g.translate(gx, 0.895, gz);                         // 5 mm into the top: a glass base in its plane flickers
     B.add(kind > 0.65 && kind < 0.85 ? 'amber' : glassMat, room, g, C('#ffffff'), m);
   }
   // specimen jar: liquid with something dark curled inside
   if (R() < 0.7) {
     const jx = (R() - 0.5) * (w - 0.5), jz = (R() - 0.5) * (d - 0.3) * 0.5;
-    const jar = cyl(0.12, 0.12, 0.34, 18); jar.translate(jx, 0.9 + 0.17, jz); B.add(glassMat, room, jar, C('#ffffff'), m);
-    const lid = cyl(0.125, 0.125, 0.04, 18); lid.translate(jx, 0.9 + 0.36, jz); B.add('metal', room, lid, C('#333'), m);
-    const liq = cyl(0.11, 0.11, 0.28, 16); liq.translate(jx, 0.9 + 0.145, jz); B.add('liquid', room, liq, C('#c2a24a'), m);
+    const jar = cyl(0.12, 0.12, 0.34, 18); jar.translate(jx, 0.9 + 0.166, jz); B.add(glassMat, room, jar, C('#ffffff'), m);
+    const lid = cyl(0.125, 0.125, 0.04, 18); lid.translate(jx, 0.9 + 0.356, jz); B.add('metal', room, lid, C('#333'), m);
+    const liq = cyl(0.11, 0.11, 0.28, 16); liq.translate(jx, 0.9 + 0.155, jz); B.add('liquid', room, liq, C('#c2a24a'), m);
     const bug = new THREE.SphereGeometry(0.05, 10, 8); bug.scale(1, 0.55, 1.8); bug.rotateZ(0.4); bug.translate(jx, 0.9 + 0.13, jz); B.add('rubber', room, bug, C('#2a1408'), m);
   }
 }
@@ -469,9 +470,9 @@ export function labBench(B, room, x, z, w, d, ry, R, glassMat = 'glass') {
 // ---------------------------------------------------------------- debris
 export function paperSheet(B, room, x, y, z, ry, R) {
   const g = new THREE.PlaneGeometry(0.21, 0.297, 3, 3).rotateX(-Math.PI / 2);
-  const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, (R() - 0.3) * 0.012 + Math.abs(p.getX(i)) * 0.06 * R());
+  const p = g.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, R() * 0.008 + Math.abs(p.getX(i)) * 0.06 * R());
   g.computeVertexNormals();
-  B.add('paper', room, g, C('#ffffff').multiplyScalar(0.75 + R() * 0.25), mtx(x, y + 0.003, z, ry));
+  B.add('paper', room, g, C('#ffffff').multiplyScalar(0.75 + R() * 0.25), mtx(x, y + 0.004, z, ry));   // all of it 4+ mm up
 }
 export function paperBall(B, room, x, y, z, R) {
   const g = new THREE.IcosahedronGeometry(0.045, 1);

@@ -373,7 +373,7 @@ export function buildExterior(scene, renderer) {
   function acUnit(x, y, z, ry) {
     boxAt('metal', 1.4, 1.0, 1.0, x, y + 0.5, z, C('#9a9c96'), null, ry);
     const fan = new THREE.CylinderGeometry(0.38, 0.38, 0.04, 18); fan.translate(x, y + 1.02, z); add('metal', fan, C('#1c1d1d'));
-    for (const s of [-0.5, 0.5]) boxAt('metal', 0.08, 0.12, 1.0, x + (ry ? 0 : s * 1.2), y + 0.06, z + (ry ? s * 1.2 : 0), C('#3a3a3a'), null, ry);
+    for (const s of [-0.5, 0.5]) boxAt('metal', 0.08, 0.12, 1.06, x + (ry ? 0 : s * 1.2), y + 0.06, z + (ry ? s * 1.2 : 0), C('#3a3a3a'), null, ry);   // skids 3 cm past the casing's faces
   }
   function railing(pts, y0, h = 1.05, col = C('#3d413f')) {
     for (let i = 0; i < pts.length - 1; i++) {
@@ -393,7 +393,7 @@ export function buildExterior(scene, renderer) {
   // ---- the dock front: canopy and lamp over the shutter, bumpers, bollards, D-7 on the gable
   const main = BUILDINGS[0];
   boxAt('metal', 7.8, 0.1, 2.7, 0, 5.32, -1.65, C('#3b3e3d'));                      // canopy plate
-  boxAt('metal', 7.8, 0.3, 0.08, 0, 5.2, -3.0, C('#2d302f'));                        // fascia
+  boxAt('metal', 7.84, 0.3, 0.08, 0, 5.2, -3.0, C('#2d302f'));                       // fascia (ends 2 cm past the plate's)
   for (const sx of [-3.8, 3.8]) boxAt('metal', 0.08, 0.3, 2.7, sx, 5.2, -1.65, C('#2d302f'));
   for (const x of [-3.4, 0, 3.4]) {                                                  // tie rods up to the wall
     const a = new V3(x, 5.36, -2.9), b2 = new V3(x, 7.2, -0.36), d = b2.clone().sub(a), r = P.cyl(0.025, 0.025, d.length(), 6);
@@ -458,7 +458,7 @@ export function buildExterior(scene, renderer) {
   {
     const x = 8.6, z = -25.2;
     boxAt('metal', 2.2, 1.0, 2.2, x, 0.5, z, C('#9a9a92'));
-    for (const [w, d, px, pz] of [[2.2, 0.08, x, z - 1.06], [2.2, 0.08, x, z + 1.06], [0.08, 2.2, x - 1.06, z], [0.08, 2.2, x + 1.06, z]]) {
+    for (const [w, d, px, pz] of [[2.12, 0.08, x, z - 1.075], [2.12, 0.08, x, z + 1.075], [0.08, 2.12, x - 1.075, z], [0.08, 2.12, x + 1.075, z]]) {   // proud of the base's sides, ends inside the posts
       for (const y of [1.0, 2.36]) boxAt('metal', w, 0.08, d, px, y, pz, C('#8a8a82'));
     }
     for (const [dx, dz] of [[-1.06, -1.06], [1.06, -1.06], [1.06, 1.06], [-1.06, 1.06]]) boxAt('metal', 0.1, 2.4, 0.1, x + dx, 1.2, z + dz, C('#8a8a82'));

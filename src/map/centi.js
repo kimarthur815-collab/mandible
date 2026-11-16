@@ -80,6 +80,16 @@ export class MapCentipede {
   // it has you: the kill (see Centipede applyPose); cam is where your head is
   kill(cam) { this.c.mode = 'kill'; this.c.kill = { t: 0, cam: cam.clone() }; }
 
+  // fought off (easy and normal): it lets go, recoils and backs off for a while
+  release() {
+    const c = this.c, b = c.b;
+    c.mode = 'drive'; c.kill = null;
+    b.lunge = 0; b.caught = false;
+    b.stun = true; b.prev = 'drive'; b.hold = 3.0; b.curlSide = Math.random() < 0.5 ? -1 : 1; b.immune = 0;
+    this.sprayStun = true;
+    this.state = 'patrol'; this.lostT = 0; this.retreatT = 3; this.wpField = null;
+  }
+
   spray(origin, dir, range = 3.4, cosHalf = Math.cos(Math.PI / 6)) {
     if (!this.active || this.c.mode === 'kill') return false;
     const b = this.c.b;

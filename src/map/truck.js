@@ -220,22 +220,60 @@ export function buildTruck() {
   const prof = [[0.92, 0.62], [1.246, 0.62]];
   for (let k = 0; k <= 10; k++) { const a = 2.38 - (k / 10) * (2.38 - 0.76); prof.push([1.55 + 0.42 * Math.cos(a), 0.33 + 0.42 * Math.sin(a)]); }
   prof.push([2.36, 0.62], [2.40, 1.10], [2.30, 1.22], [1.98, 1.88], [1.88, 1.97], [1.00, 1.98], [0.92, 1.92]);
-  const shell = new THREE.ExtrudeGeometry(new THREE.Shape(prof.map(([z, y]) => new THREE.Vector2(z, y))), { depth: 1.62, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.03, bevelSegments: 3, curveSegments: 4 });
+  let shell = new THREE.ExtrudeGeometry(new THREE.Shape(prof.map(([z, y]) => new THREE.Vector2(z, y))), { depth: 1.62, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.03, bevelSegments: 3, curveSegments: 4 });
   shell.translate(0, 0, -0.81); shell.rotateY(-Math.PI / 2);
+  const ws0 = new THREE.Vector2(2.30, 1.22), ws1 = new THREE.Vector2(1.98, 1.88);
+  const wsN = new THREE.Vector2(0.66, 0.32).normalize();   // outward normal of the windshield (z, y)
+  const wsAt = (t, x, off = 0.036) => { const p = ws0.clone().lerp(ws1, t).addScaledVector(wsN, off); return [x, p.y, p.x]; };
+  const winPts = [[1.14, 1.30], [2.14, 1.30], [1.90, 1.81], [1.14, 1.81]];
+  // the shell is solid, so from outside it painted over the windows: cut them open. Its flat sides are
+  // replaced by panels with the side-window holes, and the stretch of the slope where the windshield is
+  // by a frame round the glass (from inside the shell is culled, so this only changes the outside)
+  {
+    const pos = shell.attributes.position, nor = shell.attributes.normal, uvA = shell.attributes.uv;
+    const capEnd = shell.groups.length > 1 ? shell.groups[1].start : 0;          // group 0: the two flat sides
+    const wsDir = ws1.clone().sub(ws0), wsLen = wsDir.length(); wsDir.normalize();
+    const slopeT = (i) => { const x = pos.getX(i), dz = pos.getZ(i) - ws0.x, dy = pos.getY(i) - ws0.y; if (Math.abs(x) > 0.8101) return null; if (Math.abs(dz * wsN.x + dy * wsN.y - 0.03) > 0.004) return null; const t = (dz * wsDir.x + dy * wsDir.y) / wsLen; return t > -0.3 && t < 1.3 ? t : null; };
+    const P3 = [], N3 = [], U2 = [];
+    let t0 = Infinity, t1 = -Infinity;
+    for (let i = capEnd; i + 2 < pos.count; i += 3) {
+      const ta = slopeT(i), tb = slopeT(i + 1), tc = slopeT(i + 2);
+      if (ta !== null && tb !== null && tc !== null) { t0 = Math.min(t0, ta, tb, tc); t1 = Math.max(t1, ta, tb, tc); continue; }   // the old windshield panel
+      for (let k = i; k < i + 3; k++) { P3.push(pos.getX(k), pos.getY(k), pos.getZ(k)); N3.push(nor.getX(k), nor.getY(k), nor.getZ(k)); U2.push(uvA.getX(k), uvA.getY(k)); }
+    }
+    const append = (g) => { g = g.index ? g.toNonIndexed() : g; g.computeVertexNormals(); const a = g.attributes.position, nn = g.attributes.normal, u = g.attributes.uv; for (let k = 0; k < a.count; k++) { P3.push(a.getX(k), a.getY(k), a.getZ(k)); N3.push(nn.getX(k), nn.getY(k), nn.getZ(k)); U2.push(u.getX(k), u.getY(k)); } };
+    // the flat sides with the window holes (outline in (z, y); one side built mirrored so both face out)
+    for (const sgn of [1, -1]) {
+      const sh = new THREE.Shape(prof.map(([z, y]) => new THREE.Vector2(sgn * z, y)));
+      sh.holes.push(new THREE.Path(winPts.map(([z, y]) => new THREE.Vector2(sgn * z, y))));
+      const g = new THREE.ShapeGeometry(sh);
+      if (sgn < 0) g.rotateY(Math.PI);
+      g.translate(0, 0, sgn * 0.85); g.rotateY(-Math.PI / 2);
+      append(g);
+    }
+    // the windshield frame: the old panel's outline less the glass (x +-0.74 at the bottom, +-0.72 at the top)
+    if (t1 > t0) {
+      const L = wsLen, sh = new THREE.Shape([[-0.81, t0 * L], [0.81, t0 * L], [0.81, t1 * L], [-0.81, t1 * L]].map(([u, v]) => new THREE.Vector2(u, v)));
+      sh.holes.push(new THREE.Path([[-0.74, 0.06 * L], [0.74, 0.06 * L], [0.72, 0.95 * L], [-0.72, 0.95 * L]].map(([u, v]) => new THREE.Vector2(u, v))));
+      const g = new THREE.ShapeGeometry(sh), a = g.attributes.position;
+      for (let k = 0; k < a.count; k++) { const u = a.getX(k), v = a.getY(k); a.setXYZ(k, u, ws0.y + wsDir.y * v + wsN.y * 0.03, ws0.x + wsDir.x * v + wsN.x * 0.03); }
+      append(g);
+    }
+    shell = new THREE.BufferGeometry();
+    shell.setAttribute('position', new THREE.Float32BufferAttribute(P3, 3));
+    shell.setAttribute('normal', new THREE.Float32BufferAttribute(N3, 3));
+    shell.setAttribute('uv', new THREE.Float32BufferAttribute(U2, 2));
+  }
   {   // road grime toward the bottom, as vertex colour
     const p = shell.attributes.position, col = new Float32Array(p.count * 3), lo = C('#8f897d'), hi = C('#ffffff'), c = new THREE.Color();
     for (let i = 0; i < p.count; i++) { const t = THREE.MathUtils.smoothstep(p.getY(i), 0.6, 1.1); c.copy(lo).lerp(hi, t); col.set([c.r, c.g, c.b], i * 3); }
     shell.setAttribute('color', new THREE.BufferAttribute(col, 3));
   }
   add('paint', shell);
-  const SX = 0.84;   // outer face of the cab sides
+  const SX = 0.85;   // outer face of the cab sides (the shell's flat sides: 0.81 + 0.04 bevel)
 
   // ---- glass: windshield on the slope, door windows on both sides
-  const ws0 = new THREE.Vector2(2.30, 1.22), ws1 = new THREE.Vector2(1.98, 1.88);
-  const wsN = new THREE.Vector2(0.66, 0.32).normalize();   // outward normal of the windshield (z, y)
-  const wsAt = (t, x, off = 0.036) => { const p = ws0.clone().lerp(ws1, t).addScaledVector(wsN, off); return [x, p.y, p.x]; };
   add('glass', quad4(wsAt(0.06, -0.74), wsAt(0.06, 0.74), wsAt(0.95, 0.72), wsAt(0.95, -0.72)));
-  const winPts = [[1.14, 1.30], [2.14, 1.30], [1.90, 1.81], [1.14, 1.81]];
   both((s) => add('glass', sidePoly(winPts, s * (SX + 0.008))));
   // a dark rubber surround so the glass edge reads from outside
   both((s) => { for (const [a, b] of [[0, 1], [1, 2], [2, 3], [3, 0]]) { const [za, ya] = winPts[a], [zb, yb] = winPts[b]; add('plastic', between(new V3(s * (SX + 0.006), ya, za), new V3(s * (SX + 0.006), yb, zb), 0.018, 4), C('#1b1c1c')); } });
@@ -412,7 +450,7 @@ export function buildTruck() {
   {
     const m = new THREE.Matrix4().compose(new V3(-0.62, 1.06, 1.836), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.04, -0.08, 0.04)), new V3(1, 1, 1));
     const bd = P.box(0.25, 0.34, 0.008); bd.applyMatrix4(m); add('wood', bd, C('#7a5c3a'));
-    const paper = new THREE.PlaneGeometry(0.22, 0.29); paper.rotateY(Math.PI); paper.translate(0, -0.015, -0.0075); paper.applyMatrix4(m); add('paper', paper);
+    const paper = new THREE.PlaneGeometry(0.22, 0.29); paper.rotateY(Math.PI); paper.translate(0, -0.015, -0.0105); paper.applyMatrix4(m);   // clear of the board even at its largest add('paper', paper);
     const clip = P.box(0.1, 0.03, 0.014); clip.translate(0, 0.16, -0.011); clip.applyMatrix4(m); add('chrome', clip);
   }
 
