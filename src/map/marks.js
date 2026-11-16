@@ -30,16 +30,14 @@ export const MARKS = [
   { kind: 'go', floor: [7.2, 64.4], view: [0, 1], to: [-1, 0.5], text: '발전기 2' },
   { kind: 'go', wall: [2.5, 3.1, 69.7], n: [0, -1], to: [0, -1, 0], text: '발전기 2' },
   { kind: 'go', wall: [-5.7, 1.8, 61.3], n: [1, 0], to: [0, 0, -1], text: '발전기 3', sub: '실험실' },
-  // lab: the sacs over the door, the last generator, the emergency door
+  // lab: the sacs over the door, the last generator; the emergency door is jammed, the way out is the air duct
   { kind: 'warn', floor: [-8.4, 57.5], view: [-1, 0], text: '위에 알집!', sub: '조용히' },
   { kind: 'go', floor: [-12.2, 57.4], view: [-1, 0], to: [-1, 0], text: '발전기 3' },
-  { kind: 'out', wall: [-12.3, 1.9, 52.3], n: [0, 1], to: [-1, 0, 0], text: '출구', sub: '비상 통로' },
-  // emergency passage and back through the warehouse to the dock
-  { kind: 'out', floor: [-15.5, 49.4], view: [0, -1], to: [0, -1], text: '출구' },
-  { kind: 'out', floor: [-15.5, 31.3], view: [0, -1], to: [1, -0.6], text: '출구' },
-  { kind: 'out', floor: [-10.3, 22.6], view: [0, -1], to: [0, -1], text: '출구' },
-  { kind: 'out', floor: [-10.2, 12.3], view: [0, -1], to: [1, 0], text: '출구' },
-  { kind: 'out', wall: [-4.7, 1.8, 10.3], n: [0, 1], to: [1, 0, 0], text: '출구', sub: '하역장' },
+  { kind: 'warn', wall: [-15.5, 1.6, 52.09], n: [0, 1], sym: 'x', text: '안 열림', w: 1.5 },
+  { kind: 'out', wall: [-12.55, 1.75, 52.3], n: [0, 1], to: [1, -0.75, 0], text: '출구', sub: '환기구', w: 1.6 },
+  // in the duct: on down it, then right at the bend
+  { kind: 'out', floor: [-10.4, 50.4], view: [0, -1], to: [0, -1], text: '출구', w: 1.0 },
+  { kind: 'out', floor: [-10.4, 41.6], view: [0, -1], to: [1, 0], text: '출구', w: 1.0 },
 ];
 
 const rng = (seed) => { let s = (seed * 2654435761) >>> 0 || 1; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; };

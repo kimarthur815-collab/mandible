@@ -13,7 +13,7 @@ const V3 = THREE.Vector3;
 export const HUNT = { speed: 1 };
 export const catchUp = (d) => { const t = Math.min(1, Math.max(0, (d - 3) / 13)); return HUNT.speed * (0.75 + 0.7 * t * t * (3 - 2 * t)); };
 
-const VENT = { x: 15, z: 69.7, y: 0.55 };
+const VENT = { x: 15, z: 69.7, y: 0.55, dx: 0, dz: -1 };   // (dx, dz): the way out of the wall
 const PATROL = [[20.5, 52], [12.5, 61], [7.2, 50], [18.5, 44], [18.5, 30], [17.5, 15], [18.5, 24], [18.5, 46.5], [14, 66]];
 
 export class MapCentipede {
@@ -40,9 +40,10 @@ export class MapCentipede {
     this.coverV = null;
     this.wp = 0; this.wpField = null; this.lostT = 0; this.retreatT = 0; this.orbitA = 0; this.sprayStun = false;
     this.seenLit = false; this.shortTip = false; this.chases = 0;
+    this.vent = VENT; this.burstDone = false; this.ram = null; this.poke = null;
   }
 
-  get active() { return this.state !== 'dormant'; }
+  get active() { return this.state !== 'dormant' && this.state !== 'gone'; }
   get head() { return this.c.headPos; }
   get speed() { return this.c.speed; }
 
@@ -53,6 +54,7 @@ export class MapCentipede {
     let best = 0, bd = -1;
     PATROL.forEach(([x, z], i) => { const d = Math.hypot(x - from.x, z - from.z); if (d > bd) { bd = d; best = i; } });
     const [x, z] = PATROL[best];
+    this.c.group.visible = true; this.ram = null; this.poke = null;
     this.c.reset(x, z, Math.random() * Math.PI * 2);
     this.c.mode = 'drive'; this.c.driveSpeed = 0;
     this.state = 'patrol'; this.wp = best + 1; this.wpField = null; this.lostT = 0; this.retreatT = 0; this.sprayStun = false;
@@ -66,14 +68,78 @@ export class MapCentipede {
     // the body starts inside the wall behind the vent and slides out along its trail
     this.c.reset(VENT.x, VENT.z + 1.2, Math.PI);
     this.c.mode = 'drive'; this.c.driveSpeed = 5.0;
-    this.emergeT = 0;
+    this.emergeT = 0; this.vent = VENT; this.burstDone = false;
     return true;
+  }
+
+  // ---- the air duct (see duct.js): too narrow for it, so the game takes it out of play while you crawl
+  park() { this.state = 'gone'; this.c.group.visible = false; this.c.mode = 'idle'; this.c.driveSpeed = 0; this.ram = null; this.poke = null; }
+  // you got into the duct ahead of it: if it was close it rams its head into the mouth, holds there
+  // snapping, then backs out the way it came and is gone. mouth: { x, z, dx, dz } (dx, dz out into the room)
+  blocked(mouth, nav) {
+    if (this.state === 'gone' || this.state === 'ram' || this.state === 'poke') return false;
+    const H = this.c.headXZ;
+    if (this.state === 'dormant' || this.state === 'emerge' || this.c.mode === 'kill' || Math.hypot(H.x - mouth.x, H.y - mouth.z) > 11) { if (this.state !== 'dormant') this.park(); return false; }
+    const k = nav.nearestFree(mouth.x + mouth.dx * 0.9, mouth.z + mouth.dz * 0.9, 6);
+    this.state = 'ram'; this.c.b.lunge = 0; this.c.b.stun = false; this.c.b.curl = 0; this.c.mode = 'drive';
+    this.ram = { t: 0, x: mouth.x - mouth.dx * 0.25, z: mouth.z - mouth.dz * 0.25, ax: k >= 0 ? nav.cx(k) : mouth.x, az: k >= 0 ? nav.cz(k) : mouth.z + 1, hit: false, ht: 0, f: null };
+    return true;
+  }
+  // its head through a side grille of the duct at (x, z), coming in along (dx, dz)
+  // (sx, sz: where its head starts, out of sight behind the metal)
+  pokeAt(x, z, dx, dz, sx = x - dx * 2.4, sz = z - dz * 2.4) {
+    this.state = 'poke'; this.c.group.visible = true;
+    const tx = x + dx * 0.55, tz = z + dz * 0.55;
+    this.c.reset(sx, sz, Math.atan2(tx - sx, tz - sz));
+    this.c.mode = 'drive'; this.c.driveSpeed = 0; this.c.b.target.set(tx, tz);
+    this.poke = { x, z, dx, dz, t: 0, back: false, litT: 0, out: false };
+  }
+  retract() { if (this.poke) this.poke.back = true; }
+  // back the way it came along its own trail (a centipede can reverse)
+  pullBack(d) {
+    const P = this.c.path;
+    let left = d;
+    while (left > 0 && P.length > 3) {
+      const a = P[0], b = P[1], l = Math.hypot(b.x - a.x, b.z - a.z);
+      if (l <= left) { P.shift(); left -= l; } else { const f = left / l; a.x += (b.x - a.x) * f; a.z += (b.z - a.z) * f; left = 0; }
+    }
+    this.c.headXZ.set(P[0].x, P[0].z);
+    return P.length > 3;
+  }
+  updatePoke(ctx) {
+    const p = this.poke, c = this.c, H = c.headXZ, dt = ctx.dt;
+    p.t += dt;
+    c.b.immune = 9; c.b.stun = false;                 // (the beam is handled here: it backs off instead of curling)
+    const along = (H.x - p.x) * p.dx + (H.y - p.z) * p.dz;
+    p.out = along > 0.15;
+    if (!p.back) {
+      const L = ctx.light, h0 = c.rPos[0];
+      const lv = L && L.on ? new V3(h0.x - L.pos.x, h0.y - L.pos.y, h0.z - L.pos.z) : null, ld = lv ? lv.length() : 99;
+      if (lv && p.out && ld < 6 && lv.dot(L.dir) / ld > Math.cos(0.32)) p.litT += dt; else p.litT = Math.max(0, p.litT - dt * 0.5);
+      if (p.litT > 0.9) { p.back = true; ctx.onPokeLit && ctx.onPokeLit(); }
+      c.mode = 'drive'; c.driveSpeed = along < 0.5 ? 2.6 : 0;
+      c.b.target.set(p.x + p.dx * 0.55, p.z + p.dz * 0.55);
+      c.update(dt, null, null);
+    } else {
+      c.mode = 'idle'; c.driveSpeed = 0; c.speed = 0;
+      const more = this.pullBack(dt * 3.2);
+      c.update(dt, null, null);
+      if (along < -1.8 || !more) this.park();
+    }
+  }
+  // out of a wall vent somewhere else, and after you: v { x, z, dx, dz } (dx, dz: out into the room)
+  ambush(v) {
+    this.vent = v; this.burstDone = false; this.ram = null; this.poke = null;
+    this.state = 'emerge'; this.c.group.visible = true;
+    this.c.reset(v.x - v.dx * 1.2, v.z - v.dz * 1.2, Math.atan2(v.dx, v.dz));
+    this.c.mode = 'drive'; this.c.driveSpeed = 5.0; this.emergeT = 0;
+    this.lostT = 0; this.retreatT = 0; this.sprayStun = false;
   }
 
   // the final chase: wherever it is, it now knows where you are
   enrage(P) {
     if (this.state === 'dormant') { this.wake(); return; }
-    if (this.state === 'emerge') return;          // it is coming out anyway, then it chases
+    if (this.state === 'emerge' || this.state === 'gone' || this.state === 'ram' || this.state === 'poke') return;          // it is coming out anyway, then it chases
     this.state = 'chase'; this.lostT = 0;
   }
 
@@ -92,6 +158,11 @@ export class MapCentipede {
 
   spray(origin, dir, range = 3.4, cosHalf = Math.cos(Math.PI / 6)) {
     if (!this.active || this.c.mode === 'kill') return false;
+    if (this.state === 'poke' || this.state === 'ram') {
+      const v = this.c.rPos[0].clone().sub(origin), d = v.length();
+      if (this.state === 'poke' && d < range && v.dot(dir) / (d || 1) > cosHalf) { this.retract(); return true; }
+      return false;
+    }
     const b = this.c.b;
     for (const p of [this.c.rPos[0], this.c.rPos[3]]) {
       const v = p.clone().sub(origin), d = v.length();
@@ -115,7 +186,8 @@ export class MapCentipede {
       this.cover.rotation.x += this.coverV.spin * ctx.dt;
       if (this.cover.position.y < 0.05) { this.cover.position.y = 0.05; this.coverV.vy *= -0.3; this.coverV.x *= 0.6; this.coverV.z *= 0.6; this.coverV.spin *= 0.5; this.cover.rotation.x = Math.round(this.cover.rotation.x / Math.PI) * Math.PI + Math.PI / 2; }
     }
-    if (this.state === 'dormant') return;
+    if (this.state === 'dormant' || this.state === 'gone') return;
+    if (this.state === 'poke') { this.updatePoke(ctx); return; }
     const { dt } = ctx, c = this.c, b = c.b, P = ctx.player.pos, nav = ctx.nav;
     const H = c.headXZ, dP = Math.hypot(P.x - H.x, P.z - H.y);
     const D = { x: 0, z: 0 };
@@ -124,12 +196,37 @@ export class MapCentipede {
     if (ctx.frozen || c.mode === 'kill') { c.driveSpeed = 0; c.update(dt, null, null); return; }
 
     if (this.state === 'emerge') {
+      const V = this.vent, along = (H.x - V.x) * V.dx + (H.y - V.z) * V.dz;
       this.emergeT += dt;
       b.immune = 0.6;                              // no flinching while still half inside the wall
-      target = new THREE.Vector2(VENT.x, VENT.z - 4);
+      target = new THREE.Vector2(V.x + V.dx * 4, V.z + V.dz * 4);
       speed = 5.0;
-      if (!this.coverV && H.y < VENT.z + 0.1) { this.coverV = { x: (Math.random() - 0.5) * 1.5, vy: 2.2, z: -4.5, spin: -9 }; ctx.onBurst && ctx.onBurst(); }
-      if (H.y < VENT.z - 3.2) { this.state = 'chase'; this.chases++; }
+      if (!this.burstDone && along > -0.1) {
+        this.burstDone = true;
+        if (V === VENT && !this.coverV) this.coverV = { x: (Math.random() - 0.5) * 1.5, vy: 2.2, z: -4.5, spin: -9 };
+        ctx.onBurst && ctx.onBurst(V);
+      }
+      if (along > 3.2) { this.state = 'chase'; this.chases++; this.lostT = 0; }
+    } else if (this.state === 'ram') {
+      const R = this.ram; R.t += dt;
+      b.immune = 9; b.stun = false;
+      if (!R.hit) {
+        const dR = Math.hypot(R.x - H.x, R.z - H.y);
+        if (Math.hypot(R.ax - H.x, R.az - H.y) > 1.6) {
+          if (!R.f) R.f = nav.field([[R.ax, R.az]], { wallCost: 0.9, maxDist: 40 });
+          target = nav.descend(R.f, H.x, H.y, D) ? new THREE.Vector2(H.x + D.x * 1.6, H.y + D.z * 1.6) : new THREE.Vector2(R.ax, R.az);
+        } else target = new THREE.Vector2(R.x, R.z);
+        speed = 4.5;
+        if (dR < 0.35 || R.t > 3.5) { R.hit = true; R.ht = R.t; ctx.onRam && ctx.onRam(); }
+      } else if (R.t - R.ht < 1.7) speed = 0;
+      else {
+        // backs out the way it came, and off into the walls
+        c.mode = 'idle'; c.speed = 0;
+        const more = this.pullBack(dt * 2.6);
+        c.update(dt, null, null);
+        if (R.t - R.ht > 3.6 || !more) this.park();
+        return;
+      }
     } else {
       // can it sense you?
       const hid = ctx.player.hidden;
@@ -220,7 +317,7 @@ export class MapCentipede {
     c.onStun = (hits, hold) => ctx.onStun && ctx.onStun(hits, hold);
     c.update(dt, ctx.light, ctx.cam);
     // keep it out of walls: if the head ended up in a solid cell, nudge it back along the field
-    if (this.state !== 'emerge' && !nav.free(H.x, H.y)) {
+    if (this.state !== 'emerge' && this.state !== 'ram' && !nav.free(H.x, H.y)) {
       const k = nav.nearestFree(H.x, H.y, 4);
       if (k >= 0) { H.x += (nav.cx(k) - H.x) * 0.5; H.y += (nav.cz(k) - H.y) * 0.5; }
     }
@@ -229,7 +326,8 @@ export class MapCentipede {
 
   // a camera flash in its face: it stops dead and curls for a moment (shorter than the spray)
   flashStun(origin, dir, range = 9, cosHalf = Math.cos(0.62)) {
-    if (!this.active || this.c.mode === 'kill' || this.state === 'dormant') return false;
+    if (!this.active || this.c.mode === 'kill' || this.state === 'dormant' || this.state === 'ram') return false;
+    if (this.state === 'poke') { const v = this.c.rPos[0].clone().sub(origin), d = v.length(); if (d < range && v.dot(dir) / (d || 1) > cosHalf) { this.retract(); return true; } return false; }
     const b = this.c.b, v = this.c.rPos[0].clone().sub(origin), d = v.length();
     if (d > range || v.dot(dir) / (d || 1) < cosHalf) return false;
     if (this.c.mode === 'lunge') { this.c.mode = 'drive'; b.lunge = 0; b.caught = false; }
@@ -239,7 +337,7 @@ export class MapCentipede {
   }
   // a noise somewhere else (a thrown can): unless it has you in sight, it goes over there to feel about
   lure(x, z, nav) {
-    if (!this.active || this.state === 'dormant' || this.state === 'emerge') return false;
+    if (!this.active || this.state === 'dormant' || this.state === 'emerge' || this.state === 'ram' || this.state === 'poke') return false;
     if (this.state === 'chase' && this.lostT < 1.5) return false;
     const k = nav.nearestFree(x, z, 12);
     this.state = 'search'; this.searchT = 6 + Math.random() * 3; this.lostT = 0; this.sField = null;
@@ -247,5 +345,5 @@ export class MapCentipede {
     this.orbitA = Math.atan2(this.head.x - this.spt.x, this.head.z - this.spt.y); this.orbitDir = Math.random() < 0.5 ? -1 : 1;
     return true;
   }
-  info() { return this.state === 'dormant' ? '잠듦' : this.c.b.stun ? '경직' : this.c.mode === 'lunge' ? '덮침' : ({ emerge: '등장', patrol: '순찰', chase: '추격', search: '수색' })[this.state]; }
+  info() { return this.state === 'dormant' ? '잠듦' : this.c.b.stun ? '경직' : this.c.mode === 'lunge' ? '덮침' : ({ emerge: '등장', patrol: '순찰', chase: '추격', search: '수색', gone: '벽 속', ram: '환기구', poke: '덕트' })[this.state]; }
 }

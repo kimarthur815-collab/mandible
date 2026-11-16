@@ -4,7 +4,7 @@ import * as THREE from 'three';
 // A thrown can flies, bounces off walls and floors and comes to rest where it can be picked up again;
 // its first knock is loud enough to draw roaches over and to send the centipede or the wolf spider to look.
 export const CAN_SPOTS = [
-  [3.8, 6.2], [-6.5, 26.0], [5.6, 13.0], [13.4, 15.6], [19.4, 25.6], [8.6, 47.6], [19.0, 52.0], [-10.8, 54.2], [-15.0, 44.0],
+  [3.8, 6.2], [-6.5, 26.0], [5.6, 13.0], [13.4, 15.6], [19.4, 25.6], [8.6, 47.6], [19.0, 52.0], [-10.8, 54.2], [-3.4, 59.0],
 ];
 const R = 0.033, H = 0.13, G = 9.8;
 

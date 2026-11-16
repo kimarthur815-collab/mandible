@@ -32,7 +32,7 @@ export function createPadMap({ canvas, ROOMS, DOORS, SPOTS }) {
       const bar = 26 * u;
       c.fillStyle = 'rgba(63,207,191,.12)'; c.fillRect(0, 0, W, bar);
       c.fillStyle = C.text; c.font = `${12 * u}px sans-serif`; c.textBaseline = 'middle';
-      c.fillText(`공장 도면 · ${st.room && ROOMS[st.room] ? ROOMS[st.room].name || '통로' : '—'}`, 10 * u, bar / 2);
+      c.fillText(`공장 도면 · ${st.inDuct ? '환기 덕트' : st.room && ROOMS[st.room] ? ROOMS[st.room].name || '통로' : '—'}`, 10 * u, bar / 2);
       c.textAlign = 'right'; c.fillText(`발전기 ${st.gensOn}/3`, W - 44 * u, bar / 2); c.textAlign = 'left';
       c.strokeStyle = C.text; c.lineWidth = u; c.strokeRect(W - 36 * u, bar / 2 - 5 * u, 22 * u, 10 * u); c.fillStyle = C.on; c.fillRect(W - 34 * u, bar / 2 - 3 * u, 14 * u, 6 * u);
       // the view: you near the bottom, ahead is up, about 30 m from top to bottom
@@ -60,8 +60,23 @@ export function createPadMap({ canvas, ROOMS, DOORS, SPOTS }) {
         c.fillStyle = C.room; const [x0, x1, z0, z1] = doorRect(d, 0.4); quad(x0, x1, z0, z1); c.fill();
         if (!open) { c.strokeStyle = C.locked; c.setLineDash([5 * u, 4 * u]); const [a0, a1, b0, b1] = doorRect(d, 0); quad(a0, a1, b0, b1); c.stroke(); c.setLineDash([]); }
       }
+      // the air duct, once it's open: the crawl drawn solid, then on over the warehouse ceiling (dashed) to the dock
+      if (st.duct) {
+        const D = st.duct, path = [[D.mouth.x, D.wallZ], [D.mouth.x, D.zc], [D.end, D.zc]], over = [[D.end, D.zc], [D.land.x, D.zc - 4], [D.land.x, D.land.z]];
+        const line = (pts) => { c.beginPath(); pts.forEach(([x, z], i) => { const [px, py] = P(x, z); i ? c.lineTo(px, py) : c.moveTo(px, py); }); c.stroke(); };
+        c.lineCap = 'round';
+        c.strokeStyle = C.wall; c.lineWidth = 7 * u; line(path);
+        c.strokeStyle = C.room; c.lineWidth = 4.5 * u; line(path);
+        c.strokeStyle = C.exit; c.lineWidth = 2 * u; c.setLineDash([4 * u, 4 * u]); line(over); c.setLineDash([]);
+        c.lineCap = 'butt';
+        const [mx, my] = P(D.mouth.x, D.wallZ), [lx, ly] = P(D.land.x, D.land.z);
+        c.fillStyle = C.exit; c.font = `bold ${10 * u}px sans-serif`; c.textAlign = 'center';
+        c.beginPath(); c.arc(mx, my, 3.5 * u, 0, 6.29); c.fill(); c.fillText('환기구', mx, my - 8 * u);
+        c.beginPath(); c.arc(lx, ly, 3.5 * u, 0, 6.29); c.fill(); c.fillText('↓ 하역장', lx, ly - 8 * u);
+        c.textAlign = 'left';
+      }
       // the shutter: the way out
-      if (diff === 'easy') {
+      if (diff === 'easy' || st.duct) {
         const d = DOORS.find((k) => k.locked === 'shutter');
         if (d) { c.strokeStyle = C.exit; c.lineWidth = 3 * u; const [a0, a1, b0, b1] = doorRect(d, 0); quad(a0, a1, b0, b1); c.stroke(); const [lx, ly] = P((d.from + d.to) / 2, d.at - 1.6); c.fillStyle = C.exit; c.textAlign = 'center'; c.font = `bold ${11 * u}px sans-serif`; c.fillText('출구', lx, ly); c.textAlign = 'left'; }
       }
@@ -83,6 +98,7 @@ export function createPadMap({ canvas, ROOMS, DOORS, SPOTS }) {
       if (diff !== 'hard') {
         let best = null;
         for (const g of st.gens) if (!g.on) { const d = Math.hypot(g.x - st.x, g.z - st.z); if (!best || d < best.d) best = { g, d }; }
+        if (!best && st.duct && !st.inDuct && st.room !== 'dock') best = { g: { x: st.duct.mouth.x, z: st.duct.wallZ }, d: Math.hypot(st.duct.mouth.x - st.x, st.duct.wallZ - st.z), exit: true };
         if (best) {
           const [gx, gy] = P(best.g.x, best.g.z), m = 18 * u;
           if (gx < m || gx > W - m || gy < bar + m || gy > H - m) {
@@ -92,9 +108,9 @@ export function createPadMap({ canvas, ROOMS, DOORS, SPOTS }) {
             if (dy > 0) k = Math.min(k, (H - m - cy) / dy); if (dy < 0) k = Math.min(k, (bar + m - cy) / dy);
             const ax = cx + dx * k, ay = cy + dy * k;
             c.save(); c.translate(ax, ay); c.rotate(ang);
-            c.fillStyle = C.off; c.beginPath(); c.moveTo(9 * u, 0); c.lineTo(-6 * u, -6 * u); c.lineTo(-6 * u, 6 * u); c.closePath(); c.fill();
+            c.fillStyle = best.exit ? C.exit : C.off; c.beginPath(); c.moveTo(9 * u, 0); c.lineTo(-6 * u, -6 * u); c.lineTo(-6 * u, 6 * u); c.closePath(); c.fill();
             c.restore();
-            c.fillStyle = C.off; c.font = `${10 * u}px sans-serif`; c.textAlign = 'center'; c.fillText(`${Math.round(best.d)}m`, ax - Math.cos(ang) * 16 * u, ay - Math.sin(ang) * 14 * u); c.textAlign = 'left';
+            c.fillStyle = best.exit ? C.exit : C.off; c.font = `${10 * u}px sans-serif`; c.textAlign = 'center'; c.fillText(`${Math.round(best.d)}m`, ax - Math.cos(ang) * 16 * u, ay - Math.sin(ang) * 14 * u); c.textAlign = 'left';
           }
         }
       }

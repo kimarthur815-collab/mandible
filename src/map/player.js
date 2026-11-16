@@ -42,7 +42,8 @@ export class Player {
     this.pitch = clamp(this.pitch - input.lookY, -1.35, 1.35);
     // under a table you can't stand up
     const ui = this.underInfo();
-    const touching = !!ui && ui.depth > -this.radius + 0.03;     // (standing against one doesn't count)
+    // (standing against one doesn't count, except a crawl space you can only go into on all fours: the duct)
+    const touching = !!ui && ui.depth > (ui.c.auto ? -this.radius - 0.06 : -this.radius + 0.03);
     this.crouch = input.crouch || touching;
     this.crouchT += ((this.crouch ? 1 : 0) - this.crouchT) * (1 - Math.exp(-dt * 10));
 

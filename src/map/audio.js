@@ -586,6 +586,7 @@ export class Sound {
   }
 
   heartbeat(level) {
+    if (!this.ctx) return;
     const g = 0.35 + level * 0.5;
     this.tone({ dest: this.mus, f0: 62, f1: 38, dur: 0.16, gain: g, attack: 0.008 });
     this.tone({ dest: this.mus, t: 0.22, f0: 55, f1: 34, dur: 0.2, gain: g * 0.7, attack: 0.01 });
@@ -979,6 +980,73 @@ export class Sound {
     f.frequency.setValueAtTime(2200, this.ctx.currentTime + t); f.frequency.exponentialRampToValueAtTime(900, this.ctx.currentTime + t + 0.7);
   }
   centiHiss(x, z) { if (this.ctx) { const p = this.panner(x, 0.5, z, 2, 0.9); p.connect(this.sfx); this.burst({ dest: p, dur: 0.6, f: 3500, q: 1.2, gain: 0.45, attack: 0.03 }); } }
+
+  // ---- the air duct
+  // something knocking on the sheet metal from outside: a dull thump, and the duct rings with it
+  ductKnock(x, y, z, k = 0.5) {
+    if (!this.ctx) return;
+    const p = this.panner(x, y, z, 1.4, 1.1); p.connect(this.sfx);
+    this.tone({ dest: p, f0: 150 * rnd(0.9, 1.1), f1: 70, dur: 0.16 + 0.1 * k, gain: 0.3 + 0.5 * k, attack: 0.002 });
+    this.burst({ dest: p, dur: 0.06, f: 520, q: 1.2, gain: 0.25 + 0.4 * k, buf: this.brown, attack: 0.001 });
+    for (const [f, a] of [[310, 1], [487, 0.7], [731, 0.5], [1093, 0.3]]) this.tone({ dest: p, f0: f * rnd(0.98, 1.02), f1: f * 0.985, dur: 0.35 + 0.5 * k, gain: 0.05 * a * (0.5 + k), attack: 0.002 });
+  }
+  // claws dragged along the outside of the metal
+  ductScrape(x, y, z, dur = 0.8) {
+    if (!this.ctx) return;
+    const p = this.panner(x, y, z, 1.4, 1.1); p.connect(this.sfx);
+    const f = this.burst({ dest: p, dur, f: 1300, q: 5, gain: 0.35, attack: 0.08 });
+    f.frequency.linearRampToValueAtTime(2400, this.ctx.currentTime + dur);
+    for (let i = 0; i < dur * 14; i++) this.burst({ dest: p, t: i / 14 + rnd(0, 0.04), dur: 0.03, f: rnd(2500, 4200), q: 4, gain: 0.12 });
+  }
+  // a big blow on the duct right by you: the sheet buckles in and wobbles
+  ductBang(x, y, z) {
+    if (!this.ctx) return;
+    this.ductKnock(x, y, z, 1.4);
+    const ctx = this.ctx, now = ctx.currentTime, p = this.panner(x, y, z, 2.5, 0.8); p.connect(this.sfx);
+    this.tone({ dest: p, f0: 70, f1: 32, dur: 0.7, gain: 1.0, attack: 0.003 });
+    this.burst({ dest: p, dur: 0.5, f: 300, q: 0.7, gain: 0.7, buf: this.brown, attack: 0.002 });
+    const o = ctx.createOscillator(), g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+    o.type = 'triangle'; o.frequency.setValueAtTime(180, now); o.frequency.exponentialRampToValueAtTime(120, now + 0.9);
+    lfo.frequency.value = 11; lg.gain.value = 30; lfo.connect(lg); lg.connect(o.frequency);
+    g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.25, now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + 1.0);
+    o.connect(g); g.connect(p); o.start(now); lfo.start(now); o.stop(now + 1.05); lfo.stop(now + 1.05);
+  }
+  // the floor grille groans, snaps, and you drop
+  ductGive() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, now = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(70, now); o.frequency.linearRampToValueAtTime(95, now + 0.45);
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 6;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.4, now + 0.1); g.gain.linearRampToValueAtTime(0.0001, now + 0.55);
+    o.connect(bp); bp.connect(g); g.connect(this.sfx); o.start(now); o.stop(now + 0.6);
+    this.burst({ t: 0.5, dur: 0.05, f: 3000, q: 1, gain: 0.7, attack: 0.001 });
+    for (const [f, a] of [[620, 1], [1430, 0.6], [2210, 0.4]]) this.tone({ t: 0.5, f0: f, f1: f * 0.97, dur: 0.5, gain: 0.12 * a });
+    this.tone({ t: 0.5, f0: 110, f1: 45, dur: 0.3, gain: 0.6 });
+    const w = this.burst({ t: 0.55, dur: 0.7, f: 500, q: 0.6, gain: 0.35, attack: 0.15 }); w.frequency.linearRampToValueAtTime(1600, now + 1.2);
+  }
+  // down onto the dock floor from the ceiling
+  landThud() {
+    if (!this.ctx) return;
+    this.tone({ f0: 80, f1: 30, dur: 0.5, gain: 1.0, attack: 0.002 });
+    this.burst({ dur: 0.35, f: 260, q: 0.7, gain: 0.8, buf: this.brown });
+    this.burst({ t: 0.01, dur: 0.12, f: 2600, q: 0.8, gain: 0.25 });
+    this.canClank(-1.7, 0.1, 6.8, 0.8);                        // the grille that came down with you
+    this.burst({ t: 0.2, dur: 0.5, f: 1200, q: 2.2, gain: 0.18, attack: 0.05 });   // the breath knocked out of you
+  }
+  // air moving through the duct: 0 outside, 1 deep inside
+  ductAir(k) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    if (!this.airSrc) {
+      if (k <= 0) return;
+      const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 340; bp.Q.value = 1.2; bp.connect(this.sfx);
+      const wh = this.ctx.createBiquadFilter(); wh.type = 'bandpass'; wh.frequency.value = 1150; wh.Q.value = 14; wh.connect(this.sfx);
+      const lfo = this.ctx.createOscillator(), lg = this.ctx.createGain(); lfo.frequency.value = 0.13; lg.gain.value = 140; lfo.connect(lg); lg.connect(wh.frequency); lfo.start();
+      this.airSrc = { a: this.loop(this.brown, bp, 0, 1), b: this.loop(this.white, wh, 0, 1) };
+    }
+    const now = this.ctx.currentTime;
+    this.airSrc.a.g.gain.setTargetAtTime(0.55 * k, now, 0.3);
+    this.airSrc.b.g.gain.setTargetAtTime(0.05 * k, now, 0.3);
+  }
 
   // a beat of near-silence before something big
   silence(sec) {

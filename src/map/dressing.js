@@ -77,6 +77,7 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
 
   // ---- door frames on every opening, both sides
   for (const d of DOORS) {
+    if (d.locked === 'vent') continue;          // (the duct has its own)
     const mid = (d.from + d.to) / 2, w = d.to - d.from;
     for (const room of [d.a, d.b]) {
       if (!room) continue;

@@ -22,6 +22,7 @@ export const DOORS = [
   { a: 'corridor', b: 'hall', axis: 'z', at: 46, from: 16.5, to: 20.5, h: 4 },
   { a: 'hall', b: 'lab', axis: 'x', at: -6, from: 56, to: 59, h: 3 },
   { a: 'lab', b: 'pass1', axis: 'z', at: 52, from: -17, to: -14, h: 3, locked: 'emergency' },
+  { a: 'lab', b: null, axis: 'z', at: 52, from: -11.05, to: -9.75, h: 1.0, locked: 'vent' },       // the air duct (see duct.js)
   { a: 'pass1', b: 'pass2', axis: 'x', at: -14, from: 27, to: 30, h: 3.5 },
   { a: 'pass2', b: 'ware', axis: 'x', at: -12, from: 27, to: 30, h: 3 },
   { a: 'dock', b: null, axis: 'z', at: 0, from: -2.5, to: 2.5, h: 4.5, locked: 'shutter' },

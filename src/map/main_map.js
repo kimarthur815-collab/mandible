@@ -20,6 +20,7 @@ import { createIntro } from './intro.js';
 import { createMarks } from './marks.js';
 import { createFaceBugs } from './facebugs.js';
 import { createCans } from './cans.js';
+import { createDuct, DUCT, ductInside, ductS } from './duct.js';
 
 const $ = (s) => document.querySelector(s);
 const touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -71,6 +72,8 @@ markers.visible = false;              // a developer aid (F1)
 const silk = makeSilkMaterial();
 // set dressing (boxes, racks, pipes, stains, signs...) adds its footprints to the colliders before the bugs map the floor
 const dress = dressLevel(scene, { colliders, T: 0.3, silkMat: silk });
+// the lab's air duct, the way out once the last generator runs
+const duct = createDuct(scene, { colliders, metalMat: dress.metalMaterial(0x7d8280) });
 const nests = SPOTS.bugs.filter((b) => b.kind === 'roach').map((b, i) => ({ x: b.x, z: b.z, count: [10, 8, 7, 6][i] || 6, spread: 1.0 }));
 const swarms = new RoachSwarms(scene, nests, colliders, TX.makeContactShadow(128));
 const arms = new Arms();
@@ -364,7 +367,7 @@ const voice = (() => {
 const RADIO_GEN = [
   [['본부', '치익— 3조, 발전기 돌아가는 소리가 잡힌다. 두 대 남았다.'], ['나', '...알겠습니다.']],
   [['본부', '한 대 남았다. ...3조, 방금 그 소리는 뭐야? 응답하라.']],
-  [['본부', '셔터 열렸다! 3조, 당장 나와!']],
+  [['본부', '셔터 열렸다! 3조, 당장 나와!'], ['본부', '실험실 환기 덕트가 하역장 위로 이어진다. 거기로 기어 와!']],
 ];
 const RADIO_ODD = [
   [['본부', '치익... ...3조... 들...리...']],
@@ -500,7 +503,11 @@ function where(x, z) {
 }
 function radioHint() {
   const here = roomAt(player.pos.x, player.pos.z);
-  if (G.gens >= 3) { const w = where(0, 1.5); return `셔터 열렸다. 하역장으로 나와라. ${w.side} 방향, ${w.far}.`; }
+  if (G.gens >= 3) {
+    if (G.dk.in) return '덕트 안이지? 계속 기어가라. 끝에서 하역장 천장으로 떨어진다.';
+    if (here === 'dock') { const w = where(0, 0); return `셔터 열렸다. 당장 나와라. ${w.side} 방향, ${w.far}.`; }
+    const w = where(DUCT.mouth.x, DUCT.wallZ + 0.3); return `실험실 남쪽 벽 환기구로 들어가라. 하역장으로 이어진다. ${w.side} 방향, ${w.far}.`;
+  }
   let best = null;
   for (const g of genMeshes) if (!g.on) { const d = Math.hypot(g.x - player.pos.x, g.z - player.pos.z); if (!best || d < best.d) best = { g, d }; }
   const g = best.g, w = where(g.x, g.z), name = ROOMS[g.room].name;
@@ -508,7 +515,8 @@ function radioHint() {
   return `${name} 발전기가 아직이다. ${w.side} 방향, ${w.far}.`;
 }
 function radioSituation() {
-  if (centi.active && centi.state === 'chase') return '긴 놈이 따라오면 불 켜진 전등 밑으로 가라. 그 빛 안으로는 못 들어온다.';
+  if (centi.state === 'poke') return '머리를 들이밀면 손전등을 비춰라. 빛을 받으면 물러난다.';
+  if (centi.active && centi.state === 'chase') return G.gens >= 3 && !G.dk.landed ? '긴 놈이 따라오면 환기구로 기어 들어가! 그 덩치로는 못 들어온다.' : '긴 놈이 따라오면 불 켜진 전등 밑으로 가라. 그 빛 안으로는 못 들어온다.';
   if (spiders.chasers().length) return '거미가 쫓아오면 손전등을 똑바로 비춰라. 빛을 싫어한다.';
   if (G.attached.length) return '몸에 붙은 건 당장 털어내라!';
   if (G.drained || G.battery < 0.3) return '손전등이 뜨거우면 잠깐 꺼서 식혀라.';
@@ -595,6 +603,7 @@ const player = new Player(camera, colliders);
 const G = {};
 function resetGame() {
   sfx.resetWorld();
+  if (G.drop) $('#fadeBlack').style.opacity = 0;
   clearTips();
   Object.assign(G, {
     battery: 1, flashOn: false, locked: false, holdT: 0, holdKey: null, shutter: 0, shutterOpening: false,
@@ -604,6 +613,7 @@ function resetGame() {
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
     cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false, lostT: 0, lostHints: 0, seenRooms: new Set(), glance: null, glanceAt: -99,
     stats: { hits: 0, deaths: 0, spray: 0, thrown: 0, photos: 0, radio: 0, work: false },
+    drop: null, dk: freshDuct(), ductJolt: 0,
   });
   swarms.reset(); swarms.sealed = new Set([3]); gate.setOpen(false); phantom.hide();
   spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
@@ -622,7 +632,7 @@ function resetGame() {
   faceBugs.clear();
   refill.taken = false; refill.m.visible = true;
   cans.reset(); camItem.taken = false; camItem.g.visible = true; updateItems();
-  lee.reset(); visions.reset();
+  lee.reset(); visions.reset(); duct.reset();
   emDoor.position.x = -15.5; emCol.off = false;
   shutter.position.y = 0; shCol.off = false;
   indicators.forEach((m) => m.material.emissive.set(0xff2010));
@@ -1095,15 +1105,18 @@ function genOn(g) {
   indicators[G.gens - 1].material.emissive.set(0x30ff60);
   msg(G.gens === 3 ? '마지막 발전기다. 됐다!' : `발전기가 돌아간다. ${['', '두 대', '한 대'][G.gens]} 남았다`);
   startBlackout();
-  if (G.gens === 3) { gate.setOpen(true); swarms.sealed.clear(); }
   sfx.generatorStart(g.x, g.z); buzz([40, 60, 120]);
   tip('발전기 소리에 벌레들이 몰려오겠다...', 'gen');
   if (g.room === 'hall' && !centi.active) { sfx.silence(1.4); setTimeout(() => { if (!G.dead) centi.wake(); }, 1300); }
   if (g.room === 'lab') {
-    G.emergencyOpening = true; setTimeout(() => { msg('비상 통로 문이 열렸다'); }, 1400); sfx.doorRumble(-15.5, 52, 1.6);
+    // the duct's fans start with it and blow the grille off its mouth (the emergency door stays jammed)
+    setTimeout(() => {
+      duct.openVent(); sfx.ductBang(DUCT.mouth.x, 0.5, DUCT.wallZ); sfx.canClank(DUCT.mouth.x, 0.2, DUCT.wallZ + 1.6, 1);
+      msg('환풍기가 돌기 시작했다... 환기구 덮개가 떨어졌다'); lookToward(new THREE.Vector3(DUCT.mouth.x, 0.45, DUCT.wallZ), 0.9);
+    }, 1500);
     setTimeout(() => { if (!G.dead && eggs.burst()) sfx.eggBurst(-7.6, 4, 62.6); centi.enrage(player.pos); }, 600);
   }
-  if (G.gens === 3) { G.shutterOpening = true; setTimeout(() => msg('셔터가 열린다. 하역장으로 가야 해!'), 2800); sfx.doorRumble(0, 0.5, 3.4); }
+  if (G.gens === 3) { G.shutterOpening = true; setTimeout(() => { if (!G.dk.in) tip('셔터는 하역장... 너무 멀다. 환기구로 기어가자', 'ductgo'); }, 4200); sfx.doorRumble(0, 0.5, 3.4); }
   { const n = G.gens; setTimeout(() => { if (!G.dead && !G.won && G.gens === n) voice.say(RADIO_GEN[n - 1]); }, 4300); }
   updateHud();
 }
@@ -1157,7 +1170,9 @@ const dev = { god: false, battery: false, noclip: false, freeze: false, fast: fa
 // every bug goes back to where it started.
 function respawnAtLamp(l) {
   clearTips(); voice.clear();
-  Object.assign(G, { dead: false, kill: null, chasing: false, chaseLen: 0, hp: D().hp, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, grabSafeT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
+  Object.assign(G, { dead: false, kill: null, chasing: false, chaseLen: 0, hp: D().hp, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, grabSafeT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0, drop: null });
+  // the duct can be crawled again (what already happened in it stays done)
+  Object.assign(G.dk, { in: false, parked: false, F: null, followAt: 0, broke: false, landed: false, ambushed: false });
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   // stand beside the pole, on the side with the most room, facing out
@@ -1305,7 +1320,7 @@ function shakeScreen() { if (SET.shake === false) return; document.body.classLis
 // the map: a tablet held up, its floor plan centred on you (padmap.js); what it marks depends on the difficulty
 const paperMap = createPadMap({ canvas: $('#paperMap canvas'), ROOMS, DOORS, SPOTS });
 function drawMap() {
-  paperMap.draw({ x: player.pos.x, z: player.pos.z, yaw: player.yaw, room: roomAt(player.pos.x, player.pos.z), gens: genMeshes, lamps, gensOn: G.gens, emergency: G.emergency > 0.7, t });
+  paperMap.draw({ x: player.pos.x, z: player.pos.z, yaw: player.yaw, room: roomAt(player.pos.x, player.pos.z), gens: genMeshes, lamps, gensOn: G.gens, emergency: G.emergency > 0.7, duct: duct.open ? DUCT : null, inDuct: G.dk.in, t });
 }
 
 // ------------------------------------------------------------------ loop
@@ -1322,7 +1337,7 @@ addEventListener('resize', resize);
 resize();
 
 const ray = new THREE.Raycaster();
-const levelMeshes = [...levelGroup.children, shutter, emDoor];
+const levelMeshes = [...levelGroup.children, shutter, emDoor, ...duct.meshes];
 // empty cans to throw (cans.js)
 const cans = createCans(scene, levelMeshes);
 // team 2's disposable camera, on the warehouse table by the machine room door: 3 shots of flash
@@ -1414,6 +1429,141 @@ function glanceAt(p) {
   d = Math.atan2(Math.sin(d), Math.cos(d));
   G.glance = { t: 0, ang: THREE.MathUtils.clamp(d, -2.7, 2.7) };
 }
+// ---- the air duct, once the last generator runs (see duct.js). The crawl is scripted: the centipede
+// can't follow you in, so it rams the mouth, then goes along outside the metal knocking, gets ahead
+// of you and hits the bend, pushes its head in through a side grille (light makes it pull back, get
+// too close and it bites), and at the end the floor grille gives way: down through the dock's ceiling,
+// with the shutter open ahead of you and the centipede coming out of the dock's wall behind.
+function freshDuct() { return { in: false, outT: 0, seen: false, parked: false, followAt: 0, F: null, saidF: false, cornerWait: 0, cornerDone: false, poked: false, pokeT: 0, pokeGo: false, popped: false, bit: false, pokeTip: false, after: false, broke: false, landed: false, ambushAt: 0, ambushed: false }; }
+function updateDuct(dt) {
+  const K = G.dk, P = player.pos;
+  duct.update(dt, t);
+  const live = G.started && !G.dead && !G.won && duct.open;
+  const inside = live && !G.drop && ductInside(P.x, P.z), s = inside ? ductS(P.x, P.z) : 0;
+  sfx.ductAir(inside ? Math.min(1, s / 2) : 0);
+  if (!live) return;
+  K.in = inside && s > 0.6;
+  if (!K.in && !K.seen && !K.landed && Math.hypot(P.x - DUCT.mouth.x, P.z - DUCT.wallZ) < 3.2) { K.seen = true; tip('환기구다... 저기로 기어 들어가자', 'ductin'); }
+  K.outT = K.in ? 0 : K.outT + dt;
+  // in: too narrow for it
+  if (K.in && !K.parked) {
+    K.parked = true;
+    const rams = centi.blocked(DUCT.mouth, swarms.nav);
+    if (!K.cornerDone && !K.followAt) K.followAt = t + (rams ? 4.2 : 1.2);
+  }
+  // out again: it comes looking (and if it's still at the mouth, it's right there)
+  if (!K.in && K.parked && !K.landed && !G.drop) {
+    if (centi.state === 'ram') { centi.state = 'chase'; centi.lostT = 0; }
+    if (K.outT > 2.5) { K.parked = false; K.F = null; if (centi.state === 'gone' || centi.state === 'poke') centi.regroup(P); }
+  }
+  // outside the metal: its legs on the far side of the west wall, knocking, catching you up and going on past
+  if (K.in && !K.F && !K.cornerDone && K.followAt && t > K.followAt && s > 2 && s < 10) K.F = { on: true, x: DUCT.x0 - 0.6, z: Math.min(DUCT.wallZ + 0.8, P.z + 3.5), v: 2.4, knockT: 0.5 };
+  const F = K.F;
+  if (F && F.on && K.in) {
+    const behind = F.z - P.z;
+    F.z = Math.max(DUCT.z1 + 0.6, F.z - (1.7 + Math.max(0, behind) * 0.5) * dt);
+    F.knockT -= dt;
+    if (F.knockT <= 0) {
+      const d = Math.hypot(F.x - P.x, F.z - P.z);
+      F.knockT = 0.3 + Math.random() * 0.7;
+      if (Math.random() < 0.2) sfx.ductScrape(DUCT.x0, 0.4, F.z, 0.6);
+      else sfx.ductKnock(DUCT.x0, 0.2 + Math.random() * 0.6, F.z, Math.max(0.2, 1 - d / 5));
+      if (d < 1.6) G.ductJolt = Math.max(G.ductJolt, 0.014);
+      if (!K.saidF) { K.saidF = true; setTimeout(() => { if (G.dk.in) tip('...밖에서 따라온다'); }, 900); }
+    }
+    if (F.z <= DUCT.z1 + 0.6) { F.on = false; K.cornerWait = t; }    // at the bend: and then nothing
+  }
+  if (!K.cornerDone && K.in && s > 11.6 && !K.cornerWait) K.cornerWait = t - 1;
+  // the bend: two blows on the wall right in front of you, the metal buckling in
+  if (!K.cornerDone && K.cornerWait && t - K.cornerWait > 1.1 && K.in && s > 10.6) {
+    K.cornerDone = true; K.F = null;
+    const bx = DUCT.mouth.x, bz = DUCT.z0;
+    sfx.ductBang(bx, 0.45, bz - 0.3); duct.dent(0.08); shakeScreen(); buzz([80, 40, 160]); G.ductJolt = 0.05;
+    setTimeout(() => { if (G.dead || G.won) return; sfx.ductBang(bx + 0.2, 0.35, bz - 0.3); sfx.centiScreech(bx, bz - 0.6, 0.05); duct.dent(0.17); G.ductJolt = 0.07; buzz(200); }, 650);
+    setTimeout(() => { if (G.dk.in) tip('...벽 너머에 있다. 오른쪽으로, 계속 가자'); }, 1900);
+  }
+  // the side grille: a few taps ahead, then its head comes through
+  const g = DUCT.grate;
+  if (K.cornerDone && !K.poked && K.in && P.x > g.x - 3.3) {
+    K.poked = true; K.pokeT = t;
+    sfx.ductKnock(g.x, 0.4, g.z + 0.3, 0.5);
+    setTimeout(() => { if (!G.dead && !G.won) sfx.ductKnock(g.x + 0.2, 0.5, g.z + 0.3, 0.8); }, 300);
+  }
+  if (K.poked && !K.pokeGo && t - K.pokeT > 0.5) { K.pokeGo = true; if (K.in) centi.pokeAt(g.x, g.z + 0.1, 0, -1, g.x - 0.7, g.z + 1.8); }
+  if (centi.state === 'poke' && centi.poke) {
+    const pk = centi.poke, h = centi.head;
+    if (!K.popped && (h.z - g.z) < 0.05) {
+      K.popped = true; duct.popSide();
+      sfx.ductBang(g.x, 0.5, g.z); sfx.centiScreech(g.x, g.z - 0.3, 0.05); shakeScreen(); buzz([60, 30, 200]); G.ductJolt = 0.05;
+    }
+    if (pk.out && !pk.back) {
+      if (!K.pokeTip && t - K.pokeT > 2.4) { K.pokeTip = true; tip(G.flashOn ? '머리에 손전등을 똑바로 비추자' : `손전등을 켜서 머리에 비추자 (${KEY.flash})`); }
+      if (t - K.pokeT > 11) centi.retract();                 // (it gives up in the end)
+      if (!K.bit && Math.hypot(h.x - P.x, h.z - P.z) < 0.78) {
+        K.bit = true; centi.retract();
+        sfx.centiScreech(h.x, h.z); sfx.scareHit(); shakeScreen(); msg('물렸다!');
+        P.x = Math.max(DUCT.x1 + 0.4, P.x - 0.45 * Math.sign(h.x - P.x || 1)); player.vel.set(0, 0, 0);
+        hurt('덕트 안에서 지네 머리에 빛을 비췄어야 했다');
+      }
+    }
+  }
+  // gone back into the wall: off ahead of you, toward the dock
+  if (K.poked && !K.after && centi.state === 'gone' && t - K.pokeT > 2) {
+    K.after = true;
+    setTimeout(() => { if (G.dk.in) sfx.ductScrape(DUCT.end + 0.4, 0.5, DUCT.z1 + 0.4, 1.2); }, 700);
+    setTimeout(() => { if (G.dk.in) sfx.ductKnock(DUCT.end + 1.5, 0.3, DUCT.z0 - 1, 0.25); }, 2100);
+  }
+  // the end: the floor grille gives way under you
+  if (K.in && !K.broke && P.x > DUCT.drop0 + 0.3) {
+    K.broke = true;
+    const L = DUCT.land;
+    G.drop = { t: 0, phase: 'give', pitch: player.pitch, y0: camera.position.y, landYaw: Math.atan2(0 - L.x, -0.5 - L.z) };
+    sfx.ductGive(); buzz([30, 40, 30]);
+    if (showMap) toggleMap(); if (journal.open) journal.toggle(false);
+  }
+  // in the dock: out of the wall behind you
+  if (K.landed && !K.ambushed && t >= K.ambushAt) { K.ambushed = true; centi.ambush(DUCT.dockVent); }
+}
+// down through the floor, a moment of dark, out through the dock's ceiling and onto the concrete
+function dropStep(dt) {
+  const d = G.drop, L = DUCT.land, fb = $('#fadeBlack');
+  d.t += dt;
+  let y = camera.position.y, pitch = d.pitch, roll = 0;
+  if (d.phase === 'give') {
+    y = d.y0 - 0.06 * Math.min(1, d.t / 0.5) + (Math.random() - 0.5) * 0.012;
+    if (d.t >= 0.5) { d.phase = 'fall'; d.t = 0; duct.breakFloor(); }
+  } else if (d.phase === 'fall') {
+    y = d.y0 - 0.06 - 8 * d.t * d.t; pitch = d.pitch + (-0.9 - d.pitch) * Math.min(1, d.t / 0.35); roll = 0.3 * d.t;
+    fb.style.opacity = Math.min(1, d.t / 0.4);
+    if (d.t >= 0.42) { d.phase = 'dark'; d.t = 0; fb.style.opacity = 1; }
+  } else if (d.phase === 'dark') {
+    y = -2.5;
+    if (d.t >= 0.35) {
+      d.phase = 'drop'; d.t = 0;
+      player.place(L.x, L.z, d.landYaw); duct.landed();
+    }
+  } else if (d.phase === 'drop') {
+    const k = Math.min(1, d.t / 0.45);
+    y = 5.75 - (5.75 - 0.5) * k * k; pitch = -1.15 + 0.25 * k; roll = 0.12 * (1 - k);
+    fb.style.opacity = Math.max(0, 1 - d.t / 0.12);
+    if (k >= 1) {
+      d.phase = 'land'; d.t = 0;
+      sfx.landThud(); shakeScreen(); buzz(260); G.ductJolt = 0.05;
+      const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on');
+    }
+  } else if (d.phase === 'land') {
+    y = 0.5 + 0.02 * Math.sin(d.t * 10) * Math.max(0, 1 - d.t);
+    pitch = -0.9 * (1 - THREE.MathUtils.smoothstep(d.t, 0.25, 1.0)); roll = 0.05 * Math.sin(d.t * 3) * (1 - d.t);
+    if (d.t >= 1.0) {
+      G.drop = null; player.pitch = 0; G.rise = { t: 0, y0: 0.5 };
+      G.dk.landed = true; G.dk.ambushAt = t + 0.6;
+      msg('셔터가 열려 있다... 뛰어!');
+      return;
+    }
+  }
+  camera.position.set(player.pos.x, y, player.pos.z);
+  camera.quaternion.setFromEuler(new THREE.Euler(pitch, player.yaw + Math.PI, roll, 'YXZ'));
+}
 function applyFocus(dt, inp) {
   if (!focus) return inp;
   focus.t += dt;
@@ -1446,14 +1596,17 @@ function frame(dtOverride) {
   if (needRotate) { withBright(() => renderer.render(scene, camera)); return; }
   const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
-  if (G.started && !G.won && !G.dead && !G.grab && !G.kill) {
+  if (G.started && !G.won && !G.dead && !G.grab && !G.kill && !G.drop) {
     player.update(dt, applyFocus(dt, inp));
+    if (G.ductJolt > 0.001) { camera.position.x += (Math.random() - 0.5) * G.ductJolt; camera.position.y += (Math.random() - 0.5) * G.ductJolt; camera.position.z += (Math.random() - 0.5) * G.ductJolt; }
     if (G.glance) {
       const g = G.glance; g.t += dt;
       if (g.t > 1.6) G.glance = null;
       else camera.rotateOnWorldAxis(UPV, g.ang * THREE.MathUtils.smoothstep(g.t, 0, 0.35) * (1 - THREE.MathUtils.smoothstep(g.t, 1.0, 1.6)));
     }
   } else G.glance = null;
+  G.ductJolt = Math.max(0, (G.ductJolt || 0) - dt * 0.12);
+  if (G.drop) dropStep(dt);
   if (G.kill) centiKillStep(dt);
   if (G.rise && !G.kill) { G.rise.t += dt; const k = Math.min(1, G.rise.t / 0.7); camera.position.y = THREE.MathUtils.lerp(G.rise.y0, camera.position.y, k * k * (3 - 2 * k)); if (G.rise.t >= 0.7) G.rise = null; }
   G.centiCd = Math.max(0, (G.centiCd || 0) - dt);
@@ -1490,7 +1643,7 @@ function frame(dtOverride) {
   let fl = flick < 1 ? 0.6 + 0.4 * Math.abs(Math.sin(t * 60)) : 1;
   { const vf = new THREE.Vector3(); player.forward(vf);
     fl *= visions.update({ dt, t, cam: camera, fwd: vf, flashOn: G.flashOn && !G.drained, gens: G.gens, voiceBusy: voice.busy,
-      live: G.started && !G.dead && !G.won, calm: !G.grab && !G.kill && !G.chasing && !G.hidden && G.blackT <= 0 && G.attached.length === 0,
+      live: G.started && !G.dead && !G.won && !G.dk.in && !G.drop, calm: !G.grab && !G.kill && !G.chasing && !G.hidden && G.blackT <= 0 && G.attached.length === 0,
       onWhisper: () => voice.say([['무전', '(치익...) ......뒤...... 에......', 2.6]], 'whisper'), onBehind: (x, z) => sfx.behind(x, z), tip, look: lookToward }); }
   if (G.battery < 0.15 && G.battery > 0) fl *= Math.random() < 0.05 ? 0.4 : 1;
   // the brightness tells you what is left: full when charged, dimming as it drains, a faint glow when empty
@@ -1537,7 +1690,8 @@ function frame(dtOverride) {
   if (G.kill && G.kill.drop) { flash.position.copy(G.kill.drop); flash.target.position.copy(centi.head); }
   // a wall right in front of you would go white: the beam is turned down the closer the wall is
   nearK += (beamNear(hd) - nearK) * Math.min(1, dt * 10);
-  flash.intensity = G.flashOn ? FLASH_I * fl * nearK : 0;
+  const ductK = G.dk.in ? 0.35 : 1;            // (in the duct's tight metal the beam is right on top of everything)
+  flash.intensity = G.flashOn ? FLASH_I * fl * nearK * ductK : 0;
   // what the bugs react to is the beam itself, not how much a close wall turned it down
   beamPow = G.flashOn ? FLASH_I * fl : 0;
   spill.position.copy(flash.position); spill.intensity = G.flashOn ? 0.2 * fl : 0;
@@ -1551,7 +1705,7 @@ function frame(dtOverride) {
   nightEye.intensity = bright || G.blackT > 0 ? 0 : Math.pow(adapt, 1.5) * NIGHT_K;
   glow.update(dt);
   bounce.position.copy(camera.position).addScaledVector(fwd, Math.min(hd * 0.75, 4.5));
-  bounce.intensity = G.flashOn ? 2.2 * fl * Math.min(1, nearK * 1.6) : 0;
+  bounce.intensity = G.flashOn ? 2.2 * fl * Math.min(1, nearK * 1.6) * ductK : 0;
   dress.update(dt, camera.position, flash.position, beamDir.subVectors(flash.target.position, flash.position).normalize(), G.flashOn ? fl : 0, renderer.domElement.height * 1.2);
   const markSeen = marks.update(dt, flash.position, beamDir, G.flashOn ? fl : 0);
   if (markSeen && G.started && !G.dead && markSeen.d < 10) tip('2조가 뿌려 둔 야광 스프레이다... 이걸 따라가면 되겠다', 'marks');
@@ -1563,11 +1717,12 @@ function frame(dtOverride) {
   // ---- hiding: all the way under a table or a conveyor, light off, keeping still.
   // Hunters lose you and search round where you went; light, moving or the spray gives you away.
   G.revealT = Math.max(0, G.revealT - dt);
-  const quiet = G.started && !G.dead && !G.won && !G.grab && !!player.inside && !G.flashOn && player.speed < 0.35 && G.revealT <= 0 && G.attached.length === 0;
+  const hideIn = player.inside && player.inside.hide ? player.inside : null;        // (the duct is a crawl space, not a hiding place)
+  const quiet = G.started && !G.dead && !G.won && !G.grab && !!hideIn && !G.flashOn && player.speed < 0.35 && G.revealT <= 0 && G.attached.length === 0;
   G.stillT = quiet ? (G.stillT || 0) + dt : 0;
   G.hidden = G.stillT > 0.6;          // a moment of keeping still first
   G.hiddenT = G.hidden ? G.hiddenT + dt : 0;
-  if (player.inside && G.started) tip(`불을 끄고 가만히 있자 (${KEY.flash}). 그럼 못 찾을 거야`, 'hide');
+  if (hideIn && G.started) tip(`불을 끄고 가만히 있자 (${KEY.flash}). 그럼 못 찾을 거야`, 'hide');
   // ---- thrown cans, the camera's flash
   cans.update(dt, canHit);
   camFlash.intensity *= Math.exp(-dt * 22);
@@ -1674,7 +1829,14 @@ function frame(dtOverride) {
   centi.update({
     dt, player: { pos: player.pos, noise, alive: G.started && !G.dead && !G.won && !dev.god, hidden: G.hidden }, cam: camera.position.clone(),
     light, nav: swarms.nav, field: swarms.fPlayer, events: G.events, safe: safeLamp, frozen,
-    onBurst: () => { sfx.ventBurst(15, 69.7); shakeScreen(); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
+    onBurst: (V) => { sfx.ventBurst(V.x, V.z); if (V === DUCT.dockVent) duct.burstDock(); shakeScreen(); buzz([60, 30, 140]); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
+    onRam: () => {
+      const m = DUCT.mouth;
+      sfx.ductBang(m.x, 0.5, m.z - 0.3); sfx.centiScreech(m.x, m.z + 0.4, 0.08); shakeScreen(); buzz([90, 40, 160]); G.ductJolt = 0.06;
+      setTimeout(() => { if (!G.dead && !G.won && centi.state === 'ram') { sfx.ductScrape(m.x, 0.5, m.z - 0.4, 1.0); sfx.centiHiss(m.x, m.z + 0.4); } }, 700);
+      if (G.dk.in) tip('못 들어온다... 덩치가 너무 크다');
+    },
+    onPokeLit: () => { sfx.centiHiss(centi.head.x, centi.head.z); tip('빛을 받으니 물러난다', 'pokelit'); },
     onLunge: () => sfx.centiScreech(centi.head.x, centi.head.z),
     onStun: (hits, hold) => {
       sfx.centiHiss(centi.head.x, centi.head.z);
@@ -1684,6 +1846,7 @@ function frame(dtOverride) {
     onCatch: () => startCentiKill(G.lingSlow > 0.15 ? '실험실에 들어가기 전에 스프레이를 남겨 뒀어야 했다' : '전등 불빛 안으로 도망쳤어야 했다'),
   });
   G.events.length = 0;
+  updateDuct(dt);
 
   // grabbed: the meter drains; keep it up for 2 s
   if (G.grab && !G.dead) {
@@ -1713,6 +1876,8 @@ function frame(dtOverride) {
   const fly = swarms.flyer;
   if (fly.state === 'fly' || fly.state === 'face') { inten = 1; sfx.flyerAt(fly.pos.x, fly.pos.y, fly.pos.z); }
   if (centi.active) { const dC = Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z); if (centi.state === 'chase') inten = Math.max(inten, 0.65, 1 - dC / 20); }
+  if (G.dk.F && G.dk.F.on && G.dk.in) inten = Math.max(inten, 0.8 - Math.hypot(G.dk.F.x - player.pos.x, G.dk.F.z - player.pos.z) / 12);
+  if (centi.state === 'poke' || centi.state === 'ram') inten = Math.max(inten, 0.85);
   if (G.grab) inten = 1;
   // hidden: everything hushes but your heart, which speeds up as something searches closer
   let searchD = 99;
@@ -1744,7 +1909,7 @@ function frame(dtOverride) {
   { const rm = roomAt(player.pos.x, player.pos.z);
     if (rm && !G.seenRooms.has(rm)) { G.seenRooms.add(rm); G.lostT = Math.min(G.lostT, 0); }
     if (showMap) G.lostT = Math.min(G.lostT, 0);
-    else if (G.started && !G.dead && !G.won && !G.chasing && !G.hidden && !G.grab && !G.kill) G.lostT += dt;
+    else if (G.started && !G.dead && !G.won && !G.chasing && !G.hidden && !G.grab && !G.kill && !G.dk.in && !G.drop) G.lostT += dt;
     if (G.lostT > 55 && G.lostHints < 3) { G.lostHints++; G.lostT = -35; tip(`길을 못 찾겠다... 패드로 지도를 보자 (${KEY.map})`); }
   }
   // who's after you: a spider or the centipede chasing drives the chase music, something searching keeps a low pulse
@@ -1767,7 +1932,7 @@ function frame(dtOverride) {
     duck: (G.dead ? 0.3 : 1) * (G.hidden ? 0.4 : 1) * (1 - 0.8 * chaseK),
   });
   sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started && !G.won ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce, chase: G.won ? 0 : chaseK,
-    centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.speed } : null, lings: lingInfo, ghost: spiders.ghostInfo(),
+    centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.state === 'poke' ? 1.2 : centi.speed } : G.dk.F && G.dk.F.on && G.dk.in ? { x: G.dk.F.x, z: G.dk.F.z, speed: G.dk.F.v } : null, lings: lingInfo, ghost: spiders.ghostInfo(),
     brood: broodInfo, hush: G.hidden,
     emit: G.started ? ai.emit.concat(lingInfo.emit || [], broodInfo.emit, spiders.emitters(player.pos)) : [] });
   if (G.started && !G.scared && !dev.freeze && Math.hypot(player.pos.x - nests[0].x, player.pos.z - nests[0].z) < 7.5) { G.scared = true; swarms.jumpScare(camera, 0); }
@@ -1827,7 +1992,7 @@ function frame(dtOverride) {
   $('#safe').classList.toggle('show', G.inSafe);
   // under a table: are you hidden, or giving yourself away?
   const hideEl = $('#hide');
-  const hideTxt = !player.inside || !G.started || G.dead ? '' : G.hidden ? '숨을 죽인다...' : G.flashOn ? '불빛 때문에 들키겠다' : G.revealT > 0 ? '스프레이 소리에 들켰다' : player.speed >= 0.35 ? '움직이면 들킨다' : '';
+  const hideTxt = !(player.inside && player.inside.hide) || !G.started || G.dead ? '' : G.hidden ? '숨을 죽인다...' : G.flashOn ? '불빛 때문에 들키겠다' : G.revealT > 0 ? '스프레이 소리에 들켰다' : player.speed >= 0.35 ? '움직이면 들킨다' : '';
   hideEl.classList.toggle('show', !!hideTxt); hideEl.classList.toggle('on', G.hidden);
   if (hideTxt && hideEl.dataset.t !== hideTxt) { hideEl.dataset.t = hideTxt; hideEl.querySelector('span').textContent = hideTxt; }
 
@@ -2215,7 +2380,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, workLight, faceBugs, switchWork, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, duct, DUCT, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, workLight, faceBugs, switchWork, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { beginGame({ quiet: true }); },
