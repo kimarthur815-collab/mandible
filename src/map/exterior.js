@@ -13,6 +13,7 @@ const RM = 'out';               // batch "room" key
 const FONT = '"Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
 const YARD = { x0: -34, x1: 36, z0: -28, z1: 82 };
 const GATE = { x0: -5, x1: 5 };
+export const ROAD_PERIOD = 60;   // the forest along the road repeats this often (see the forest below)
 
 // ---------------------------------------------------------------- buildings
 // h = eave height; ridge = gable top (front and back walls get a gable); skip = walls hidden against another block.
@@ -23,7 +24,7 @@ const shut = (x, w, h) => ({ kind: 'shutter', x, y: 0, w, h });
 const BUILDINGS = [
   // main hall over the dock and warehouse A
   { x0: -12.5, x1: 12.5, z0: -0.35, z1: 32.5, h: 8, ridge: 11.5, holes: {
-    s: [shut(10, 5, 4.5), win(3, 5.9, 4.5, 1.3, 6, 2), win(17.5, 5.9, 4.5, 1.3, 6, 2), win(2.4, 1.5, 2.4, 1.8, 3, 2), win(20.2, 1.5, 2.4, 1.8, 3, 2)],
+    s: [{ ...shut(10, 5, 4.5), dock: true }, win(3, 5.9, 4.5, 1.3, 6, 2), win(17.5, 5.9, 4.5, 1.3, 6, 2), win(2.4, 1.5, 2.4, 1.8, 3, 2), win(20.2, 1.5, 2.4, 1.8, 3, 2)],
     e: [win(2, 6, 4, 1.2, 5, 1), win(9, 6, 4, 1.2, 5, 1), win(16, 6, 4, 1.2, 5, 1), win(23, 6, 4, 1.2, 5, 1)],
     w: [win(2, 6, 4, 1.2, 5, 1), win(8.5, 6, 4, 1.2, 5, 1), win(15, 6, 4, 1.2, 5, 1), win(21.5, 6, 4, 1.2, 5, 1), win(22, 1.4, 2.4, 1.6, 3, 2), win(27, 1.4, 2.4, 1.6, 3, 2)],
     n: [win(4, 5.6, 4, 1.4, 5, 2), win(16.5, 5.6, 4, 1.4, 5, 2), door(11.5, 1.6, 2.6)] } },
@@ -292,9 +293,12 @@ export function buildExterior(scene, renderer) {
     const g = new THREE.CylinderGeometry(0.06, 0.2, 0.16, 12); g.translate(x, y, z); add('metal', g, C('#2b2d2c'), m);
     const b = new THREE.SphereGeometry(0.065, 10, 6); b.translate(x, y - 0.09, z); add('bulb', b, 0xffffff, m);
   };
+  const DB = new P.Batch();   // the dock shutter's curtain on its own, so it can roll up
   const shutterAt = (m, h) => {
-    const g = corrugated(h.w, h.h, 0.11, 0.035, true); g.translate(h.x + h.w / 2, h.h / 2, -0.17); add('shutter', g, 0xffffff, m);
-    boxAt('metal', h.w, 0.12, 0.08, h.x + h.w / 2, 0.06, -0.12, C('#3a3b3a'), m);                 // bottom bar
+    const into = h.dock ? DB : B;
+    const g = corrugated(h.w, h.h, 0.11, 0.035, true); g.translate(h.x + h.w / 2, h.h / 2, -0.17); into.add('shutter', RM, g, C('#ffffff'), m);
+    const bar = P.box(h.w, 0.12, 0.08); bar.translate(h.x + h.w / 2, 0.06, -0.12); into.add('metal', RM, bar, C('#3a3b3a'), m);   // bottom bar
+    if (h.dock) { const dark = new THREE.PlaneGeometry(h.w + 0.4, h.h + 0.4); dark.translate(h.x + h.w / 2, h.h / 2, -1.2); add('black', dark, 0x000000, m); }   // the dark inside
     for (const x of [h.x + 0.06, h.x + h.w - 0.06]) boxAt('metal', 0.14, h.h + 0.1, 0.16, x, (h.h + 0.1) / 2, -0.06, C('#4a4c4b'), m);   // guide rails
     boxAt('metal', h.w + 0.3, 0.32, 0.22, h.x + h.w / 2, h.h + 0.16, -0.04, C('#3f4241'), m);   // header
   };
@@ -539,6 +543,8 @@ export function buildExterior(scene, renderer) {
   };
   materials.stripes.map.wrapS = THREE.RepeatWrapping;
   const meshes = B.build(materials, group, new Set(['concrete', 'metal', 'roof', 'shutter', 'wood', 'drum', 'chain', 'rubber']));
+  const dockShutter = new THREE.Group(); dockShutter.name = 'dockShutter';
+  DB.build(materials, dockShutter, new Set(['shutter', 'metal'])); group.add(dockShutter);
   for (const m of meshes) {
     const k = m.userData.dressMat;
     if (['stencil', 'streak', 'decal'].includes(k)) m.renderOrder = 2;
@@ -548,20 +554,25 @@ export function buildExterior(scene, renderer) {
   // ---- forest round the fence and along the road
   const [pineG, leafG] = treeGeometries();
   const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 });
-  const spots = [];
-  for (let tries = 0; spots.length < 1100 && tries < 6000; tries++) {
+  // the strip along the road south of the gate repeats every ROAD_PERIOD metres, so a drive down it can loop unseen
+  const spots = [], tree = (x, z) => ({ x, z, s: 0.8 + R() * 0.9, sy: 0.85 + R() * 0.4, ry: R() * 6.28, pine: R() < 0.62 });
+  const inStrip = (x, z) => Math.abs(x) < 45 && z < Y.z0 - 12;
+  for (let tries = 0; spots.length < 900 && tries < 6000; tries++) {
     const x = (R() - 0.5) * 420, z = -230 + R() * 420;
     if (x > Y.x0 - 5 && x < Y.x1 + 5 && z > Y.z0 - 5 && z < Y.z1 + 5) continue;    // the yard
-    if (Math.abs(x) < 7 + R() * 2 && z < Y.z0) continue;                            // the road
+    if (inStrip(x, z) || (Math.abs(x) < 7 + R() * 2 && z < Y.z0)) continue;       // the road and its strip
     const near = Math.max(0, 1 - (Math.min(Math.abs(x - 1) , Math.abs(z - 25)) - 30) / 120);
     if (R() > 0.35 + near) continue;                                                 // denser near the yard
-    spots.push([x, z]);
+    spots.push(tree(x, z));
   }
-  const pines = spots.filter(() => R() < 0.62), leafs = spots.filter((s) => !pines.includes(s));
-  for (const [geo, list] of [[pineG, pines], [leafG, leafs]]) {
-    const im = new THREE.InstancedMesh(geo, treeMat, list.length);
+  const top = Y.z0 - 12, base = [];
+  for (let i = 0; i < 80; i++) { const side = R() < 0.5 ? -1 : 1, x = side * (11 + Math.pow(R(), 1.2) * 34); base.push(tree(x, top - R() * ROAD_PERIOD)); }
+  for (let k = 0; k < 7; k++) for (const b of base) spots.push({ ...b, z: b.z - k * ROAD_PERIOD });
+  for (const pine of [true, false]) {
+    const list = spots.filter((p) => p.pine === pine);
+    const im = new THREE.InstancedMesh(pine ? pineG : leafG, treeMat, list.length);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion();
-    list.forEach(([x, z], i) => { const s = 0.8 + R() * 0.9; m.compose(new V3(x, -0.05, z), q.setFromAxisAngle(new V3(0, 1, 0), R() * 6.28), new V3(s, s * (0.85 + R() * 0.4), s)); im.setMatrixAt(i, m); });
+    list.forEach((p, i) => { m.compose(new V3(p.x, -0.05, p.z), q.setFromAxisAngle(new V3(0, 1, 0), p.ry), new V3(p.s, p.s * p.sy, p.s)); im.setMatrixAt(i, m); });
     im.castShadow = true; im.receiveShadow = true;
     group.add(im);
   }
@@ -609,7 +620,7 @@ export function buildExterior(scene, renderer) {
     renderer.toneMappingExposure = s.exp;
   }
   setTime('dusk');
-  return { group, setTime, lamps: lampLights, sun };
+  return { group, setTime, lamps: lampLights, sun, dockShutter };
 }
 // the map's decal sheet (oil, rust, dirt), shared
 const decals = { _t: null, get map() { return (this._t ||= PT.decals()).map; }, cell(i) { return (this._t ||= PT.decals()).cell(i); } };

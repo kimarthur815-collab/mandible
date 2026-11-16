@@ -285,6 +285,69 @@ export class Sound {
     o.start(now); o.stop(now + attack + dur + 0.05);
   }
 
+  // ------------------------------------------------------------ the drive in (no positions: it all happens round you)
+  // while in the truck the factory's drone and the tension music stay silent
+  introMode(on) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    for (const [b, v] of [[this.amb, 0.9], [this.mus, 0.8]]) { b.gain.cancelScheduledValues(t); b.gain.setTargetAtTime(on ? 0 : v, t, on ? 0.01 : 1.5); }
+  }
+  engine(on) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    if (on && !this.eng) {
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 190;
+      const g = ctx.createGain(); g.gain.value = 0; lp.connect(g); g.connect(this.sfx);
+      const rumble = this.loop(this.brown, lp, 0.8);
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 33; const og = ctx.createGain(); og.gain.value = 0.22; o.connect(og); og.connect(lp); o.start();
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 0.27; const lg = ctx.createGain(); lg.gain.value = 1.6; lfo.connect(lg); lg.connect(o.frequency); lfo.start();
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 650; bp.Q.value = 0.5; bp.connect(g);   // tyres on the road
+      const road = this.loop(this.white, bp, 0.045);
+      g.gain.setTargetAtTime(0.4, t, 0.4);
+      this.eng = { g, srcs: [rumble.s, o, lfo, road.s] };
+    } else if (!on && this.eng) {
+      const e = this.eng; this.eng = null;
+      e.g.gain.setTargetAtTime(0, t, 0.35);
+      setTimeout(() => e.srcs.forEach((s) => { try { s.stop(); } catch (er) { /* already stopped */ } }), 2000);
+    }
+  }
+  // keying the radio: a burst of static and the roger beep
+  squelch() {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.22, f: 1800, q: 0.7, gain: 0.22, attack: 0.005 });
+    this.tone({ t: 0.2, f0: 1250, f1: 1250, dur: 0.07, gain: 0.05, type: 'square' });
+  }
+  // a voice over the radio, as garble: syllables of band-limited noise under a hiss
+  chatter(dur) {
+    if (!this.ctx) return;
+    this.burst({ dur, f: 2200, q: 0.4, gain: 0.03, attack: 0.05 });
+    for (let x = 0; x < dur - 0.15; x += rnd(0.09, 0.2)) {
+      if (Math.random() < 0.12) { x += 0.15; continue; }
+      this.burst({ t: x, dur: rnd(0.05, 0.13), f: rnd(450, 1500), q: rnd(2, 5), gain: rnd(0.12, 0.26), attack: 0.012 });
+    }
+  }
+  truckDoor(open) {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.05, f: 2400, q: 4, gain: 0.2 });
+    this.tone({ t: 0.03, f0: open ? 140 : 110, f1: 60, dur: 0.18, gain: 0.45, attack: 0.004 });
+    this.burst({ t: 0.03, dur: 0.2, f: 300, q: 1, gain: 0.35, buf: this.brown });
+  }
+  shutterRoll(dur = 2.4) {
+    if (!this.ctx) return;
+    const f = this.burst({ dur, f: 140, q: 1.5, gain: 0.8, attack: 0.25, buf: this.brown });
+    f.frequency.linearRampToValueAtTime(230, this.ctx.currentTime + dur);
+    for (let i = 0; i < dur * 7; i++) this.burst({ t: i / 7 + rnd(0, 0.08), dur: 0.05, f: rnd(700, 1500), q: 6, gain: 0.14 });
+    this.tone({ t: dur, f0: 90, f1: 45, dur: 0.35, gain: 0.5 });
+  }
+  // the shutter coming down behind you
+  slam() {
+    if (!this.ctx) return;
+    this.shutterRoll(0.7);
+    this.tone({ t: 0.75, f0: 75, f1: 30, dur: 0.9, gain: 1.0, attack: 0.004 });
+    this.burst({ t: 0.75, dur: 0.6, f: 220, q: 0.8, gain: 0.7, buf: this.brown });
+    this.burst({ t: 0.76, dur: 0.25, f: 1800, q: 2, gain: 0.25 });
+  }
+
   // ------------------------------------------------------------ ambience
   startAmbience() {
     const ctx = this.ctx;

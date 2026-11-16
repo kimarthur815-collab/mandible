@@ -329,7 +329,7 @@ export function buildTruck() {
   }
 
   // ---- cab interior (the shell is invisible from in here)
-  const trim = C('#34363a'), dark = C('#1f2124');
+  const trim = C('#45474b'), dark = C('#26282b');
   // a flat panel given in 2D, with holes, mapped into 3D by fn(u, v)
   const flat = (outline, holes, fn) => {
     const sh = new THREE.Shape(outline.map(([u, v]) => new THREE.Vector2(u, v)));
@@ -359,7 +359,7 @@ export function buildTruck() {
   {
     const sh = new THREE.Shape([[2.29, 1.21], [2.02, 1.25], [1.92, 1.25], [1.87, 1.2], [1.87, 0.95], [1.98, 0.8], [2.29, 0.8]].map(([z, y]) => new THREE.Vector2(z, y)));
     const g = new THREE.ExtrudeGeometry(sh, { depth: 1.56, bevelEnabled: true, bevelThickness: 0.01, bevelSize: 0.012, bevelSegments: 2 });
-    g.translate(0, 0, -0.78); g.rotateY(-Math.PI / 2); add('trim', g, C('#2b2d30'));
+    g.translate(0, 0, -0.78); g.rotateY(-Math.PI / 2); add('trim', g, C('#3a3c40'));
   }
   box('trim', 0.52, 0.05, 0.16, 0.4, 1.27, 1.93, C('#1c1e20'), -0.12);                                // cluster hood
   panel('gauges', 0.44, 0.15, 0.4, 1.13, 1.852, 0.1);
@@ -470,16 +470,18 @@ export function buildTruck() {
   });
   // a dim glow from the gauges and screens, so the cab isn't pitch black at night
   const glow = new THREE.PointLight(0xffb27a, 0, 1.6, 2); glow.position.set(0.05, 1.25, 1.75); group.add(glow);
+  // at dusk, warm light bouncing round the cab from the low sun ahead
+  const bounce = new THREE.PointLight(0xffb07a, 0, 2.6, 1.5); bounce.position.set(0.1, 1.75, 1.75); group.add(bounce);
 
   let t = 0, ringing = true;
   return {
-    group, wheels, eye: DRIVER_EYE.clone(), heads,
+    group, wheels, eye: DRIVER_EYE.clone(), heads, radio: new V3(-0.42, 1.33, 1.95),
     setTime(mode) {
       const night = mode === 'night';
       materials.gauges.emissiveIntensity = night ? 1.1 : 0.35;
       materials.climate.emissiveIntensity = night ? 0.5 : 0.1;
       materials.nav.map = materials.nav.emissiveMap = navT[mode]; materials.nav.emissiveIntensity = night ? 0.9 : 0.75; materials.nav.needsUpdate = true;
-      glow.intensity = night ? 0.25 : 0;
+      glow.intensity = night ? 0.25 : 0; bounce.intensity = night ? 0 : 1.6;
       for (const h of heads) h.intensity = night ? 120 : 60;
     },
     setRinging(on) { ringing = on; },

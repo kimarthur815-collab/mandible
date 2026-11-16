@@ -13,6 +13,7 @@ import { EggNest } from './spiderlings.js';
 import { GhostBrood } from './ghostlings.js';
 import { MapCentipede } from './centi.js';
 import { PassageGate, Phantom, DeadWorker, GATE, BODY } from './scares.js';
+import { createIntro } from './intro.js';
 
 const $ = (s) => document.querySelector(s);
 const touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -34,6 +35,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
 scene.fog = new THREE.FogExp2(0x000000, 0.05);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 140);
+let intro = null;   // the opening drive (built near the end, see createIntro)
 
 // ------------------------------------------------------------------ level
 const { group: levelGroup, colliders, labels: roomLabels } = buildLevel(scene);
@@ -626,6 +628,7 @@ function resize() {
   camera.updateProjectionMatrix();
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   mm.width = 170 * dpr; mm.height = 270 * dpr;
+  if (intro) intro.resize();
 }
 addEventListener('resize', resize);
 resize();
@@ -670,6 +673,8 @@ function roomAt(x, z) {
 function frame(dtOverride) {
   const dt = dtOverride != null ? dtOverride : Math.min(clock.getDelta(), 1 / 20);
   t += dt;
+  // the opening drive has its own scene; the game waits until you step inside
+  if (intro && intro.active) { if (!needRotate) intro.update(dt); if (intro.active) { if (!window.__NORENDER) intro.render(); return; } }
   if (needRotate) { renderer.render(scene, camera); return; }
   const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
@@ -1083,14 +1088,42 @@ if (isIOS && !fsOK() && !standalone) $('#iosHint').classList.add('show');
 // ------------------------------------------------------------------ start / win
 G.started = false;
 resetGame();
+// the main screen is the drive in (not in tests unless asked for with ?intro)
+intro = TEST && !new URLSearchParams(location.search).has('intro') ? null : createIntro({
+  renderer, sfx, onDone: () => beginGame({ fromIntro: true }),
+  ui: {
+    fade(v) { $('#fadeBlack').style.opacity = v; },
+    subtitle(who, text) {
+      const el = $('#subtitle');
+      if (!who) { el.classList.remove('show'); return; }
+      el.querySelector('b').textContent = who === '나' ? '나' : '무전'; el.querySelector('span').textContent = text;
+      el.classList.toggle('me', who === '나'); el.classList.add('show');
+    },
+    radioButton(x, y) { const b = $('#startBtn'); if (x == null) { b.style.visibility = 'hidden'; return; } b.style.visibility = ''; b.style.left = `${x}px`; b.style.top = `${y}px`; },
+    skip(on) { $('#skipBtn').classList.toggle('show', on); },
+  },
+});
+if (intro) document.body.classList.add('intro');
+function beginGame({ fromIntro = false, quiet = false } = {}) {
+  if (intro && intro.active) intro.stop();
+  document.body.classList.remove('intro');
+  $('#start').classList.add('hide');
+  renderer.toneMappingExposure = 1.22;
+  sfx.introMode(false); sfx.engine(false);
+  if (G.started) return;
+  G.started = true;
+  if (fromIntro) sfx.slam();                      // the shutter comes down behind you
+  if (!quiet) setTimeout(() => tip(touch ? '너무 어둡다. 손전등을 켜자 (손전등 버튼)' : '너무 어둡다. 손전등을 켜자 (좌클릭)', 'start'), fromIntro ? 1800 : 1200);
+}
 $('#startBtn').addEventListener('click', () => {
   sfx.start();
   if (touch && fsOK() && !fsEl() && !standalone) enterFullscreen().catch(() => {});
-  G.started = true;
-  $('#start').classList.add('hide');
   if (!viaTouch()) requestLock();
-  setTimeout(() => tip(touch ? '너무 어둡다. 손전등을 켜자 (손전등 버튼)' : '너무 어둡다. 손전등을 켜자 (좌클릭)', 'start'), 1200);
+  if (intro && intro.active) { sfx.introMode(true); $('#start').classList.add('hide'); intro.answer(); }
+  else beginGame();
 });
+$('#skipBtn').addEventListener('click', (e) => { e.stopPropagation(); if (intro && intro.active) intro.skip(); });
+addEventListener('pointerdown', (e) => { if (intro && intro.active && e.target.id !== 'skipBtn') intro.tap(); });
 $('#againBtn').addEventListener('click', () => {
   sfx.start();
   resetGame(); G.started = true;
@@ -1119,7 +1152,7 @@ addEventListener('keydown', (e) => { if (e.code === 'Backquote') toggleDev(); })
 devPanel.addEventListener('pointerdown', (e) => e.stopPropagation());
 devPanel.querySelectorAll('[data-tp]').forEach((b) => b.addEventListener('click', () => {
   const [x, z, yaw, pitch] = TP[b.dataset.tp];
-  if (!G.started) { G.started = true; $('#start').classList.add('hide'); }
+  if (!G.started) beginGame({ quiet: true });
   player.place(x, z, yaw); player.pitch = pitch;
 }));
 const devSet = (k, v) => {
@@ -1137,7 +1170,7 @@ devPanel.querySelectorAll('[data-dev]').forEach((b) => b.addEventListener('click
 }));
 devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click', () => {
   const k = b.dataset.do;
-  if (!G.started) { G.started = true; $('#start').classList.add('hide'); }
+  if (!G.started) beginGame({ quiet: true });
   if (k === 'call') { swarms.alertNearest(player.pos.clone()); msg('가장 가까운 바퀴 떼가 온다'); }
   if (k === 'scare') swarms.jumpScare(camera);
   if (k === 'attach') { const r = swarms.roaches.find((x) => x.state !== 'off' && x.state !== 'attached' && x.sw >= 0); if (r) { const god = dev.god; dev.god = false; if (onAttach(r)) { r.state = 'attached'; swarms.hide(r); } dev.god = god; } }
@@ -1156,7 +1189,8 @@ window.__M = {
   arms, sfx, scene, flashLight: flash, gate, phantom, deadMan, genOn, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
-  start() { G.started = true; $('#start').classList.add('hide'); },
+  start() { beginGame({ quiet: true }); },
+  intro: () => intro,
   setInput(o) { override = o ? Object.assign({ mx: 0, mz: 0, run: false, crouch: false, lookX: 0, lookY: 0, use: false, usePressed: false }, o) : null; },
   teleport(x, z, yaw, pitch = 0) { player.place(x, z, yaw); player.pitch = pitch; },
   flash(on) { if (G.flashOn !== on) toggleFlash(); },
