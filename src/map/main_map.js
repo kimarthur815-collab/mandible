@@ -11,7 +11,7 @@ import { dressLevel } from './dressing.js';
 import { MapSpiders } from './spiders.js';
 import { EggNest } from './spiderlings.js';
 import { GhostBrood } from './ghostlings.js';
-import { createPaperMap } from './papermap.js';
+import { createPadMap } from './padmap.js';
 import { BUG_PAGES, drawBugPage, tapePhoto } from './bugnotes.js';
 import { MapCentipede, HUNT } from './centi.js';
 import { PassageGate, Phantom, DeadWorker, GATE, BODY, LeeBody, LEE } from './scares.js';
@@ -51,9 +51,9 @@ const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal
 // difficulty: health, spray cans, how fast hunters run, how fast the flashlight heats, how far your
 // footsteps carry, how long the starter cord takes to catch (s), and how hard a grab is to fight off
 const DIFF = {
-  easy: { label: '쉬움', hp: 5, spray: 5, speed: 0.82, heat: 0, hear: 0.75, pull: 1.8, mash: 0.7, mapDark: 0.62 },
-  normal: { label: '보통', hp: 3, spray: 3, speed: 1, heat: 1, hear: 1, pull: 2.4, mash: 1, mapDark: 0.36 },
-  hard: { label: '어려움', hp: 2, spray: 2, speed: 1.15, heat: 1.3, hear: 1.3, pull: 3.0, mash: 1.3, mapDark: 0.16 },
+  easy: { label: '쉬움', hp: 5, spray: 5, speed: 0.82, heat: 0, hear: 0.75, pull: 1.8, mash: 0.7 },
+  normal: { label: '보통', hp: 3, spray: 3, speed: 1, heat: 1, hear: 1, pull: 2.4, mash: 1 },
+  hard: { label: '어려움', hp: 2, spray: 2, speed: 1.15, heat: 1.3, hear: 1.3, pull: 3.0, mash: 1.3 },
 };
 const D = () => DIFF[SET.diff] || DIFF.normal;
 let devTools = (() => { try { return localStorage.getItem('mandible.dev') === '1'; } catch (e) { return false; } })();
@@ -200,6 +200,33 @@ const workLight = (() => {
   colliders.push({ x0: W.x - 0.35, x1: W.x + 0.35, z0: W.z - 0.35, z1: W.z + 0.35 });
   return { ...W, spot, fill, glassMat, led, on: false, t: 0, k: 0 };
 })();
+
+// ------------------------------------------------------------------ one zone at a time
+// Until a room's generator runs, the way on is taped off: the machine room's generator opens the corridor,
+// the hall's opens the lab. Walk up to the tape and you say so.
+const zoneGates = [
+  { room: 'machine', axis: 'z', at: 20, from: 16.8, to: 20.2 },
+  { room: 'hall', axis: 'x', at: -6, from: 55.8, to: 59.2 },
+].map((zg) => {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 32;
+  const x = c.getContext('2d');
+  x.fillStyle = '#f0c419'; x.fillRect(0, 0, 256, 32);
+  x.fillStyle = '#111'; for (let k = -32; k < 256; k += 32) { x.beginPath(); x.moveTo(k, 32); x.lineTo(k + 16, 32); x.lineTo(k + 32, 0); x.lineTo(k + 16, 0); x.closePath(); x.fill(); }
+  x.fillStyle = '#f0c419'; x.fillRect(84, 6, 88, 20); x.fillStyle = '#111'; x.font = 'bold 15px sans-serif'; x.textAlign = 'center'; x.fillText('출입금지', 128, 22);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = THREE.RepeatWrapping;
+  const len = zg.to - zg.from, mat = new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide, roughness: 0.6 });
+  tex.repeat.set(Math.max(1, Math.round(len / 1.4)), 1);
+  const tape = new THREE.Group();
+  for (const [y, tilt] of [[1.02, 0.02], [1.48, -0.03]]) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.075), mat);
+    m.rotation.z = tilt; m.position.y = y; tape.add(m);
+  }
+  if (zg.axis === 'z') tape.position.set((zg.from + zg.to) / 2, 0, zg.at); else { tape.position.set(zg.at, 0, (zg.from + zg.to) / 2); tape.rotation.y = Math.PI / 2; }
+  scene.add(tape);
+  const col = zg.axis === 'z' ? { x0: zg.from, x1: zg.to, z0: zg.at - 0.15, z1: zg.at + 0.15 } : { x0: zg.at - 0.15, x1: zg.at + 0.15, z0: zg.from, z1: zg.to };
+  colliders.push(col);
+  return { ...zg, tape, col, saidT: -99 };
+});
 
 const genMeshes = SPOTS.generators.map((s, i) => {
   const g = new THREE.Group();
@@ -575,7 +602,7 @@ function resetGame() {
     tipped: {}, lampSeen: false, calls: 3, hp: D().hp, dead: false, kill: null, attached: [], attachCd: 0, chasing: false, chaseLen: 0, stingAt: -99, scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
-    cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false,
+    cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false, lostT: 0, lostHints: 0, seenRooms: new Set(), glance: null, glanceAt: -99,
     stats: { hits: 0, deaths: 0, spray: 0, thrown: 0, photos: 0, radio: 0, work: false },
   });
   swarms.reset(); swarms.sealed = new Set([3]); gate.setOpen(false); phantom.hide();
@@ -612,7 +639,7 @@ const shownTips = {};
 // what to press, named in lines that tell you to do something: "손전등을 켜자 (좌클릭)"
 // control hints in lines: the action and its PC key, e.g. (앉기 Ctrl); on touch screens the same, plus
 // '· 버튼' (the on-screen button of that name)
-const KEYS = { flash: ['손전등', '우클릭'], crouch: ['앉기', 'Ctrl'], spray: ['스프레이', 'T'], book: ['수첩', 'J'], radio: ['무전', 'R'], use: ['상호작용', 'E'], throw: ['던지기', 'G'], cam: ['카메라', 'V'] };
+const KEYS = { flash: ['손전등', '우클릭'], crouch: ['앉기', 'Ctrl'], spray: ['스프레이', 'T'], book: ['수첩', 'J'], radio: ['무전', 'R'], use: ['상호작용', 'E'], throw: ['던지기', 'G'], cam: ['카메라', 'V'], map: ['지도', 'M'] };
 const KEY = Object.fromEntries(Object.entries(KEYS).map(([k, [act, key]]) => [k, `${act} ${key}`]));   // same on phones: the action matches the button label, plus the PC key
 const tipQueue = [];
 let tipBusy = false;
@@ -1034,7 +1061,7 @@ function toggleFlash() {
   if (window.__SFX) window.__SFX.click(G.flashOn);
 }
 let showMap = false, bright = false;
-function toggleMap() { showMap = !showMap; if (showMap) paperMap.resize(); $('#paperMap').classList.toggle('show', showMap); if (showMap) sfx.paper(); document.querySelectorAll('[data-act="map"]').forEach((b) => b.classList.toggle('on', showMap)); }
+function toggleMap() { showMap = !showMap; if (showMap) paperMap.resize(); $('#paperMap').classList.toggle('show', showMap); if (showMap) sfx.padBeep(); document.querySelectorAll('[data-act="map"]').forEach((b) => b.classList.toggle('on', showMap)); }
 function toggleBright() {
   bright = !bright;
   hemi.intensity = bright ? 1.5 : 0;
@@ -1059,7 +1086,7 @@ function endBlackout() {
   if (swarms.ambushNear(player.pos, player.yaw)) tip('...언제 이렇게 가까이 왔지');
 }
 function genOn(g) {
-  g.on = true;
+  g.on = true; G.lostT = 0;
   G.gens++;
   G.events.push({ x: g.x, z: g.z, r: 30 });
   g.led.material.emissive.set(0x30ff60);
@@ -1275,16 +1302,10 @@ function centiRelease(how) {
 function shakeScreen() { if (SET.shake === false) return; document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake'); }
 
 // ------------------------------------------------------------------ minimap
-const MB = { x0: -21, x1: 25, z0: -3, z1: 71 };
-// the map is team 2's hand-drawn floor plan, held up in front of you (papermap.js); what's on it depends on the difficulty
-const paperMap = createPaperMap({ canvas: $('#paperMap canvas'), ROOMS, DOORS, SPOTS, MB });
-let mapLight = 1;
-function drawMap(dt) {
-  // it needs light to read: flashlight, a lamp, or (barely) your eyes in the dark
-  const want = G.flashOn && !G.drained && G.blackT <= 0 ? 1 : G.inSafe ? 0.85 : D().mapDark;
-  mapLight += (want - mapLight) * Math.min(1, dt * 4);
-  $('#paperMap').style.filter = `brightness(${mapLight.toFixed(3)})`;
-  paperMap.draw({ x: player.pos.x, z: player.pos.z, yaw: player.yaw, room: roomAt(player.pos.x, player.pos.z), gens: genMeshes });
+// the map: a tablet held up, its floor plan centred on you (padmap.js); what it marks depends on the difficulty
+const paperMap = createPadMap({ canvas: $('#paperMap canvas'), ROOMS, DOORS, SPOTS });
+function drawMap() {
+  paperMap.draw({ x: player.pos.x, z: player.pos.z, yaw: player.yaw, room: roomAt(player.pos.x, player.pos.z), gens: genMeshes, lamps, gensOn: G.gens, emergency: G.emergency > 0.7, t });
 }
 
 // ------------------------------------------------------------------ loop
@@ -1385,6 +1406,14 @@ function lookToward(p, hold = 0.5) {
   if (!G.started || G.dead || G.grab) return;
   focus = { p: p.clone(), t: 0, end: 0.8 + hold };
 }
+// a glance over your shoulder: the head turns, you keep running the way you were going (camera only)
+const UPV = new THREE.Vector3(0, 1, 0);
+function glanceAt(p) {
+  const f = new THREE.Vector3(); player.forward(f);
+  let d = Math.atan2(p.x - camera.position.x, p.z - camera.position.z) - Math.atan2(f.x, f.z);
+  d = Math.atan2(Math.sin(d), Math.cos(d));
+  G.glance = { t: 0, ang: THREE.MathUtils.clamp(d, -2.7, 2.7) };
+}
 function applyFocus(dt, inp) {
   if (!focus) return inp;
   focus.t += dt;
@@ -1417,7 +1446,14 @@ function frame(dtOverride) {
   if (needRotate) { withBright(() => renderer.render(scene, camera)); return; }
   const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
-  if (G.started && !G.won && !G.dead && !G.grab && !G.kill) player.update(dt, applyFocus(dt, inp));
+  if (G.started && !G.won && !G.dead && !G.grab && !G.kill) {
+    player.update(dt, applyFocus(dt, inp));
+    if (G.glance) {
+      const g = G.glance; g.t += dt;
+      if (g.t > 1.6) G.glance = null;
+      else camera.rotateOnWorldAxis(UPV, g.ang * THREE.MathUtils.smoothstep(g.t, 0, 0.35) * (1 - THREE.MathUtils.smoothstep(g.t, 1.0, 1.6)));
+    }
+  } else G.glance = null;
   if (G.kill) centiKillStep(dt);
   if (G.rise && !G.kill) { G.rise.t += dt; const k = Math.min(1, G.rise.t / 0.7); camera.position.y = THREE.MathUtils.lerp(G.rise.y0, camera.position.y, k * k * (3 - 2 * k)); if (G.rise.t >= 0.7) G.rise = null; }
   G.centiCd = Math.max(0, (G.centiCd || 0) - dt);
@@ -1695,6 +1731,22 @@ function frame(dtOverride) {
   if (broodInfo.moving > 4) inten = Math.max(inten, 0.4);
   if (G.started && !G.dead && !journal.has('roach') && ai.swarms.some((w) => w.n && w.d < 6 && canSee(tmpV.set(w.x, 0.2, w.z)))) discover('roach');
   if (G.started && !G.dead && !journal.has('centi') && centi.active && centi.state !== 'dormant' && Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z) < 22) discover('centi');
+  // the centipede right behind you in a chase: your head snaps round to look (not too often)
+  if (centi.active && centi.state === 'chase' && !G.glance && t - G.glanceAt > 9 && !G.grab && !G.kill && !G.hidden && !G.dead) {
+    const dC = Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z);
+    if (dC < 5.5 && dC > 1.8) {
+      const f = new THREE.Vector3(); player.forward(f);
+      const behind = (f.x * (centi.head.x - player.pos.x) + f.z * (centi.head.z - player.pos.z)) / (Math.hypot(f.x, f.z) * dC || 1);
+      if (behind < -0.3) { glanceAt(centi.head); G.glanceAt = t; sfx.heartbeat(1); if (!G.tipped.glance) { G.tipped.glance = true; tip('...바로 뒤에 있어!'); } }
+    }
+  }
+  // lost: a long while with no new room and no generator, and not looking at the map: suggest the pad
+  { const rm = roomAt(player.pos.x, player.pos.z);
+    if (rm && !G.seenRooms.has(rm)) { G.seenRooms.add(rm); G.lostT = Math.min(G.lostT, 0); }
+    if (showMap) G.lostT = Math.min(G.lostT, 0);
+    else if (G.started && !G.dead && !G.won && !G.chasing && !G.hidden && !G.grab && !G.kill) G.lostT += dt;
+    if (G.lostT > 55 && G.lostHints < 3) { G.lostHints++; G.lostT = -35; tip(`길을 못 찾겠다... 패드로 지도를 보자 (${KEY.map})`); }
+  }
   // who's after you: a spider or the centipede chasing drives the chase music, something searching keeps a low pulse
   let chaseD = 99;
   for (const q of spiders.chasers()) chaseD = Math.min(chaseD, Math.hypot(q.x - player.pos.x, q.z - player.pos.z));
@@ -1722,7 +1774,7 @@ function frame(dtOverride) {
   for (const a of G.attached) a.age += dt;
   G.attachCd = Math.max(0, G.attachCd - dt);
   // roaches on you: no damage, but they slow you down and crawl over your face until shaken off
-  player.slowMul = Math.max(0.3, Math.max(0.4, 1 - 0.22 * G.attached.length) * (1 - G.lingSlow) * (G.webSlowT > 0 ? 0.5 : 1)) * (showMap || journal.open ? 0.55 : 1);
+  player.slowMul = Math.max(0.3, Math.max(0.4, 1 - 0.22 * G.attached.length) * (1 - G.lingSlow) * (G.webSlowT > 0 ? 0.5 : 1)) * (showMap ? 0.8 : journal.open ? 0.55 : 1);
   if (G.attached.length) {
     const a = G.attached[0];
     if (lookSign && lookSign !== a.lastSign) { a.rev++; a.lastSign = lookSign; }
@@ -1801,7 +1853,15 @@ function frame(dtOverride) {
   }
   for (const g of genMeshes) if (g.on) g.g.position.y = 0.006 * Math.sin(t * 90);
 
-  // ---- doors
+  // ---- doors (and the tape across the way on, until this zone's generator runs)
+  for (const zg of zoneGates) {
+    const gen = genMeshes.find((g) => g.room === zg.room), open = !!(gen && gen.on);
+    zg.col.off = open; zg.tape.visible = !open;
+    if (!open && G.started && !G.dead && !G.won) {
+      const along = zg.axis === 'z' ? player.pos.x : player.pos.z, across = (zg.axis === 'z' ? player.pos.z : player.pos.x) - zg.at;
+      if (along > zg.from && along < zg.to && Math.abs(across) < 1.0 && t - zg.saidT > 6) { zg.saidT = t; msg(`아직 ${ROOMS[zg.room].name} 발전기를 안 켰다. 먼저 켜고 가자`); }
+    }
+  }
   if (G.emergencyOpening && G.emergency < 1) { G.emergency = Math.min(1, G.emergency + dt / 1.6); emDoor.position.x = -15.5 - 3 * G.emergency; if (G.emergency > 0.7) emCol.off = true; }
   if (G.shutterOpening && G.shutter < 1) {
     G.shutter = Math.min(1, G.shutter + dt / 3.2);
@@ -2155,7 +2215,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, workLight, faceBugs, switchWork, throwCan, snapPhoto, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, workLight, faceBugs, switchWork, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { beginGame({ quiet: true }); },

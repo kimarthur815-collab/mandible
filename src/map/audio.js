@@ -675,6 +675,12 @@ export class Sound {
     l.g.gain.setTargetAtTime(0.35, this.ctx.currentTime + 0.1, 0.1);
     this.lampSrc.set(`${x},${z}`, { ...l, p });
   }
+  // the map tablet waking up: two soft beeps
+  padBeep() {
+    if (!this.ctx) return;
+    this.tone({ f0: 1320, f1: 1320, dur: 0.06, gain: 0.05, attack: 0.004 });
+    this.tone({ t: 0.09, f0: 1760, f1: 1760, dur: 0.08, gain: 0.05, attack: 0.004 });
+  }
   // a whisper through the radio: a hiss, then two breathy syllables right at your ear
   whisper(dur = 2.4) {
     if (!this.ctx) return;
