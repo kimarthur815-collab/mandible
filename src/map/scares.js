@@ -188,14 +188,14 @@ export class Phantom {
     s.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     s.root.visible = false;
     scene.add(s.root);
-    this.th = new Thread(silk); scene.add(this.th.line); this.th.line.visible = false;
+    this.th = new Thread(silk, { ribbon: true }); scene.add(this.th.line); this.th.line.visible = false;
     this.s = s; this.active = false;
   }
 
   // drop in front of the camera (yaw = the way you face), from a ceiling at ceilY, inside the room box
-  show(cam, yaw, ceilY, box) {
-    const s = this.s;
-    const x = clamp(cam.x + Math.sin(yaw) * 1.7, box.x0 + 0.5, box.x1 - 0.5), z = clamp(cam.z + Math.cos(yaw) * 1.7, box.z0 + 0.5, box.z1 - 0.5);
+  // (spot: { x, z } where it drops, if already picked; see Phantom.spot)
+  show(cam, yaw, ceilY, box, spot = Phantom.spot(cam, yaw, box)) {
+    const s = this.s, { x, z } = spot;
     const UP = new V3(0, 1, 0), DN = new V3(0, -1, 0);
     s.surf = (a, b) => {
       if (a.y <= ceilY && b.y > ceilY) { const t = (ceilY - a.y) / (b.y - a.y); return { p: new V3().lerpVectors(a, b, t), n: DN, t }; }
@@ -210,6 +210,10 @@ export class Phantom {
     this.active = true; this.t = 0; this.litT = -1; this.lightsT = -1; this.gone = 0;
     return { x, z };
   }
+
+  // in front of you, 1.7 m, inside the room
+  static spot(cam, yaw, box) { return { x: clamp(cam.x + Math.sin(yaw) * 1.7, box.x0 + 0.5, box.x1 - 0.5), z: clamp(cam.z + Math.cos(yaw) * 1.7, box.z0 + 0.5, box.z1 - 0.5) }; }
+  get leaving() { return this.active && !['drop', 'hang'].includes(this.s.state); }
 
   lightsBack() { if (this.active) { this.lightsT = 0; this.s.whirl = 0.9; } }
 
@@ -304,6 +308,13 @@ export class DeadWorker {
     hand.place(wrist, hq, elbow);
     g.add(hand.mesh);
     this.hand = hand;
+    // (it never moves against the body: no shadow from it, and a real bound so it's only drawn in view)
+    base.updateMatrixWorld(true);
+    for (const m of [hand.mesh, hand.sleeve]) {
+      if (!m) continue;
+      m.castShadow = false;
+      if (m.isSkinnedMesh) { m.skeleton.update(); m.computeBoundingSphere(); m.boundingSphere.radius += 0.12; m.frustumCulled = true; }
+    }
     // the upper arm, from the end of the sleeve up into the silk
     const sTop = wrist.clone().addScaledVector(hz, 0.5), len = sTop.distanceTo(shoulder);
     const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.044, len + 0.04, 14, 1, true), tyvek);

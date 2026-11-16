@@ -37,6 +37,73 @@ export function makeSilkMaterial() {
   });
 }
 
+// Silk as a ribbon a few pixels wide that always faces you: plain GL lines are 1 px, too thin to find on
+// a phone. Same light as above, a brighter base in the beam, and dust beads along it that catch the light.
+// Width is in CSS pixels; SILK_RES is the canvas size in CSS pixels (set it on resize).
+export const SILK_RES = new THREE.Vector2(800, 450);
+export function makeSilkRibbon(silk, { width = 2.4, base = 0.4, share = true } = {}) {
+  const u = silk.uniforms, uni = {};
+  for (const k of Object.keys(u)) uni[k] = share ? u[k] : { value: u[k].value && u[k].value.clone ? u[k].value.clone() : u[k].value };
+  Object.assign(uni, { uRes: { value: SILK_RES }, uWidth: { value: width }, uBase: { value: base }, uTime: { value: 0 } });
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, uniforms: uni,
+    vertexShader: /* glsl */`
+      attribute vec3 aTan; attribute float aSide; attribute float aU;
+      uniform vec3 uSpotPos; uniform vec3 uSpotDir; uniform float uCosO; uniform float uCosI; uniform float uOn; uniform float uAmb;
+      uniform vec3 uKey; uniform float uKeyOn; uniform vec2 uRes; uniform float uWidth; uniform float uBase;
+      varying float vI; varying float vS; varying float vU;
+      float glint(vec3 T, vec3 L, vec3 V) {
+        float tl = dot(T, L), tv = dot(T, V);
+        return pow(max(0.0, sqrt(max(0.0, 1.0 - tl * tl)) * sqrt(max(0.0, 1.0 - tv * tv)) - tl * tv), 40.0);
+      }
+      void main(){
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vec3 L = uSpotPos - wp.xyz; float d = length(L); L /= d;
+        float cone = smoothstep(uCosO, uCosI, dot(-L, uSpotDir));
+        vec3 V = normalize(cameraPosition - wp.xyz);
+        vec3 T = normalize(mat3(modelMatrix) * aTan);
+        vI = cone * uOn * (uBase + 3.0 * glint(T, L, V)) / (1.0 + d * d * 0.06) + uKeyOn * (0.12 + 1.2 * glint(T, uKey, V)) + uAmb;
+        // widen across the line on screen
+        mat4 PV = projectionMatrix * viewMatrix;
+        vec4 c0 = PV * wp, c1 = PV * (wp + vec4(T * 0.02, 0.0));
+        vec2 dir = c1.xy / max(c1.w, 1e-4) - c0.xy / max(c0.w, 1e-4);
+        dir = normalize(dir * uRes + vec2(1e-6, 0.0));
+        vec2 nrm = vec2(-dir.y, dir.x);
+        c0.xy += nrm * aSide * uWidth / uRes * c0.w;
+        gl_Position = c0;
+        vS = aSide; vU = aU;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform vec3 uColor; uniform float uTime; varying float vI; varying float vS; varying float vU;
+      void main(){
+        float a = 1.0 - vS * vS;
+        float bead = 0.8 + 0.9 * pow(max(0.0, sin(vU * 140.0)), 16.0) + 0.5 * pow(max(0.0, sin(vU * 37.0 + 1.3)), 30.0);
+        gl_FragColor = vec4(uColor * vI * a * bead, 1.0);
+      }`,
+  });
+}
+// the ribbon's geometry: segs [[a, b], ...] -> a quad per segment
+export function ribbonGeometry(segs) {
+  const n = segs.length, pos = new Float32Array(n * 12), tan = new Float32Array(n * 12), side = new Float32Array(n * 4), uu = new Float32Array(n * 4), idx = [];
+  let acc = 0;
+  segs.forEach(([a, b], i) => {
+    const t = new V3().subVectors(b, a), l = t.length(); t.divideScalar(l || 1);
+    const u1 = acc + l;
+    [[a, -1, acc], [a, 1, acc], [b, -1, u1], [b, 1, u1]].forEach(([p, sd, u], k) => {
+      const j = i * 4 + k; pos.set([p.x, p.y, p.z], j * 3); tan.set([t.x, t.y, t.z], j * 3); side[j] = sd; uu[j] = u;
+    });
+    acc = u1;
+    const o = i * 4; idx.push(o, o + 1, o + 2, o + 2, o + 1, o + 3);
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('aTan', new THREE.BufferAttribute(tan, 3));
+  g.setAttribute('aSide', new THREE.BufferAttribute(side, 1));
+  g.setAttribute('aU', new THREE.BufferAttribute(uu, 1));
+  g.setIndex(idx);
+  return g;
+}
+
 export function segmentsGeometry(segs) {
   const pos = new Float32Array(segs.length * 6), tan = new Float32Array(segs.length * 6);
   segs.forEach(([a, b], i) => {
@@ -118,19 +185,31 @@ export function makeCornerWebs(list, mat) {
 }
 
 // a single dynamic dragline
+// a spider's drop line (ribbon: opt.ribbon, sharing the silk material's light)
 export class Thread {
-  constructor(mat) {
-    this.geo = segmentsGeometry([[new V3(), new V3(0, 1, 0)]]);
-    this.line = new THREE.LineSegments(this.geo, mat);
+  constructor(mat, opt = {}) {
+    this.ribbon = !!opt.ribbon;
+    if (this.ribbon) {
+      this.geo = ribbonGeometry([[new V3(), new V3(0, 1, 0)]]);
+      this.line = new THREE.Mesh(this.geo, makeSilkRibbon(mat, { width: opt.width || 1.8, base: opt.base || 0.3 }));
+    } else {
+      this.geo = segmentsGeometry([[new V3(), new V3(0, 1, 0)]]);
+      this.line = new THREE.LineSegments(this.geo, mat);
+    }
     this.line.frustumCulled = false;
   }
   set(a, b, visible) {
     this.line.visible = visible;
     if (!visible) return;
     const p = this.geo.attributes.position, t = this.geo.attributes.aTan;
-    p.setXYZ(0, a.x, a.y, a.z); p.setXYZ(1, b.x, b.y, b.z);
-    const d = new V3().subVectors(b, a).normalize();
-    t.setXYZ(0, d.x, d.y, d.z); t.setXYZ(1, d.x, d.y, d.z);
+    const d = new V3().subVectors(b, a), l = d.length(); d.divideScalar(l || 1);
+    if (this.ribbon) {
+      for (let k = 0; k < 4; k++) { const q = k < 2 ? a : b; p.setXYZ(k, q.x, q.y, q.z); t.setXYZ(k, d.x, d.y, d.z); }
+      const u = this.geo.attributes.aU; u.setX(2, l); u.setX(3, l); u.needsUpdate = true;
+    } else {
+      p.setXYZ(0, a.x, a.y, a.z); p.setXYZ(1, b.x, b.y, b.z);
+      t.setXYZ(0, d.x, d.y, d.z); t.setXYZ(1, d.x, d.y, d.z);
+    }
     p.needsUpdate = true; t.needsUpdate = true;
   }
 }

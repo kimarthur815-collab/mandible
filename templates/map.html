@@ -47,6 +47,13 @@
   #journal .nav button { font: inherit; font-size: 13px; color: var(--ink); background: rgba(12,11,10,.7); border: 1px solid var(--line); border-radius: 9px; padding: 7px 14px; }
   #journal .nav button:disabled { opacity: .3; }
   #journal .nav #jClose { background: var(--amber); color: #1a1612; border: 0; }
+  /* a page you've just found: it's put in front of you to read (the game waits), once per bug */
+  #journal .head { display: none; color: var(--ink); font-size: 14px; letter-spacing: .08em; margin-bottom: 10px; opacity: .85; text-align: center; }
+  #journal.forced .head { display: block; }
+  #journal.forced #jPrev, #journal.forced #jNext, #journal.forced #jNum { display: none; }
+  #journal.forced .page { animation: jIn .55s cubic-bezier(.2,.8,.3,1.1) both; }
+  #journal.forced #jClose.wait { opacity: .35; pointer-events: none; }
+  @keyframes jIn { from { transform: translateY(60px) rotate(-7deg) scale(.9); opacity: 0; } to { transform: rotate(-1.5deg); opacity: 1; } }
   @media (max-height: 500px) { #journal .page { height: 76vh; } #journal .nav { margin-top: 6px; } #bugToast { width: 96px; top: 30%; } }
   /* the map: team 2's sketch on a notebook page, held up low in front of you */
   /* the map: a rugged tablet held up in front of you */
@@ -304,7 +311,7 @@
 <div id="tools"><button data-act="set">설정</button><button data-act="snd" class="on">소리</button><button data-act="fs">전체화면</button><button data-act="dev">개발</button><button data-act="map">지도</button><button data-act="book">수첩</button><button data-act="marks">벌레 위치</button><button data-act="bright">밝게</button></div>
 <div id="paperMap"><div class="scr"><canvas></canvas></div><i class="cam"></i></div>
 <div id="bugToast"><canvas width="240" height="320"></canvas></div>
-<div id="journal"><div class="page"><canvas width="600" height="800"></canvas></div><div class="nav"><button id="jPrev">◀</button><span id="jNum">1 / 1</span><button id="jNext">▶</button><button id="jClose">닫기</button></div></div>
+<div id="journal"><div class="head">2조 이정훈의 수첩 · 새로 찾은 기록</div><div class="page"><canvas width="600" height="800"></canvas></div><div class="nav"><button id="jPrev">◀</button><span id="jNum">1 / 1</span><button id="jNext">▶</button><button id="jClose">닫기</button></div></div>
 <div id="hurt"></div><div id="hit"></div><div id="camFx"></div>
 <div id="crawl"></div>
 <div id="grab"><div class="t">거미가 덮쳤다!</div><div class="bar"><i></i></div><div class="s only-desk">클릭 연타로 버텨라 · T 스프레이</div><div class="s only-touch">화면 연타로 버텨라 (클릭 연타) · 스프레이 버튼 (T)</div></div>

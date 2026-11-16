@@ -4,7 +4,7 @@
 // Webs across the corridor and the lab door slow you, shake, and call the nearest spider.
 import * as THREE from 'three';
 import { Spider } from '../spider.js';
-import { Thread, makeDoorWeb, sagLine, segmentsGeometry } from '../silk.js';
+import { Thread, makeDoorWeb, sagLine, makeSilkRibbon, ribbonGeometry } from '../silk.js';
 import { eggSacGeometry } from './ghostlings.js';
 import { catchUp, HUNT } from './centi.js';
 
@@ -50,7 +50,7 @@ export class MapSpiders {
       s.grabDist = z.type === 'wolf' ? 0.95 : 0.8;
       s.root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       scene.add(s.root);
-      const th = new Thread(silk);
+      const th = new Thread(silk, { ribbon: true });
       scene.add(th.line);
       if (z.mode === 'trip' || z.mode === 'wall') s.noAmbush = true;
       return { ...z, s, th, grabbed: false, fallT: 0, g: null };
@@ -74,9 +74,10 @@ export class MapSpiders {
     // the web in the lab doorway (wolf spider's alarm)
     this.webs = [this.makeWeb({ x: -6.0, z: 57.5, axis: 'x', halfW: 1.5, h: 3.0 })];
     // tripwire threads across the corridor
+    // (drawn a few pixels wide so they can be found, the base brighter in the beam, dust beads glinting on them)
     this.trips = TRIP_Z.map((z) => {
-      const mat = this.silk.clone();
-      const mesh = new THREE.LineSegments(new THREE.BufferGeometry(), mat);
+      const mat = makeSilkRibbon(this.silk, { width: 2.6, base: 0.55, share: false });
+      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
       mesh.frustumCulled = false;
       this.scene.add(mesh);
       return { z, mat, mesh, a: new V3(), b: new V3(), state: 'whole', seen: false };
@@ -172,7 +173,7 @@ export class MapSpiders {
       }
     }
     t.mesh.geometry.dispose();
-    t.mesh.geometry = segmentsGeometry(segs);
+    t.mesh.geometry = ribbonGeometry(segs);
   }
 
   // does a body standing at (x, z) with its head at headY touch a thread?
@@ -744,7 +745,9 @@ export class MapSpiders {
       sp.th.set(s.anchor, s.spinneretWorld(), s.threadVisible || sp.grabbed);
     }
     for (const t of this.trips) {
-      for (const k of ['uSpotPos', 'uSpotDir', 'uCosO', 'uCosI', 'uKey', 'uKeyOn']) t.mat.uniforms[k].value = this.silk.uniforms[k].value;
+      // (a wider cone than the beam's: the edge of the light finds them too)
+      for (const k of ['uSpotPos', 'uSpotDir', 'uKey', 'uKeyOn']) t.mat.uniforms[k].value = this.silk.uniforms[k].value;
+      t.mat.uniforms.uCosO.value = Math.cos(0.6); t.mat.uniforms.uCosI.value = Math.cos(0.28);
       t.mat.uniforms.uOn.value = this.silk.uniforms.uOn.value * (t.state === 'whole' ? 0.8 : 0.5);
       t.mat.uniforms.uAmb.value = this.silk.uniforms.uAmb.value;
       if (!t.seen && t.state === 'whole' && ctx.light.on) {

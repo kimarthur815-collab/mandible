@@ -919,6 +919,30 @@ export class Sound {
     for (const [f, d] of [[73.4, 0], [77.8, 0.05], [110, 0.1], [155.6, 0.2]]) this.tone({ dest: this.mus, t: d, f0: f, f1: f * 0.985, dur: 2.6, gain: 0.12, type: 'sawtooth', attack: 0.6 });
     this.burst({ dest: this.mus, dur: 2.2, f: 900, q: 0.6, gain: 0.05, attack: 0.8, buf: this.brown });
   }
+  // a violin stab: high strings bowed hard, a semitone cluster that scoops in, shivers and sags,
+  // a gritty bow scrape on top and a thud under it (when the view is pulled round to a bug)
+  violinStab(k = 1) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, now = ctx.currentTime;
+    const out = ctx.createGain(); out.gain.value = 0.85 * k; out.connect(this.mus);
+    const body = ctx.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 2900; body.Q.value = 1.1; body.gain.value = 7;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7500;
+    body.connect(lp); lp.connect(out);
+    [1975.5, 2093.0, 2217.5].forEach((f, i) => {
+      for (const det of [-7, 6]) {
+        const o = ctx.createOscillator(); o.type = 'sawtooth'; o.detune.value = det;
+        o.frequency.setValueAtTime(f * 0.93, now); o.frequency.exponentialRampToValueAtTime(f, now + 0.07); o.frequency.exponentialRampToValueAtTime(f * 0.9, now + 1.4);
+        const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 6.2 + i * 0.7; vg.gain.value = f * 0.011; vib.connect(vg); vg.connect(o.frequency);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.085, now + 0.015); g.gain.exponentialRampToValueAtTime(0.035, now + 0.3); g.gain.exponentialRampToValueAtTime(0.0001, now + 1.45);
+        o.connect(g); g.connect(body);
+        o.start(now); vib.start(now); o.stop(now + 1.5); vib.stop(now + 1.5);
+      }
+    });
+    this.burst({ dest: out, dur: 0.22, f: 3600, q: 1.8, gain: 0.55, attack: 0.004 });
+    this.burst({ dest: out, t: 0.05, dur: 0.6, f: 5200, q: 3, gain: 0.12, attack: 0.05 });
+    this.tone({ dest: this.mus, f0: 95, f1: 42, dur: 0.5, gain: 0.45 * k, attack: 0.004 });
+  }
   // the metal ticking as it cools
   coolTick() { if (this.ctx) this.burst({ dur: 0.006, f: rnd(3800, 5600), q: 6, gain: rnd(0.03, 0.06), pan: 0.3 }); }
   // crouching / standing: the suit rustling

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as TX from '../textures.js';
 import { buildLevel, buildBugMarkers, ROOMS, DOORS, SPOTS, greyMat, boxGeom } from './level.js';
 import { Player } from './player.js';
-import { makeSilkMaterial } from '../silk.js';
+import { makeSilkMaterial, SILK_RES } from '../silk.js';
 import { RoachSwarms } from './roachswarm.js';
 import { Arms } from './arms.js';
 import { beamPattern, makeCone, beamNear } from '../hands/beam.js';
@@ -30,7 +30,7 @@ document.body.classList.toggle('touch', touch);
 // ------------------------------------------------------------------ renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: TEST });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, touch ? 1.35 : 1.75));
-renderer.setSize(innerWidth, innerHeight);
+renderer.setSize(innerWidth, innerHeight); SILK_RES.set(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -116,7 +116,7 @@ flash.shadow.mapSize.set(touch ? 512 : 1024, touch ? 512 : 1024);
 flash.shadow.bias = -0.0005; flash.shadow.normalBias = 0.002;     // (more, and light leaks round edges when the lens is near a wall)
 // the near plane has to sit right at the lens: anything closer than it falls outside the beam
 // pattern's projection and gets the raw, unpatterned spot instead (a hard-edged bright patch)
-flash.shadow.camera.near = 0.01; flash.shadow.camera.far = 30;
+flash.shadow.camera.near = 0.01; flash.shadow.camera.far = 22;     // (past that the beam is too faint for a shadow to show)
 flash.map = beamPattern();
 scene.add(flash, flash.target);
 // the shaft of light through the dusty air (as in the hands viewer)
@@ -380,7 +380,7 @@ const journal = (() => {
   const found = [];                       // page ids in the order found
   const pages = {};                       // id -> canvas (drawn once)
   const photos = {};                      // id -> a camera print taped onto that page
-  let idx = 0, open = false, toastT = 0;
+  let idx = 0, open = false, toastT = 0, forced = false, forcedAt = 0;
   const view = $('#journal canvas'), toast = $('#bugToast canvas');
   const pageCanvas = (id) => {
     if (!pages[id]) {
@@ -411,8 +411,23 @@ const journal = (() => {
     },
     toast() { $('#bugToast').classList.add('show'); toastT = 5.5; },
     setPhoto(id, photo) { photos[id] = photo; delete pages[id]; pageCanvas(id); if (open) show(); },
+    get forced() { return forced; },
+    // a page just found: put in front of you (the game waits) until you've had a moment to read it and close it
+    read(id) {
+      if (!found.includes(id)) return;
+      idx = found.indexOf(id); forced = true; forcedAt = performance.now(); G.reading = true;
+      $('#journal').classList.add('forced'); $('#jClose').textContent = '다 읽었다'; $('#jClose').classList.add('wait');
+      setTimeout(() => $('#jClose').classList.remove('wait'), 1300);
+      api.toggle(true);
+    },
     toggle(on = !open) {
       if (on && !found.length) return;
+      if (!on && forced) {
+        if (performance.now() - forcedAt < 1300) return;
+        forced = false; G.reading = false;
+        $('#journal').classList.remove('forced'); $('#jClose').textContent = '닫기';
+        if (!G.tipped.bookKey) { G.tipped.bookKey = true; setTimeout(() => tip(`수첩에 끼워 뒀다. 다시 보려면 (${KEY.book})`), 400); }
+      }
       open = on; $('#journal').classList.toggle('show', on);
       document.querySelectorAll('[data-act="book"]').forEach((b) => b.classList.toggle('on', on));
       if (on) { show(); $('#bugToast').classList.remove('show'); sfx.paper(); if (document.pointerLockElement) document.exitPointerLock(); }
@@ -420,23 +435,28 @@ const journal = (() => {
     },
     flip(d) { if (!open) return; const n = Math.max(0, Math.min(found.length - 1, idx + d)); if (n !== idx) { idx = n; show(); sfx.paper(); } },
     update(dt) { if (toastT > 0 && (toastT -= dt) <= 0) $('#bugToast').classList.remove('show'); },
-    reset() { for (const k of Object.keys(photos)) { delete photos[k]; delete pages[k]; } found.length = 0; idx = 0; if (open) api.toggle(false); toastT = 0; $('#bugToast').classList.remove('show'); document.body.classList.remove('hasbook'); },
+    reset() { for (const k of Object.keys(photos)) { delete photos[k]; delete pages[k]; } found.length = 0; idx = 0; forced = false; G.reading = false; $('#journal').classList.remove('forced'); $('#jClose').textContent = '닫기'; if (open) { open = false; $('#journal').classList.remove('show'); } toastT = 0; $('#bugToast').classList.remove('show'); document.body.classList.remove('hasbook'); },
   };
   for (const p of BUG_PAGES) pageCanvas(p.id);     // drawn up front (and again once the handwriting font is in)
   api.redraw = () => { for (const k of Object.keys(pages)) delete pages[k]; for (const p of BUG_PAGES) pageCanvas(p.id); if (open) show(); };
   return api;
 })();
 // a new bug: a torn page of team 2's notebook turns up (shown small at the side; J / 수첩 to read it)
+// The first time, the page is put in front of you to read (the game waits): see readQueued
 function discover(id) {
   if (!G.started || journal.has(id)) return;
   journal.add(id);
-  const first = !G.tipped.book; G.tipped.book = true;
-  const title = BUG_PAGES.find((p) => p.id === id).title;
-  setTimeout(() => {
-    if (!journal.has(id)) return;
-    journal.toast(); sfx.paper();
-    tip(first ? `2조 이정훈의 수첩 한 장을 주웠다: '${title}' (${KEY.book})` : `수첩에 한 장 더: '${title}'`);
-  }, 1400);
+  G.readQ.push({ id, at: t + 1.4 });
+}
+// ...once nothing is going on: not while you're grabbed, being chased, made to look, falling or in a scare
+function readQueued() {
+  const q = G.readQ[0];
+  if (!q || t < q.at || !journal.has(q.id)) { if (q && !journal.has(q.id)) G.readQ.shift(); return; }
+  if (!G.started || G.dead || G.won || G.grab || G.kill || G.drop || G.cine || focus || G.glance || G.chasing || G.attached.length || journal.open || (intro && intro.active)) return;
+  G.readQ.shift();
+  if (TEST && !window.__READ) { journal.toast(); return; }      // (automated runs: no one to close it)
+  if (showMap) toggleMap();
+  journal.read(q.id);
 }
 document.querySelectorAll('[data-act="book"]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); journal.toggle(); }));
 $('#jPrev').addEventListener('click', (e) => { e.stopPropagation(); journal.flip(-1); });
@@ -613,7 +633,7 @@ function resetGame() {
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
     cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false, lostT: 0, lostHints: 0, seenRooms: new Set(), glance: null, glanceAt: -99,
     stats: { hits: 0, deaths: 0, spray: 0, thrown: 0, photos: 0, radio: 0, work: false },
-    drop: null, dk: freshDuct(), ductJolt: 0,
+    drop: null, dk: freshDuct(), ductJolt: 0, cine: null, readQ: [], reading: false,
   });
   swarms.reset(); swarms.sealed = new Set([3]); gate.setOpen(false); phantom.hide();
   spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
@@ -1062,7 +1082,7 @@ function showResults() {
 
 // ------------------------------------------------------------------ actions
 function toggleFlash() {
-  if (!G.started) return;
+  if (!G.started || G.cine) return;
   if (G.blackT > 0) tip('손전등도 안 켜진다...');
   if (!G.flashOn && G.drained) { if (window.__SFX) window.__SFX.click(false); tipLive(`손전등이 아직 뜨겁다 (${Math.max(1, Math.ceil((1 - G.battery) * 10))}초)`, '손전등이 아직 뜨겁다'); return; }
   G.flashOn = !G.flashOn;
@@ -1085,6 +1105,16 @@ function toggleBright() {
 function startBlackout() {
   G.blackT = 3.0; G.backT = 0; buzz(90);
   G.blackPhantom = !G.blackDone; G.blackDone = true;
+  // the first time: you can't look away. The view is held (and turned) on the spot where it comes down
+  // until the light is back on it and it has gone back up; the flashlight is on for when the power returns
+  if (G.blackPhantom && !G.grab && !G.kill) {
+    const rm = ROOMS[roomAt(player.pos.x, player.pos.z)] || ROOMS.machine;
+    const sp = Phantom.spot(camera.position, player.yaw, rm);
+    G.cine = { t: 0, rm, spot: sp, at: new THREE.Vector3(sp.x, Math.max(1.0, camera.position.y + 0.15) - 0.1, sp.z), endT: -1 };
+    if (G.drained) { G.drained = false; G.battery = Math.max(G.battery, 0.5); }
+    if (!G.flashOn) { G.flashOn = true; $('#bFlash').classList.add('on'); }
+    if (showMap) toggleMap(); if (journal.open) journal.toggle(false);
+  }
   for (const r of Object.values(reds)) r.light.intensity = 0;
   sfx.blackout();
   setTimeout(() => { if (G.blackT > 0) tip('...불이 다 나갔다'); }, 500);
@@ -1093,6 +1123,7 @@ function endBlackout() {
   G.blackT = 0; G.backT = 0.4;
   sfx.powerBack();
   phantom.lightsBack();
+  if (G.cine && phantom.active) { setTimeout(() => { if (G.cine) { shakeScreen(); buzz([60, 30, 120]); sfx.violinStab(); } }, 250); }
   if (swarms.ambushNear(player.pos, player.yaw)) tip('...언제 이렇게 가까이 왔지');
 }
 function genOn(g) {
@@ -1190,7 +1221,7 @@ function respawnAtLamp(l) {
   sfx.lampOn(l.x, l.z);
   // the bugs go back where they started
   swarms.regroup(); spiders.regroup(); eggs.clearYoung(); brood.reset(); centi.regroup(l);
-  G.blackT = 0; G.backT = 0; phantom.hide();
+  G.blackT = 0; G.backT = 0; phantom.hide(); G.cine = null;
   G.started = true;
   sfx.respawn();
   msg('...정신이 든다. 전등 아래다');
@@ -1325,7 +1356,7 @@ function drawMap() {
 
 // ------------------------------------------------------------------ loop
 function resize() {
-  renderer.setSize(innerWidth, innerHeight);
+  renderer.setSize(innerWidth, innerHeight); SILK_RES.set(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.fov = innerWidth < innerHeight ? 80 : 70;
   camera.updateProjectionMatrix();
@@ -1417,9 +1448,11 @@ function canSee(p) {
   seeRay.set(o, p.clone().sub(o).divideScalar(d)); seeRay.far = d - 0.4;
   return seeRay.intersectObjects(levelMeshes, false).length === 0;
 }
-function lookToward(p, hold = 0.5) {
+// (stab: it's a bug you're being made to look at: a shriek of violins with it)
+function lookToward(p, hold = 0.5, stab = false) {
   if (!G.started || G.dead || G.grab) return;
   focus = { p: p.clone(), t: 0, end: 0.8 + hold };
+  if (stab) sfx.violinStab();
 }
 // a glance over your shoulder: the head turns, you keep running the way you were going (camera only)
 const UPV = new THREE.Vector3(0, 1, 0);
@@ -1564,6 +1597,20 @@ function dropStep(dt) {
   camera.position.set(player.pos.x, y, player.pos.z);
   camera.quaternion.setFromEuler(new THREE.Euler(pitch, player.yaw + Math.PI, roll, 'YXZ'));
 }
+// the blackout scare: no moving, no looking away; the head turns to where it comes down
+function applyCine(dt, inp) {
+  const c = G.cine;
+  if (!c) return inp;
+  c.t += dt;
+  if (G.dead || G.grab || G.kill || G.won) { G.cine = null; return inp; }
+  if (c.endT < 0 && (phantom.leaving || (!phantom.active && c.t > 2.5))) c.endT = c.t + 0.7;     // seen it go back up
+  if ((c.endT >= 0 && c.t > c.endT) || c.t > 8) { G.cine = null; return inp; }
+  const cp = camera.position, dx = c.at.x - cp.x, dz = c.at.z - cp.z, k = 1 - Math.exp(-dt * 3.5);
+  let dy = Math.atan2(dx, dz) - player.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  player.yaw += dy * k;
+  player.pitch += (THREE.MathUtils.clamp(Math.atan2(c.at.y - cp.y, Math.hypot(dx, dz)), -1.2, 1.2) - player.pitch) * k;
+  return { ...inp, mx: 0, mz: 0, run: false, lookX: 0, lookY: 0 };
+}
 function applyFocus(dt, inp) {
   if (!focus) return inp;
   focus.t += dt;
@@ -1585,6 +1632,100 @@ function roomAt(x, z) {
   return null;
 }
 
+// ---- room culling. The walls hide everything outside the room you're in and the rooms you can see into
+// through an open doorway, but the renderer would draw it all anyway (and draw it again into the
+// flashlight's shadow). So for each frame, whatever is in a room out of sight is left out. Standing in a
+// doorway counts as both rooms; the duct is a room off the lab. Things in no room (inside a wall) are
+// drawn only near you.
+const SEES = {};
+{
+  const link = (a, b) => { (SEES[a] ||= new Set([a])).add(b); (SEES[b] ||= new Set([b])).add(a); };
+  for (const d of DOORS) if (d.b && !d.locked) link(d.a, d.b);
+  link('lab', 'duct');
+}
+const OPEN_DOORS = DOORS.filter((d) => d.b && !d.locked);
+const cullList = [];          // { o, room } for things that stay put, { o, at() } for things that move
+const culled = [];
+const _cb = new THREE.Box3();
+function cullAdd(o, room) { if (o) cullList.push({ o, room }); }
+function cullMoving(o, at) { if (o) cullList.push({ o, at }); }
+function cullBoxRoom(o, fallback = null) {
+  _cb.setFromObject(o);
+  if (_cb.isEmpty()) return fallback;
+  const a = roomAt(_cb.min.x + 0.35, _cb.min.z + 0.35), b = roomAt(_cb.max.x - 0.35, _cb.max.z - 0.35);
+  return a && a === b ? a : fallback;
+}
+function cullSetup() {
+  for (const m of levelGroup.children) { const r = cullBoxRoom(m); if (r) cullAdd(m, r); }
+  for (const m of dress.meshes) if (ROOMS[m.userData.room]) cullAdd(m, m.userData.room);
+  for (const m of duct.group.children) cullAdd(m, cullBoxRoom(m, 'duct'));
+  for (const sp of spiders.spiders) cullMoving(sp.s.root, () => sp.s.root.position);
+  cullMoving(phantom.s.root, () => phantom.s.root.position);
+  cullList.push({ o: centi.c.group, at: () => ({ x: centi.head.x, z: centi.head.z }), near: 9 });
+  cullAdd(eggs.group, 'lab'); cullAdd(lee.group, 'hall'); cullList.push({ o: deadMan.group.parent, room: 'corridor', far: { x: BODY.x, z: BODY.z, d: 20 } });
+  cullAdd(gate.group, 'ware'); cullAdd(gate.s.root, 'ware');
+}
+let visRooms = null;
+function cullRooms() {
+  culled.length = 0; visRooms = null;
+  if (window.__NOCULL) return;
+  const cp = camera.position;
+  const here = ductInside(cp.x, cp.z) ? 'duct' : roomAt(cp.x, cp.z);
+  if (!here) return;
+  const vis = visRooms = new Set(SEES[here] || [here]);
+  for (const d of OPEN_DOORS) {
+    const mid = (d.from + d.to) / 2, half = (d.to - d.from) / 2;
+    const along = d.axis === 'z' ? cp.x - mid : cp.z - mid, across = d.axis === 'z' ? cp.z - d.at : cp.x - d.at;
+    if (Math.abs(across) < 2.5 && Math.abs(along) < half + 1) for (const r of [d.a, d.b]) for (const k of SEES[r]) vis.add(k);
+  }
+  for (const it of cullList) {
+    const o = it.o;
+    if (!o.visible) continue;
+    let room = it.room;
+    if (it.at) {
+      const p = it.at();
+      if (Math.hypot(p.x - cp.x, p.z - cp.z) < (it.near || 0)) continue;      // (a long body reaches round a doorway)
+      room = ductInside(p.x, p.z) ? 'duct' : roomAt(p.x, p.z);
+      if (!room) { if (Math.hypot(p.x - cp.x, p.z - cp.z) > 16) { o.visible = false; culled.push(o); } continue; }
+    }
+    if (room && !vis.has(room)) { o.visible = false; culled.push(o); }
+    else if (it.far && Math.hypot(it.far.x - cp.x, it.far.z - cp.z) > it.far.d) { o.visible = false; culled.push(o); }
+  }
+}
+function uncull() { for (const o of culled) o.visible = true; culled.length = 0; }
+
+// ---- the light pool. Every lamp, red emergency light, glow and spill around the map is a point light,
+// and every lit pixel works through all of them, on or off, near or far. So they are kept out of the
+// render (invisible) and each frame the few that can matter (on, in a room you can see, near enough)
+// are copied into a handful of real lights. What you see doesn't change; the shading gets cheaper.
+const POOL_N = 5;
+const poolSrc = [], poolSlots = [];
+const _lp = new THREE.Vector3();
+function poolSetup() {
+  scene.traverse((o) => { if (o.isPointLight && o !== spill && o !== bounce && o !== nightEye) poolSrc.push(o); });
+  for (const L of poolSrc) L.visible = false;
+  for (let i = 0; i < POOL_N; i++) { const L = new THREE.PointLight(0xffffff, 0, 1, 2); scene.add(L); poolSlots.push(L); }
+}
+const poolCand = [];
+function poolLights() {
+  const cp = camera.position;
+  poolCand.length = 0;
+  for (const L of poolSrc) {
+    if (!(L.intensity > 1e-3)) continue;
+    L.updateWorldMatrix(true, false); _lp.setFromMatrixPosition(L.matrixWorld);
+    const d = _lp.distanceTo(cp), reach = (L.distance || 30) + 10;
+    if (d > reach) continue;
+    if (visRooms) { const r = ductInside(_lp.x, _lp.z) ? 'duct' : roomAt(_lp.x, _lp.z); if (r && !visRooms.has(r)) continue; }
+    poolCand.push({ L, x: _lp.x, y: _lp.y, z: _lp.z, w: L.intensity * (1 - d / reach) });
+  }
+  poolCand.sort((a, b) => b.w - a.w);
+  for (let i = 0; i < POOL_N; i++) {
+    const S = poolSlots[i], c = poolCand[i];
+    if (!c) { S.intensity = 0; continue; }
+    S.position.set(c.x, c.y, c.z); S.color.copy(c.L.color); S.intensity = c.L.intensity; S.distance = c.L.distance; S.decay = c.L.decay;
+  }
+}
+
 function frame(dtOverride) {
   const dt = dtOverride != null ? dtOverride : Math.min(clock.getDelta(), 1 / 20);
   t += dt;
@@ -1594,10 +1735,12 @@ function frame(dtOverride) {
     if (intro.active) { sfx.setMusic(intro.musicMode(), { dt, duck: intro.musicDuck() }); if (!window.__NORENDER) withBright(() => intro.render()); return; }
   }
   if (needRotate) { withBright(() => renderer.render(scene, camera)); return; }
+  if (G.reading) { input.lookX = 0; input.lookY = 0; if (!window.__NORENDER) withBright(() => renderer.render(scene, camera)); return; }
+  readQueued();
   const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
   if (G.started && !G.won && !G.dead && !G.grab && !G.kill && !G.drop) {
-    player.update(dt, applyFocus(dt, inp));
+    player.update(dt, applyFocus(dt, applyCine(dt, inp)));
     if (G.ductJolt > 0.001) { camera.position.x += (Math.random() - 0.5) * G.ductJolt; camera.position.y += (Math.random() - 0.5) * G.ductJolt; camera.position.z += (Math.random() - 0.5) * G.ductJolt; }
     if (G.glance) {
       const g = G.glance; g.t += dt;
@@ -1654,8 +1797,8 @@ function frame(dtOverride) {
   if (G.blackT > 0) {
     G.blackT -= dt;
     if (G.blackPhantom && G.blackT < 1.1 && !phantom.active) {
-      const rm = ROOMS[roomAt(player.pos.x, player.pos.z)] || ROOMS.machine;
-      const at = phantom.show(camera.position, player.yaw, rm.h, rm);
+      const rm = G.cine ? G.cine.rm : ROOMS[roomAt(player.pos.x, player.pos.z)] || ROOMS.machine;
+      const at = phantom.show(camera.position, player.yaw, rm.h, rm, G.cine ? G.cine.spot : undefined);
       G.blackPhantom = false;
       sfx.creak(at.x, rm.h - 0.3, at.z);
     }
@@ -1760,7 +1903,7 @@ function frame(dtOverride) {
     onThreadLit: () => tip(`실이 쳐져 있다. 앉아서 지나가야겠다 (${KEY.crouch})`, 'trip'),
     onSacBurst: (p) => {
       brood.burst(p); sfx.sacDrop(p.x, p.z); sfx.eggBurst(p.x, 0.2, p.z);
-      G.broodGone = false; tip('알집이 터졌다... 새끼들이 쏟아져 나온다!'); lookToward(new THREE.Vector3(p.x, 0.15, p.z), 0.6);
+      G.broodGone = false; tip('알집이 터졌다... 새끼들이 쏟아져 나온다!'); lookToward(new THREE.Vector3(p.x, 0.15, p.z), 0.6, true);
     },
     onFirstLit: () => tip('위에서 뭔가 기다리고 있었다. 천장을 잘 봐야겠다', 'spiderlit'),
     onDrop: (sp) => sfx.creak(sp.s.root.position.x, sp.ceil - 0.3, sp.s.root.position.z),
@@ -1771,7 +1914,7 @@ function frame(dtOverride) {
   gate.update({ dt, cam: camera.position, light, playerPos: player.pos,
     canCatch: G.started && !G.dead && !G.won && !G.grab && !dev.god && !dev.freeze && !(G.grabSafeT > 0),
     onCatch: (g) => startGrab(g),
-    onNear: () => { tip('저 안으로는... 못 가겠다', 'gate'); discover('gate'); if (!G.tipped.seeGate) { G.tipped.seeGate = true; lookToward(gate.s.bodyWorld); } },
+    onNear: () => { tip('저 안으로는... 못 가겠다', 'gate'); discover('gate'); if (!G.tipped.seeGate) { G.tipped.seeGate = true; lookToward(gate.s.bodyWorld, 0.5, true); } },
     onShake: (x, y, z) => sfx.spiderFlinch(x, y, z),
     onTouch: () => tip('거미줄이 너무 두껍다. 지나갈 수 없다') });
   phantom.update({ dt, cam: camera.position, light, onRetract: (x, y, z) => sfx.spiderFlinch(x, y, z) });
@@ -1791,7 +1934,7 @@ function frame(dtOverride) {
     spiders.spiders.forEach((sp, i) => {
       if (G.tipped['see' + i]) return;
       const b = sp.s.bodyWorld;
-      if (b.distanceTo(camera.position) < 7 && canSee(b)) { G.tipped['see' + i] = true; lookToward(b); discover(sp.mode === 'trip' ? 'ghost' : 'wolf'); }
+      if (b.distanceTo(camera.position) < 7 && canSee(b)) { G.tipped['see' + i] = true; lookToward(b, 0.5, true); discover(sp.mode === 'trip' ? 'ghost' : 'wolf'); }
     });
   }
   if (G.started && !G.dead && !G.grab) {
@@ -1963,9 +2106,9 @@ function frame(dtOverride) {
   if (G.started && !G.dead && !G.grab && !G.kill && !G.hidden && !player.inside && G.feetCd <= 0 && !focus) {
     let n = 0, sx = 0, sz = 0;
     for (const r of swarms.roaches) if ((r.state === 'idle' || r.state === 'flee') && r.pos.y < 0.35 && Math.hypot(r.pos.x - player.pos.x, r.pos.z - player.pos.z) < 1.3) { n++; sx += r.pos.x; sz += r.pos.z; }
-    if (n >= 6) {
+    if (n >= 5) {
       G.feetCd = 12;
-      lookToward(new THREE.Vector3(sx / n, 0.05, sz / n), 0.6);
+      lookToward(new THREE.Vector3(sx / n, 0.05, sz / n), 0.6, true);
       tip('발밑에... 바퀴가 우글거린다!', 'feet');
     }
   }
@@ -2142,7 +2285,9 @@ function frame(dtOverride) {
   }
   fpsAvg += (dt - fpsAvg) * 0.05;
   if (window.__NORENDER) return;
-  withBright(() => { renderer.render(scene, camera); if (!(G.kill && G.kill.t > 0.5)) arms.render(renderer, camera); });   // the arms are gone once you're knocked down
+  cullRooms(); poolLights();
+  withBright(() => { renderer.render(scene, camera); if (!(G.kill && G.kill.t > 0.5)) arms.render(renderer, camera); });
+  uncull();   // the arms are gone once you're knocked down
   faceBugs.render();
 }
 let fpsAvg = 1 / 60, fpsN = 0;
@@ -2250,10 +2395,24 @@ $('#againBtn').addEventListener('click', () => {
 });
 
 // ------------------------------------------------------------------ settings
+// keeping up the frame rate: when frames run slow for a couple of seconds the picture is drawn a little
+// less sharp (down to 60%), and sharper again once there's room; never sharper than the quality setting
+const dynRes = { k: 1, acc: 0, n: 0, slow: 0, fast: 0, last: 0 };
+function adaptRes() {
+  const now = performance.now(), dt = (now - dynRes.last) / 1000; dynRes.last = now;
+  if (TEST || !(dt > 0) || dt > 0.5 || document.hidden) return;
+  dynRes.acc += dt; dynRes.n++;
+  if (dynRes.acc < 1) return;
+  const fps = dynRes.n / dynRes.acc; dynRes.acc = 0; dynRes.n = 0;
+  if (fps < 45) { dynRes.slow++; dynRes.fast = 0; } else if (fps > 56) { dynRes.fast++; dynRes.slow = 0; } else dynRes.slow = dynRes.fast = 0;
+  if (dynRes.slow >= 2 && dynRes.k > 0.6) { dynRes.k = Math.max(0.6, dynRes.k - 0.1); dynRes.slow = 0; dynRes.hold = now + 20000; applyQuality(); }
+  else if (dynRes.fast >= 6 && dynRes.k < 1 && now > (dynRes.hold || 0)) { dynRes.k = Math.min(1, dynRes.k + 0.05); dynRes.fast = 0; applyQuality(); }
+}
 // quality: how sharp the picture is drawn, and (low) no shadows
 function applyQuality() {
   const q = SET.quality, cap = q === 'high' ? (touch ? 1.35 : 1.75) : q === 'mid' ? (touch ? 1 : 1.25) : 0.7;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
+  renderer.setPixelRatio(Math.max(0.5, Math.min(window.devicePixelRatio || 1, cap) * dynRes.k));
+  SILK_RES.set(innerWidth, innerHeight);
   const sh = q !== 'low';
   if (renderer.shadowMap.enabled !== sh) {
     renderer.shadowMap.enabled = sh;
@@ -2381,6 +2540,12 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
   arms, sfx, scene, flashLight: flash, tip, duct, DUCT, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, workLight, faceBugs, switchWork, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  FrustumCls: THREE.Frustum, cullRooms, uncull, culled, dynRes, adaptRes, pixelRatio: () => renderer.getPixelRatio(),
+  // draw one frame from a set viewpoint without moving anything (to compare culled and unculled)
+  renderView(x, y, z, yaw, pitch) {
+    camera.position.set(x, y, z); camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw + Math.PI, 0, 'YXZ')); camera.updateMatrixWorld();
+    cullRooms(); poolLights(); withBright(() => renderer.render(scene, camera)); uncull();
+  },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { beginGame({ quiet: true }); },
@@ -2391,6 +2556,7 @@ window.__M = {
   bright(on) { if (bright !== on) toggleBright(); },
   map(on) { if (showMap !== on) toggleMap(); },
 };
+cullSetup(); poolSetup();
 $('#loading').classList.add('done');
 if (TEST) window.__READY = true;
-else renderer.setAnimationLoop(() => frame());
+else renderer.setAnimationLoop(() => { adaptRes(); frame(); });

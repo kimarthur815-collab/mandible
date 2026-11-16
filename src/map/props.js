@@ -30,12 +30,12 @@ export class Batch {
   build(materials, parent, shadowMats) {
     const meshes = [];
     for (const [key, list] of this.lists) {
-      const [mat] = key.split('|');
+      const [mat, room] = key.split('|');
       const geo = mergeGeometries(list, false);
       geo.computeBoundingSphere();
       const m = new THREE.Mesh(geo, materials[mat]);
       m.castShadow = shadowMats.has(mat); m.receiveShadow = true;
-      m.userData.dressMat = mat;
+      m.userData.dressMat = mat; m.userData.room = room;
       parent.add(m); meshes.push(m);
     }
     return meshes;
