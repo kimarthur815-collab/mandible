@@ -567,7 +567,7 @@ export function buildExterior(scene, renderer) {
   }
 
   // ---------------------------------------------------------------- light and sky
-  const sunDir = new V3(-0.82, 0.07, -0.56).normalize();     // low in the west-southwest
+  const sunDir = new V3(0.21, 0.17, 0.96).normalize();       // low, ahead and a little left as you drive up the road
   const moonDir = new V3(0.45, 0.42, -0.79).normalize();
   const sun = new THREE.DirectionalLight(0xffffff, 1);
   sun.castShadow = true;
@@ -609,7 +609,7 @@ export function buildExterior(scene, renderer) {
     renderer.toneMappingExposure = s.exp;
   }
   setTime('dusk');
-  return { group, setTime, lamps: lampLights };
+  return { group, setTime, lamps: lampLights, sun };
 }
 // the map's decal sheet (oil, rust, dirt), shared
 const decals = { _t: null, get map() { return (this._t ||= PT.decals()).map; }, cell(i) { return (this._t ||= PT.decals()).cell(i); } };
