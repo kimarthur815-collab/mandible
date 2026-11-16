@@ -56,7 +56,7 @@ export const SPOTS = {
     { kind: 'roach', label: '바퀴 떼', x: 15.0, y: 0, z: 16.0, r: 1.3 },
     { kind: 'roach', label: '바퀴 떼', x: -15.5, y: 0, z: 34.5, r: 1.3 },
     { kind: 'ghost', label: '유령거미 (천장)', x: 18.5, y: 4, z: 30, r: 1.75 },
-    { kind: 'web', label: '실 6개 (웅크려 통과)', x: 18.5, y: 1.5, z: 33, r: 0 },
+    { kind: 'web', label: '실 6개 (앉아서 통과)', x: 18.5, y: 1.5, z: 33, r: 0 },
     { kind: 'wolf', label: '늑대거미 (천장)', x: 12, y: 8, z: 57, r: 1.5 },
     { kind: 'centi', label: '지네 등장 환풍구', x: 15, y: 0, z: 69.6, r: 2.3 },
     { kind: 'eggs', label: '알집', x: -7.6, y: 4.5, z: 62.8, r: 0.9 },

@@ -2,7 +2,12 @@
 // Ambience (factory drone, room tone, creaks, drips) + a chase layer (heartbeat, strings)
 // + effects (steps, flashlight switch, roach skitter, wings, generators, lamps, doors).
 
+import { Music } from './music.js';
+
 const rnd = (a, b) => a + Math.random() * (b - a);
+
+// the chase strings' sixteenth-note figure (D minor)
+const CHASE_STR = [62, 62, 65, 62, 64, 62, 65, 69, 62, 62, 65, 62, 70, 69, 65, 64];
 
 export class Sound {
   constructor() {
@@ -56,7 +61,10 @@ export class Sound {
     this.startAmbience();
     this.startTension();
     this.startChase();
+    this.music = new Music(this);
   }
+  // background music: 'dusk' | 'night' | 'inside' | 'end' | 'off' (see music.js)
+  setMusic(mode, o) { if (this.music && this.ctx.state === 'running') this.music.update(mode, o); }
 
   setMuted(m) {
     this.muted = m;
@@ -501,23 +509,63 @@ export class Sound {
     this.chLP = ctx.createBiquadFilter(); this.chLP.type = 'lowpass'; this.chLP.frequency.value = 420; this.chLP.Q.value = 2.5; this.chLP.connect(this.chBus);
     this.chDrone = ctx.createGain(); this.chDrone.gain.value = 0; this.chDrone.connect(this.chLP);
     for (const f of [36.7, 38.9, 73.4]) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = f > 50 ? 0.05 : 0.1; o.connect(g); g.connect(this.chDrone); o.start(); }
+    // spiccato strings: their own bright band
+    this.chStr = ctx.createBiquadFilter(); this.chStr.type = 'bandpass'; this.chStr.frequency.value = 1400; this.chStr.Q.value = 0.7; this.chStr.connect(this.chBus);
     this.ch = { lvl: 0, next: 0, step: 0, bar: 0, run: false };
   }
-  chaseStep(t, i, bar, L) {
+  // a brass-like swell: a low stack of saws, the filter opening hard and closing slowly
+  braam(t, L, dest = this.chBus) {
+    const ctx = this.ctx, now = ctx.currentTime + t;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 2.5;
+    lp.frequency.setValueAtTime(130, now); lp.frequency.exponentialRampToValueAtTime(1500, now + 0.22); lp.frequency.exponentialRampToValueAtTime(200, now + 1.4);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.14 * L, now + 0.05); g.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+    lp.connect(g); g.connect(dest);
+    for (const f of [36.71, 73.42, 110, 146.8, 174.6]) for (const d of [-9, 9]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = d; o.connect(lp); o.start(now); o.stop(now + 1.6);
+    }
+  }
+  // into the next phrase: noise sweeping up and a string glide climbing an octave
+  riser(t, dur, L) {
+    const ctx = this.ctx, now = ctx.currentTime + t;
+    const s = ctx.createBufferSource(); s.buffer = this.white; s.loop = true;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.6;
+    f.frequency.setValueAtTime(350, now); f.frequency.exponentialRampToValueAtTime(7000, now + dur);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.12 * L, now + dur * 0.95); g.gain.linearRampToValueAtTime(0, now + dur + 0.03);
+    s.connect(f); f.connect(g); g.connect(this.chBus); s.start(now); s.stop(now + dur + 0.1);
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(146.8, now); o.frequency.exponentialRampToValueAtTime(587.3, now + dur);
+    const og = ctx.createGain(); og.gain.setValueAtTime(0.0001, now); og.gain.exponentialRampToValueAtTime(0.05 * L, now + dur * 0.95); og.gain.linearRampToValueAtTime(0, now + dur + 0.03);
+    o.connect(og); og.connect(this.chStr); o.start(now); o.stop(now + dur + 0.1);
+  }
+  // one sixteenth of the chase. The closer it is (L), the more joins in: taiko and bass from the start,
+  // then the strings' figure, a snare on the backbeat, clanks, a brass swell every other bar, a riser
+  // into every fourth, ticking and screeching on top. Everything climbs a half step a bar, four bars, again.
+  chaseStep(t, i, bar, L, stepDur = 0.1) {
     const D = this.chBus, B = this.chLP;
     const lift = Math.pow(2, (bar % 4) / 12);
-    if ((i === 0 || i === 3 || i === 6 || i === 8 || i === 11 || i === 14) && L > 0.2) {
-      this.tone({ dest: D, t, f0: i % 8 === 0 ? 120 : 95, f1: 42, dur: 0.28, gain: (i === 0 ? 0.9 : 0.6) * (0.5 + L * 0.5), attack: 0.004 });
-      this.burst({ dest: D, t, dur: 0.07, f: 300, q: 1, type: 'lowpass', gain: 0.35 * L, buf: this.brown });
+    if ((i === 0 || i === 3 || i === 6 || i === 8 || i === 11 || i === 14) && L > 0.15) {
+      this.tone({ dest: D, t, f0: i % 8 === 0 ? 130 : 100, f1: 40, dur: 0.32, gain: (i === 0 ? 1.0 : 0.65) * (0.5 + L * 0.5), attack: 0.003 });
+      this.burst({ dest: D, t, dur: 0.08, f: 320, q: 1, type: 'lowpass', gain: 0.38 * L, buf: this.brown });
     }
     if (i % 2 === 0) { const f = i === 14 ? 155.6 : 146.8; this.tone({ dest: B, t, f0: f, f1: f * 0.99, dur: 0.13, gain: 0.32, type: 'sawtooth', attack: 0.004 }); }
-    if ((i === 4 || i === 12) && L > 0.4) this.burst({ dest: D, t, dur: 0.18, f: 2300 * lift, q: 9, gain: 0.22 * L });
+    if (L > 0.3) {
+      const m = CHASE_STR[i], f = 440 * Math.pow(2, (m - 69) / 12) * lift, acc = i % 4 === 0 ? 1 : 0.6;
+      for (const d of [0.997, 1.003]) this.tone({ dest: this.chStr, t, f0: f * d, f1: f * d, dur: 0.075, gain: 0.05 * acc * Math.min(1, (L - 0.3) * 3), type: 'sawtooth', attack: 0.003 });
+    }
+    if ((i === 4 || i === 12) && L > 0.45) {
+      this.burst({ dest: D, t, dur: 0.13, f: 1900, q: 0.7, gain: 0.3 * L });
+      this.tone({ dest: D, t, f0: 210, f1: 150, dur: 0.08, gain: 0.22 * L, type: 'triangle' });
+    }
+    if ((i === 4 || i === 12) && L > 0.4) this.burst({ dest: D, t, dur: 0.18, f: 2300 * lift, q: 9, gain: 0.16 * L });
+    if (i === 0 && bar % 2 === 0 && L > 0.55) this.braam(t, L);
+    if (i === 0 && bar % 4 === 3 && L > 0.6) this.riser(t, stepDur * 16, L);
+    if (bar % 4 === 3 && i >= 12 && L > 0.5) this.tone({ dest: D, t, f0: 160 + (i - 12) * 25, f1: 70, dur: 0.12, gain: 0.35 * L, attack: 0.003 });   // a tom fill
     if (L > 0.6) this.burst({ dest: D, t, dur: 0.025, f: 7500, q: 0.8, type: 'highpass', gain: (i % 4 === 2 ? 0.09 : 0.045) * L });
     if (L > 0.72 && i % 4 < 2) for (const f of [587.3, 622.3]) this.tone({ dest: D, t, f0: f * lift, f1: f * lift * 0.995, dur: 0.07, gain: 0.03, type: 'sawtooth', attack: 0.006 });
   }
   // found: a hit and a scream of strings
   chaseStinger() {
     if (!this.ctx) return;
+    this.braam(0, 1, this.mus);
     this.tone({ dest: this.mus, f0: 90, f1: 30, dur: 1.3, gain: 1.0, attack: 0.005 });
     this.burst({ dest: this.mus, dur: 0.9, f: 160, q: 0.8, type: 'lowpass', gain: 0.6, buf: this.brown });
     for (const f of [146.8, 155.6, 220, 233.1]) this.tone({ dest: this.mus, f0: f, f1: f * 0.97, dur: 0.9, gain: 0.08, type: 'sawtooth', attack: 0.01 });
@@ -994,8 +1042,8 @@ export class Sound {
     this.chLP.frequency.setTargetAtTime(300 + Lc * 900, now, 0.2);
     if (Lc > 0.03) {
       if (!ch.run || ch.next < now - 0.25) { ch.run = true; ch.next = now + 0.05; ch.step = 0; ch.bar = 0; }
-      const stepDur = 60 / (128 + Lc * 40) / 4;
-      while (ch.next < now + 0.12) { this.chaseStep(Math.max(0, ch.next - now), ch.step, ch.bar, Lc); ch.next += stepDur; if (++ch.step >= 16) { ch.step = 0; ch.bar++; } }
+      const stepDur = 60 / (134 + Lc * 36) / 4;
+      while (ch.next < now + 0.12) { this.chaseStep(Math.max(0, ch.next - now), ch.step, ch.bar, Lc, stepDur); ch.next += stepDur; if (++ch.step >= 16) { ch.step = 0; ch.bar++; } }
     } else ch.run = false;
     // hiding: the music drops away and leaves the heartbeat (which also steps aside for the chase drums)
     const hush = s.hush ? 0.2 : 1;

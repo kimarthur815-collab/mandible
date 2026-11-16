@@ -295,7 +295,7 @@ export class MapSpiders {
     let lit = false;
     if (ctx.light.on && g.phase === 'chase') { const v = body.clone().sub(ctx.light.pos), d = v.length(); lit = d < 14 && v.dot(ctx.light.dir) / d > Math.cos(0.32); }
     if (lit && g.cowerT <= 0 && g.cowerCd <= 0) {
-      g.cowerT = [1.5, 1.1, 0.7, 0.5][Math.min(3, g.hits)]; g.hits++; g.hitDecay = 0; g.cowerCd = g.cowerT + 0.9; s.whirl = 1.2;
+      g.cowerT = [1.5, 1.1, 0.7, 0.5][Math.min(3, g.hits)]; g.hits++; g.hitDecay = 0; g.cowerCd = g.cowerT + 0.9; s.whirl = 0.5;
       this.onCower && this.onCower(sp);
     }
     g.cowerT -= dt;

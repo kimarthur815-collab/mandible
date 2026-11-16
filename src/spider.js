@@ -306,7 +306,7 @@ export class Spider {
     if (this.state === 'ceiling') {
       this.litTime = lit ? this.litTime + dt : Math.max(0, this.litTime - dt * 2);
       this.cower = lerp(this.cower, lit ? 1 : 0, 1 - Math.exp(-dt * 6));
-      if (!wolf && lit && this.whirl <= 0 && this.litTime < 0.1) this.whirl = 1.4;
+      if (!wolf && lit && this.whirl <= 0 && this.litTime < 0.1) this.whirl = 0.7;
       if (this.litTime > 3) this.startCrawl(ctx);
       else if (!lit && this.cooldown <= 0 && !this.noAmbush) {
         const p = this.root.position;
@@ -332,10 +332,11 @@ export class Spider {
     // body pose
     const air = this.state === 'drop' || this.state === 'hang' || this.state === 'swing' || this.state === 'retract' || this.state === 'fallen' || this.state === 'descend';
     const wh = Math.max(0, this.whirl) > 0 ? sstep(0, 0.3, this.whirl) : 0;
+    // lit: a short shiver (it used to shake hard for over a second; now small and brief)
     this.body.position.set(
-      0.03 * wh * Math.sin(t * 70),
+      0.008 * wh * Math.sin(t * 38),
       this.P.H * (1 - 0.35 * this.cower) + 0.004 * Math.sin(t * 2.3),
-      0.03 * wh * Math.cos(t * 70),
+      0.008 * wh * Math.cos(t * 38),
     );
     this.body.rotation.set(0.05 * this.cower, 0, 0);
     this.abdomen.scale.setScalar(1 + 0.02 * Math.sin(t * 2.6));

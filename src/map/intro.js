@@ -102,7 +102,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     skip() { if (state !== 'title' && state !== 'out') go('out'); },
     // the ending: out of the shutter at night, back to the truck, one more call. done() when it fades out
     ending(x, done) {
-      api.active = true; lines = END_LINES; finish = done; api._shut = false;
+      api.active = true; api.isEnding = true; lines = END_LINES; finish = done; api._shut = false;
       setTime('night'); renderer.toneMappingExposure = 1.4;
       g.position.copy(PARK); g.rotation.set(0, 0, 0); truck.setRinging(false);
       ext.dockShutter.position.y = 4.35;
@@ -111,6 +111,15 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
       path = [SHUTTER_FRONT.clone(), AROUND.clone(), toWorld(DOOR_OUT)]; pathI = 0;
       go('outWalk');
     },
+    // which background music goes with what's happening (see music.js), and how far it steps back for talk
+    musicMode() {
+      if (state === 'title' || state === 'call') return 'dusk';
+      if (state === 'fadeout') return 'off';
+      if (state === 'outTalk' || state === 'outFade' || (state === 'out' && api.isEnding)) return 'end';
+      if (state === 'enter' || state === 'out') return 'inside';
+      return 'night';
+    },
+    musicDuck() { return state === 'call' || state === 'outTalk' ? 0.55 : 1; },
     stop() {
       api.active = false;
       ui.subtitle(null); ui.skip(false); ui.radioButton(null); ui.fade(0);

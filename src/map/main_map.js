@@ -16,6 +16,7 @@ import { BUG_PAGES, drawBugPage } from './bugnotes.js';
 import { MapCentipede, HUNT } from './centi.js';
 import { PassageGate, Phantom, DeadWorker, GATE, BODY } from './scares.js';
 import { createIntro } from './intro.js';
+import { createMarks } from './marks.js';
 
 const $ = (s) => document.querySelector(s);
 const touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -42,11 +43,11 @@ let intro = null;   // the opening drive (built near the end, see createIntro)
 // settings, kept in this browser: look sensitivity, volume, brightness, quality (see the settings panel)
 const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal' };
 // difficulty: health, spray cans, how fast hunters run, how fast the flashlight heats, how far your
-// footsteps carry, the starter cord's green zone and speed, and how hard a grab is to fight off
+// footsteps carry, how long the starter cord takes to catch (s), and how hard a grab is to fight off
 const DIFF = {
-  easy: { label: '쉬움', hp: 5, spray: 5, speed: 0.82, heat: 0.7, hear: 0.75, zone: 1.35, cord: 0.8, mash: 0.7, mapDark: 0.62 },
-  normal: { label: '보통', hp: 3, spray: 3, speed: 1, heat: 1, hear: 1, zone: 1, cord: 1, mash: 1, mapDark: 0.36 },
-  hard: { label: '어려움', hp: 2, spray: 2, speed: 1.15, heat: 1.3, hear: 1.3, zone: 0.75, cord: 1.25, mash: 1.3, mapDark: 0.16 },
+  easy: { label: '쉬움', hp: 5, spray: 5, speed: 0.82, heat: 0.7, hear: 0.75, pull: 1.8, mash: 0.7, mapDark: 0.62 },
+  normal: { label: '보통', hp: 3, spray: 3, speed: 1, heat: 1, hear: 1, pull: 2.4, mash: 1, mapDark: 0.36 },
+  hard: { label: '어려움', hp: 2, spray: 2, speed: 1.15, heat: 1.3, hear: 1.3, pull: 3.0, mash: 1.3, mapDark: 0.16 },
 };
 const D = () => DIFF[SET.diff] || DIFF.normal;
 let devTools = (() => { try { return localStorage.getItem('mandible.dev') === '1'; } catch (e) { return false; } })();
@@ -241,6 +242,8 @@ const noteMeshes = SPOTS.notes.map((n, i) => {
   scene.add(m);
   return { ...n, idx: i, m, c, tex, read: false };
 });
+// team 2's glow-paint arrows on the walls and floors
+const marks = createMarks(scene);
 // redraw the pages once the handwriting font is in
 if (document.fonts && document.fonts.load) document.fonts.load(`40px ${HAND}`, '약쳤는데').then(() => { for (const n of noteMeshes) { drawPage(n.c, n.text, n.idx + 1); n.tex.needsUpdate = true; } paperMap.redraw(); journal.redraw(); }).catch(() => {});
 // ------------------------------------------------------------------ voices at the bottom: radio calls and recordings, one after another
@@ -332,7 +335,7 @@ function discover(id) {
   setTimeout(() => {
     if (!journal.has(id)) return;
     journal.toast(); sfx.paper();
-    tip(first ? `2조 이정훈의 수첩 한 장을 주웠다: '${title}' (${KEY.book}로 펼치기)` : `수첩에 한 장 더: '${title}'`);
+    tip(first ? `2조 이정훈의 수첩 한 장을 주웠다: '${title}' (${KEY.book})` : `수첩에 한 장 더: '${title}'`);
   }, 1400);
 }
 document.querySelectorAll('[data-act="book"]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); journal.toggle(); }));
@@ -433,7 +436,7 @@ function radioCall() {
 // pocket recorders left by Lee Jeong-hun of team 2, on the tables
 const TAPES = [
   { x: 11.25, y: 0.931, z: 20.0, lines: [['이정훈', '방역팀 2조 이정훈. 오후 4시 10분, 하역장으로 들어왔다.'], ['이정훈', '...바닥이 움직이는 줄 알았는데, 전부 바퀴다. 보통 양이 아니야.']] },
-  { x: 13.5, y: 0.921, z: 18.9, lines: [['이정훈', '발전기 시동줄... 박자 맞춰 당겨야 걸린다.'], ['이정훈', '헛돌면 펑 하고 터지는데, 그 소리에 놈들이 몰려와. 조심해.']] },
+  { x: 13.5, y: 0.921, z: 18.9, lines: [['이정훈', '발전기 시동줄... 몇 번 세게 당겨야 걸린다.'], ['이정훈', '시동 걸리는 소리가 엄청 커. 그 소리에 놈들이 몰려와. 조심해.']] },
   { x: 20.8, y: 0.931, z: 63.1, lines: [['이정훈', '생산 홀. 천장에 뭔가 붙어 있다. 다리가 사람 팔만 해.'], ['이정훈', '테이블 밑마다 야광봉 놔뒀다. 숨을 땐 불 끄고... 숨도 참아.']] },
   { x: -16.6, y: 0.931, z: 60.0, lines: [['이정훈', '실험실 기록을 봤다. 여기서 만든 건 살충제가 아니었어.'], ['이정훈', '벽 안에서 뭔가 긴 게 움직인다... 3조가 오면, 셔터로 바로—'], ['이정훈', '(녹음이 뚝 끊긴다)', 2.2]] },
 ];
@@ -451,26 +454,6 @@ const tapes = TAPES.map((r, i) => {
   scene.add(g);
   return { ...r, g, led, played: false };
 });
-// the generators' starter cord: a marker swings across; pull while it is in the green (narrower each time)
-const pullEl = $('#pull'), pullZone = $('#pull b'), pullMark = $('#pull i');
-const pullMarker = (o) => 0.5 - 0.5 * Math.cos(o.ph || 0);
-function newZone(o) { const w = [0.24, 0.19, 0.15][Math.min(2, o.pulls || 0)] * D().zone; o.zone = { w, c: w / 2 + 0.04 + Math.random() * (0.92 - w) }; }
-function pullCord(o) {
-  const m = pullMarker(o), hit = Math.abs(m - o.zone.c) <= o.zone.w / 2 + 0.01;
-  sfx.pullCord(hit, o.x, o.z);
-  if (hit) {
-    o.pulls = (o.pulls || 0) + 1;
-    if (o.pulls >= 3) { o.pulls = 0; o.zone = null; genOn(o); return; }
-    if (o.pulls === 1) tip('걸릴 것 같다... 한 번 더');
-  } else {
-    // it coughs and bangs: everything nearby heard that
-    o.pulls = Math.max(0, (o.pulls || 0) - 1);
-    G.events.push({ x: o.x, z: o.z, r: 16 });
-    shakeScreen();
-    tip('펑! 헛돌았다... 소리가 너무 컸다');
-  }
-  newZone(o);
-}
 const refill = (() => {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.28, 14), new THREE.MeshStandardMaterial({ color: 0xc8b23a, metalness: 0.6, roughness: 0.35, emissive: new THREE.Color(0x302808), emissiveIntensity: 0.6 }));
   m.position.set(SPOTS.refill.x, 0.14, SPOTS.refill.z);
@@ -526,12 +509,13 @@ function resetGame() {
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   player.place(SPOTS.start.x, SPOTS.start.z, SPOTS.start.yaw);
   for (const l of lamps) { l.on = false; l.burnt = false; l.t = 0; l.light.intensity = 0; l.bulb.material.emissive.set(0xffa24a); l.bulb.material.emissiveIntensity = 0; l.leverPivot.rotation.z = 0.6; }
-  for (const g of genMeshes) { g.on = false; g.pulls = 0; g.zone = null; g.led.material.emissive.set(0xff2a10); }
+  for (const g of genMeshes) { g.on = false; g.led.material.emissive.set(0xff2a10); }
   for (const r of tapes) { r.played = false; }
   voice.clear(); G.oddN = 0; G.oddT = 70 + Math.random() * 50; G.calls = 3; updateRadioBtn();
   journal.reset();
   for (const r of Object.values(reds)) { r.on = false; r.light.intensity = 0; r.fixture.material.emissiveIntensity = 0; }
   for (const n of noteMeshes) { n.read = false; n.m.visible = true; }
+  marks.reset();
   refill.taken = false; refill.m.visible = true;
   emDoor.position.x = -15.5; emCol.off = false;
   shutter.position.y = 0; shCol.off = false;
@@ -547,7 +531,10 @@ let tipTimer = 0, msgTimer = 0, noteTimer = 0;
 const shownTips = {};
 // the lines at the bottom wait their turn: a new one queues behind the one showing instead of replacing it
 // what to press, named in lines that tell you to do something: "손전등을 켜자 (좌클릭)"
-const KEY = touch ? { flash: '손전등 버튼', crouch: '웅크리기 버튼', spray: '스프레이 버튼', book: '수첩 버튼', radio: '무전 버튼' } : { flash: '우클릭', crouch: 'Ctrl', spray: 'T', book: 'J', radio: 'R' };
+// control hints in lines: the action and its PC key, e.g. (앉기 Ctrl); on touch screens the same, plus
+// '· 버튼' (the on-screen button of that name)
+const KEYS = { flash: ['손전등', '우클릭'], crouch: ['앉기', 'Ctrl'], spray: ['스프레이', 'T'], book: ['수첩', 'J'], radio: ['무전', 'R'], use: ['상호작용', 'E'] };
+const KEY = Object.fromEntries(Object.entries(KEYS).map(([k, [act, key]]) => [k, `${act} ${key}`]));   // same on phones: the action matches the button label, plus the PC key
 const tipQueue = [];
 let tipBusy = false;
 function tip(text, key) {
@@ -888,7 +875,7 @@ function findTarget() {
   if (!refill.taken) consider('refill', refill, refill.x, refill.z, 1.6);
   return best;
 }
-const useLabel = () => (touch ? '손 버튼' : 'E');
+const useLabel = () => (touch ? 'E · 손 버튼' : 'E');   // the PC key shows on touch screens too
 
 // ------------------------------------------------------------------ damage, death
 const dev = { god: false, battery: false, noclip: false, freeze: false, fast: false, info: false };
@@ -949,7 +936,7 @@ function onAttach(r) {
   G.attachCd = ATTACH_CD;
   G.attached.push({ r, age: 0, shake: 0, rev: 0, lastSign: 0, taps: 0 });
   sfx.attach();
-  tip(touch ? '떼어내야 해! (화면 좌우로 흔들기)' : '떼어내야 해! (마우스를 흔들거나 클릭 연타)', 'attach');
+  tip(touch ? '떼어내야 해! (화면 좌우로 흔들기 · 마우스 흔들기)' : '떼어내야 해! (마우스를 흔들거나 클릭 연타)', 'attach');
   return true;
 }
 // caught by the centipede: your head is turned to it as it rears up, jaws working, then it strikes
@@ -1148,7 +1135,10 @@ function frame(dtOverride) {
   const dt = dtOverride != null ? dtOverride : Math.min(clock.getDelta(), 1 / 20);
   t += dt;
   // the opening drive has its own scene; the game waits until you step inside
-  if (intro && intro.active) { if (!needRotate) intro.update(dt); if (intro.active) { if (!window.__NORENDER) withBright(() => intro.render()); return; } }
+  if (intro && intro.active) {
+    if (!needRotate) intro.update(dt);
+    if (intro.active) { sfx.setMusic(intro.musicMode(), { dt, duck: intro.musicDuck() }); if (!window.__NORENDER) withBright(() => intro.render()); return; }
+  }
   if (needRotate) { withBright(() => renderer.render(scene, camera)); return; }
   const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
@@ -1247,6 +1237,8 @@ function frame(dtOverride) {
   bounce.position.copy(camera.position).addScaledVector(fwd, Math.min(hd * 0.75, 4.5));
   bounce.intensity = G.flashOn ? 2.2 * fl * Math.min(1, nearK * 1.6) : 0;
   dress.update(dt, camera.position, flash.position, beamDir.subVectors(flash.target.position, flash.position).normalize(), G.flashOn ? fl : 0, renderer.domElement.height * 1.2);
+  const markSeen = marks.update(dt, flash.position, beamDir, G.flashOn ? fl : 0);
+  if (markSeen && G.started && !G.dead && markSeen.d < 10) tip('2조가 뿌려 둔 야광 스프레이다... 이걸 따라가면 되겠다', 'marks');
   silk.uniforms.uSpotPos.value.copy(flash.position);
   silk.uniforms.uSpotDir.value.copy(fwd);
   silk.uniforms.uOn.value = G.flashOn ? 0.55 * fl : 0;
@@ -1272,7 +1264,7 @@ function frame(dtOverride) {
     onFirstFlee: () => tip('바퀴들이 빛을 피한다', 'roachlight'),
     onEscape: (p, dur) => sfx.wingTakeoff(p.x, p.z, dur),
     onFirstWait: () => tip('빛 밖에서 기다리고 있다... 불을 돌리면 덮치겠지', 'roachwait'),
-    onFirstHunt: () => { tip(`소리를 듣고 오는 건가... 몸을 낮추고 걷자 (${KEY.crouch})`, 'roachsound'); discover('roach'); },
+    onFirstHunt: () => { tip(`소리를 듣고 오는 건가... 앉아서 걷자 (${KEY.crouch})`, 'roachsound'); discover('roach'); },
     onFlyerLaunch: (p) => sfx.scareLaunch(p.x, p.y, p.z),
     onFlyerOff: () => { sfx.shakeOff(); sfx.roachDie(1); },
     onFlyerHit: () => {
@@ -1290,7 +1282,7 @@ function frame(dtOverride) {
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드렸다... 뭔가 깨어났다', 'tripwake'); },
     onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추니 움츠러든다', 'ghostlit'); },
-    onThreadLit: () => tip(`실이 쳐져 있다. 숙이고 지나가야겠다 (${KEY.crouch})`, 'trip'),
+    onThreadLit: () => tip(`실이 쳐져 있다. 앉아서 지나가야겠다 (${KEY.crouch})`, 'trip'),
     onSacBurst: (p) => {
       brood.burst(p); sfx.sacDrop(p.x, p.z); sfx.eggBurst(p.x, 0.2, p.z);
       G.broodGone = false; tip('알집이 터졌다... 새끼들이 쏟아져 나온다!'); lookToward(new THREE.Vector3(p.x, 0.15, p.z), 0.6);
@@ -1335,7 +1327,7 @@ function frame(dtOverride) {
   if (G.started && !G.dead) {
     if (noise >= 12) eggs.hear(player.pos.x, player.pos.z, noise) && sfx.eggBurst(-7.6, 4, 62.6);
     for (const e of G.events) if (eggs.hear(e.x, e.z, e.r)) sfx.eggBurst(-7.6, 4, 62.6);
-    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip(`알집이다... 소리 내지 말자 (${KEY.crouch}로 웅크려 걷기)`, 'eggs'); discover('eggs'); }
+    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip(`알집이다... 앉아서 소리 내지 말고 지나가자 (${KEY.crouch})`, 'eggs'); discover('eggs'); }
   }
   const lingInfo = eggs.update({
     dt, player: { pos: player.pos }, nav: swarms.nav, field: swarms.fPlayer, light, frozen, hidden: G.hidden,
@@ -1406,7 +1398,7 @@ function frame(dtOverride) {
   if (G.hidden) inten = Math.max(inten * 0.6, searchK * 0.9);
   // being chased with somewhere to hide close by
   if (inten > 0.6 && !player.under && !G.tipped.hideHint && hideSpots.some((c) => Math.max(c.x0 - player.pos.x, 0, player.pos.x - c.x1) + Math.max(c.z0 - player.pos.z, 0, player.pos.z - c.z1) < 6)) {
-    G.tipped.hideHint = true; tip(`테이블이나 컨베이어 밑에 기어 들어가 숨자 (${KEY.crouch}로 웅크리기)`, 'hidehint');
+    G.tipped.hideHint = true; tip(`앉아서 테이블이나 컨베이어 밑에 숨자 (${KEY.crouch})`, 'hidehint');
   }
   if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
@@ -1424,6 +1416,11 @@ function frame(dtOverride) {
   if (chasing && !G.chasing && t - G.stingAt > 8) { sfx.chaseStinger(); G.stingAt = t; }        // found you
   if (!chasing && G.chasing && G.chaseLen > 3 && !G.dead) sfx.chaseOver();                  // lost you
   G.chaseLen = chasing ? G.chaseLen + dt : 0; G.chasing = chasing;
+  // the factory's music tightens as the night goes on and something hunts you; it steps back while you hide or run
+  sfx.setMusic(G.started && !G.won ? 'inside' : 'off', {
+    dt, tension: Math.min(1, 0.15 + 0.14 * G.gens + 0.35 * Math.max(0, Math.min(1, inten))),
+    duck: (G.dead ? 0.3 : 1) * (G.hidden ? 0.4 : 1) * (1 - 0.8 * chaseK),
+  });
   sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started && !G.won ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce, chase: G.won ? 0 : chaseK,
     centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.speed } : null, lings: lingInfo, ghost: spiders.ghostInfo(),
     brood: broodInfo, hush: G.hidden,
@@ -1504,7 +1501,7 @@ function frame(dtOverride) {
     const showWin = () => { document.body.classList.remove('ending'); renderer.toneMappingExposure = GAME_EXPOSURE; sfx.introMode(false); sfx.engine(false); sfx.win(); $('#win').classList.add('show'); };
     if (intro) {
       // out in the yard: back to the truck and one last call (see intro.ending)
-      clearTips(); voice.clear(); promptEl.classList.remove('show'); pullEl.classList.remove('show');
+      clearTips(); voice.clear(); promptEl.classList.remove('show');
       if (showMap) toggleMap(); if (journal.open) journal.toggle(false);
       document.body.classList.add('ending'); sfx.introMode(true);
       intro.ending(player.pos.x, showWin);
@@ -1515,20 +1512,25 @@ function frame(dtOverride) {
 
   // ---- interaction
   const target = G.started && !G.won ? findTarget() : null;
-  let prompt = '', pullGen = null;
+  let prompt = '';
   const pressed = inp.usePressed || (inp.use && !prevUse);
   prevUse = inp.use; input.usePressed = false;
+  if (!target || target.kind !== 'gen') G.holdT = 0;
   if (target) {
     const o = target.obj;
     if (target.kind === 'gen') {
       if (o.on) prompt = '발전기 가동 중';
       else {
-        // the starter cord: pull when the marker is in the green
-        pullGen = o;
-        if (!o.zone) newZone(o);
-        o.ph = (o.ph || 0) + dt * (1.7 + 0.45 * (o.pulls || 0)) * D().cord;
-        prompt = `${useLabel()} · 초록 칸에서 시동줄 당기기 ${o.pulls || 0}/3`;
-        if (pressed) pullCord(o);
+        // the starter cord: keep pulling (hold) and it catches after a couple of seconds; let go and it slips back
+        const need = D().pull;
+        if (inp.use) {
+          const before = G.holdT;
+          G.holdT += dt;
+          if (before === 0 || Math.floor(before / 0.8) !== Math.floor(G.holdT / 0.8)) sfx.pullCord(true, o.x, o.z);   // a pull every 0.8 s
+          if (G.holdT >= need) { G.holdT = 0; genOn(o); }
+        } else G.holdT = Math.max(0, G.holdT - dt * 1.5);
+        G.holdMax = need;
+        prompt = `${useLabel()} 꾹 누르기 · 시동줄 당기기`;
       }
     } else if (target.kind === 'lamp') {
       // as often as you like: pulling it again while it's on starts the 20 s over
@@ -1547,13 +1549,10 @@ function frame(dtOverride) {
       prompt = `${useLabel()} · 스프레이 리필 줍기`;
       if (pressed) { refill.taken = true; refill.m.visible = false; G.spray += 2; sfx.canRattle(); msg('스프레이를 주웠다 (+2)'); }
     }
-  } else G.holdT = 0;
+  }
   promptEl.classList.toggle('show', !!prompt);
-  if (prompt) { $('#prompt span').textContent = prompt; barEl.style.width = `${(G.holdT / 3) * 100}%`; }
+  if (prompt) { $('#prompt span').textContent = prompt; barEl.style.width = `${Math.min(1, G.holdT / (G.holdMax || 3)) * 100}%`; }
   $('#prompt .bar').style.opacity = G.holdT > 0 ? 1 : 0;
-  if (pullGen && (pullGen.on || !pullGen.zone)) pullGen = null;     // it just started
-  pullEl.classList.toggle('show', !!pullGen);
-  if (pullGen) { const z = pullGen.zone; pullZone.style.left = `${(z.c - z.w / 2) * 100}%`; pullZone.style.width = `${z.w * 100}%`; pullMark.style.left = `${pullMarker(pullGen) * 100}%`; }
   // recorders still to play blink their red light; the radio and recordings run at the bottom
   for (const r of tapes) if (!r.played) r.led.material.emissiveIntensity = Math.sin(t * 4 + r.x) > 0.2 ? 2.2 : 0.15;
   voice.update(dt); journal.update(dt);
@@ -1663,7 +1662,7 @@ function beginGame({ fromIntro = false, quiet = false } = {}) {
   G.hp = D().hp; G.spray = D().spray;
   if (fromIntro) sfx.slam();                      // the shutter comes down behind you
   if (!quiet) setTimeout(() => tip(`너무 어둡다. 손전등을 켜자 (${KEY.flash})`, 'start'), fromIntro ? 1800 : 1200);
-  if (!quiet) setTimeout(() => { if (G.started && !G.won && G.calls === 3 && G.gens === 0) tip(`길을 모르겠으면 본부에 물어보자 (${KEY.radio}, 세 번까지)`, 'radiohint'); }, 50000);
+  if (!quiet) setTimeout(() => { if (G.started && !G.won && G.calls === 3 && G.gens === 0) tip(`길을 모르겠으면 본부에 물어보자 (${KEY.radio}) · 세 번까지`, 'radiohint'); }, 50000);
   updateRadioBtn();
 }
 $('#startBtn').addEventListener('click', () => {
@@ -1802,7 +1801,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, genOn, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, genOn, marks, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { beginGame({ quiet: true }); },
