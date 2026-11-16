@@ -651,8 +651,9 @@ export class RoachSwarms {
     r.pos.copy(p);
     this.iPhase.array[r.i] += ctx.dt * 40;
     const Mx = new THREE.Matrix4().compose(p, q, new V3(1.1, 1.1, 1.1)), Z = new THREE.Matrix4().makeScale(0, 0, 0);
-    const near = r.state === 'face' || p.distanceTo(ctx.camera.position) < 0.9;
-    this.mesh.setMatrixAt(r.i, near ? Z : Mx);
+    // on your face it's drawn up close by the face-bug canvas, if there is one (facebugs.js)
+    const onFace = r.state === 'face' && this.faceFx, near = !onFace && (r.state === 'face' || p.distanceTo(ctx.camera.position) < 0.9);
+    this.mesh.setMatrixAt(r.i, near || onFace ? Z : Mx);
     this.overlay.setMatrixAt(3, near ? Mx : Z);
     this.oMove.array[3] = this.iMove.array[r.i]; this.oPhase.array[3] = this.iPhase.array[r.i];
     this.overlay.instanceMatrix.needsUpdate = true; this.oMove.needsUpdate = true; this.oPhase.needsUpdate = true;

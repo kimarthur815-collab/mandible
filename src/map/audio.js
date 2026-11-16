@@ -675,6 +675,20 @@ export class Sound {
     l.g.gain.setTargetAtTime(0.35, this.ctx.currentTime + 0.1, 0.1);
     this.lampSrc.set(`${x},${z}`, { ...l, p });
   }
+  // team 2's work light: a heavy switch, the driver whining up, then a loud hum that carries
+  workLight(x, z, on) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 2.2, z, 3, 0.8); p.connect(this.sfx);
+    this.tone({ dest: p, f0: on ? 110 : 150, f1: 45, dur: 0.25, gain: on ? 0.9 : 0.4, attack: 0.002 });
+    this.burst({ dest: p, dur: 0.12, f: 900, q: 2, gain: on ? 0.7 : 0.3, attack: 0.001 });
+    if (!on) { this.stopLampHum(x, z); return; }
+    this.burst({ dest: p, t: 0.02, dur: 0.3, f: 220, q: 0.8, gain: 0.5, buf: this.brown });
+    this.tone({ dest: p, t: 0.15, f0: 2400, f1: 9000, dur: 0.6, gain: 0.05, type: 'sawtooth', attack: 0.4 });
+    this.stopLampHum(x, z);
+    const l = this.loop(this.lampBuf, p, 0, 0.8);
+    l.g.gain.setTargetAtTime(0.55, this.ctx.currentTime + 0.5, 0.15);
+    this.lampSrc.set(`${x},${z}`, { ...l, p });
+  }
   lampLevel(x, z, k) {
     const l = this.lampSrc.get(`${x},${z}`);
     if (l) l.g.gain.setTargetAtTime(0.35 * k, this.ctx.currentTime, 0.01);

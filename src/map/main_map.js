@@ -17,6 +17,7 @@ import { MapCentipede, HUNT } from './centi.js';
 import { PassageGate, Phantom, DeadWorker, GATE, BODY } from './scares.js';
 import { createIntro } from './intro.js';
 import { createMarks } from './marks.js';
+import { createFaceBugs } from './facebugs.js';
 
 const $ = (s) => document.querySelector(s);
 const touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -34,6 +35,9 @@ const GAME_EXPOSURE = 1.38;   // a little brighter than it was (1.22)
 renderer.toneMappingExposure = GAME_EXPOSURE;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 $('#app').appendChild(renderer.domElement);
+// roaches on you, up close, on a canvas of their own over the game's (facebugs.js)
+const faceBugs = createFaceBugs($('#app'), { touch });
+let fxBlur = 0, fxOn = false;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
@@ -140,6 +144,57 @@ const lamps = SPOTS.lamps.map((s, i) => {
   colliders.push({ x0: s.x - 0.12, x1: s.x + 0.12, z0: s.z - 0.12, z1: s.z + 0.12 });
   return { ...s, idx: i, bulb, light, leverPivot, on: false, burnt: false, t: 0 };
 });
+
+// ------------------------------------------------------------------ team 2's work light in the hall
+// A battery floodlight on a tripod by the hall's door. On, it lights up the whole hall, but the switch and
+// its hum carry: the wolf spider comes down off its wall. It goes out with everything else in a blackout.
+const workLight = (() => {
+  const W = { x: 13.3, z: 47.5 }, aim = new THREE.Vector3(16, 1.2, 60);
+  const g = new THREE.Group(); g.position.set(W.x, 0, W.z);
+  const steel = dress.metalMaterial(0x2c2e31), yellow = dress.metalMaterial(0xc99a1e), rubber = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.9 });
+  const hub = new THREE.Vector3(0, 1.0, 0);
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2 + 0.4, foot = new THREE.Vector3(Math.sin(a) * 0.55, 0.02, Math.cos(a) * 0.55);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.018, foot.distanceTo(hub), 8), steel);
+    leg.position.copy(foot).add(hub).multiplyScalar(0.5);
+    leg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), hub.clone().sub(foot).normalize());
+    const shoe = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.036, 0.04, 10), rubber); shoe.position.set(foot.x, 0.02, foot.z);
+    g.add(leg, shoe);
+  }
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.12, 12), steel); collar.position.y = 1.0;
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.024, 1.2, 10), steel); mast.position.y = 1.6;
+  g.add(collar, mast);
+  // the head: a yoke and a box lamp, turned to the hall and tipped down a little
+  const head = new THREE.Group(); head.position.y = 2.22;
+  const yaw = Math.atan2(aim.x - W.x, aim.z - W.z);
+  head.rotation.set(0, yaw, 0, 'YXZ');
+  const tilt = new THREE.Group(); tilt.rotation.x = 0.1; head.add(tilt);
+  const housing = new THREE.Mesh(boxGeom(0.48, 0.34, 0.13, 0, 0, 0), yellow);
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x9a9a92, roughness: 0.25, emissive: new THREE.Color(0xfff6e8), emissiveIntensity: 0 });
+  const glass = new THREE.Mesh(boxGeom(0.42, 0.28, 0.01, 0, 0, 0.066), glassMat);
+  tilt.add(housing, glass);
+  for (let k = 0; k < 7; k++) tilt.add(new THREE.Mesh(boxGeom(0.012, 0.3, 0.05, -0.21 + k * 0.07, 0, -0.088), steel));    // cooling fins
+  for (const sx of [-1, 1]) head.add(new THREE.Mesh(boxGeom(0.02, 0.2, 0.05, sx * 0.265, -0.06, 0), steel));         // the yoke
+  head.add(new THREE.Mesh(boxGeom(0.55, 0.02, 0.05, 0, -0.16, 0), steel));
+  g.add(head);
+  // its battery on the floor, a cable up the mast, and a green '2조' daub on the case
+  const batt = new THREE.Mesh(boxGeom(0.34, 0.24, 0.22, 0.42, 0.12, 0.25), yellow);
+  const led = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), new THREE.MeshStandardMaterial({ color: 0x220000, emissive: new THREE.Color(0xff3010), emissiveIntensity: 1.4 }));
+  led.position.set(0.42, 0.245, 0.37);
+  const cable = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(0.36, 0.2, 0.2), new THREE.Vector3(0.2, 0.02, 0.12), new THREE.Vector3(0.05, 0.03, 0.04), new THREE.Vector3(0.03, 0.6, 0.02), new THREE.Vector3(0.03, 2.1, 0.02)]), 24, 0.008, 6), rubber);
+  g.add(batt, led, cable);
+  for (const m of [housing, batt]) { m.castShadow = true; m.receiveShadow = true; }
+  scene.add(g);
+  // the light: a wide flood from the head, and the light it throws back off the floor and walls
+  const spot = new THREE.SpotLight(0xf4f0e8, 0, 40, 0.92, 0.6, 1.3);
+  head.updateWorldMatrix(true, true);
+  spot.position.copy(glass.getWorldPosition(new THREE.Vector3()));
+  spot.target.position.copy(aim);
+  const fill = new THREE.PointLight(0xc9d4e2, 0, 26, 1.2); fill.position.set(10, 5.5, 58);
+  scene.add(spot, spot.target, fill);
+  colliders.push({ x0: W.x - 0.35, x1: W.x + 0.35, z0: W.z - 0.35, z1: W.z + 0.35 });
+  return { ...W, spot, fill, glassMat, led, on: false, t: 0, k: 0 };
+})();
 
 const genMeshes = SPOTS.generators.map((s, i) => {
   const g = new THREE.Group();
@@ -516,6 +571,8 @@ function resetGame() {
   for (const r of Object.values(reds)) { r.on = false; r.light.intensity = 0; r.fixture.material.emissiveIntensity = 0; }
   for (const n of noteMeshes) { n.read = false; n.m.visible = true; }
   marks.reset();
+  workLight.on = false; workLight.t = 0; workLight.seen = false; sfx.stopLampHum(workLight.x, workLight.z);
+  faceBugs.clear();
   refill.taken = false; refill.m.visible = true;
   emDoor.position.x = -15.5; emCol.off = false;
   shutter.position.y = 0; shCol.off = false;
@@ -853,6 +910,16 @@ function genOn(g) {
 
 // interaction target in front of the player
 const fwd = new THREE.Vector3();
+// the work light: on, it floods the hall, and its switch and hum wake the wolf spider
+function switchWork(on) {
+  const w = workLight;
+  w.on = on; w.t = 0;
+  sfx.workLight(w.x, w.z, on);
+  if (!on) return;
+  G.events.push({ x: w.x, z: w.z, r: 26 });
+  msg('작업등이 켜졌다. 홀이 다 보인다');
+  setTimeout(() => { if (G.started && !G.dead && !G.won && spiders.wolf && !dev.freeze) spiders.wakeWolf(spiders.wolf); }, 900);   // it heard that
+}
 function findTarget() {
   player.forward(fwd);
   const fl = Math.hypot(fwd.x, fwd.z) || 1;
@@ -868,6 +935,7 @@ function findTarget() {
   };
   for (const g of genMeshes) consider('gen', g, g.x, g.z, 2.4);
   for (const l of lamps) consider('lamp', l, l.x, l.z, 1.9);
+  consider('work', workLight, workLight.x, workLight.z, 2.0);
   // notes and recorders only from inside the same room (not through a wall)
   const pr = roomAt(player.pos.x, player.pos.z), same = (x, z) => !pr || roomAt(x, z) === pr;
   for (const n of noteMeshes) if (!n.read && same(n.x, n.z)) consider('note', n, n.x, n.z, 1.9);
@@ -1048,6 +1116,7 @@ function resize() {
   camera.fov = innerWidth < innerHeight ? 80 : 70;
   camera.updateProjectionMatrix();
   paperMap.resize();
+  faceBugs.resize();
   if (intro) intro.resize();
 }
 addEventListener('resize', resize);
@@ -1437,7 +1506,17 @@ function frame(dtOverride) {
     if (touch) { const ms = Math.abs(inp.mx) > 0.45 ? Math.sign(inp.mx) : 0; if (ms && ms !== a.lastMx) { a.rev++; a.lastMx = ms; a.shake += 0.3; } }
     if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); G.attachCd = ATTACH_CD; swarms.throwDead(a.r, player.pos, player.yaw); msg('떼어냈다!'); sfx.shakeOff(); sfx.roachDie(1); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
   }
-  swarms.showAttached(camera, G.attached, dt, t);
+  // ...drawn up close on their own canvas; the world behind goes out of focus and shivers a little
+  const faceN = faceBugs.update(dt, { list: G.attached, face: swarms.flyer.state === 'face', light: G.blackT > 0 ? 0.05 : G.flashOn ? Math.min(1, fl) : 0.12, bright: SET.bright });
+  swarms.faceFx = faceN >= 0;
+  swarms.showAttached(camera, faceN >= 0 ? [] : G.attached, dt, t);     // (the old way, if a second canvas can't be had)
+  fxBlur += ((faceN > 0 && SET.quality !== 'low' ? (touch ? 1.1 : 1.5) * Math.min(faceN, 2) : 0) - fxBlur) * Math.min(1, dt * 3);
+  if (faceN > 0 || fxOn) {
+    const j = faceN > 0 ? 0.9 + 0.3 * faceN : 0;
+    el.style.filter = fxBlur > 0.05 ? `blur(${fxBlur.toFixed(2)}px)` : '';
+    el.style.transform = j ? `translate(${(Math.sin(t * 31) * j).toFixed(1)}px, ${(Math.cos(t * 27) * j).toFixed(1)}px) scale(1.012)` : '';
+    fxOn = faceN > 0 || fxBlur > 0.05;
+  }
   // a lot of them round your feet: the view drops to look (not more than every 12 s)
   G.feetCd = Math.max(0, (G.feetCd || 0) - dt);
   if (G.started && !G.dead && !G.grab && !G.kill && !G.hidden && !player.inside && G.feetCd <= 0 && !focus) {
@@ -1476,6 +1555,19 @@ function frame(dtOverride) {
   hideEl.classList.toggle('show', !!hideTxt); hideEl.classList.toggle('on', G.hidden);
   if (hideTxt && hideEl.dataset.t !== hideTxt) { hideEl.dataset.t = hideTxt; hideEl.querySelector('span').textContent = hideTxt; }
 
+  // ---- the work light: flickers up when switched on, out in a blackout like everything else
+  {
+    const w = workLight;
+    if (w.on) w.t += dt;
+    const up = w.on ? (w.t < 0.9 ? (Math.random() < 0.55 ? 1 : 0.1) * Math.min(1, w.t / 0.5) : 1) : 0;
+    const k = G.blackT > 0 ? 0 : G.backT > 0 ? (Math.random() < 0.5 ? up : 0) : up;
+    w.k = k;
+    w.spot.intensity = 60 * k; w.fill.intensity = 5.5 * k;
+    w.glassMat.emissiveIntensity = 3.2 * k;
+    w.led.material.emissive.set(w.on ? 0x30ff60 : 0xff3010);
+    if (w.on) sfx.lampLevel(w.x, w.z, k);
+    if (!w.seen && !w.on && G.started && !G.dead && Math.hypot(player.pos.x - w.x, player.pos.z - w.z) < 4) { w.seen = true; tip('2조가 두고 간 작업등이다. 켜면 밝겠지만... 소리가 클 것 같다', 'work'); }
+  }
   // ---- red emergency lights
   for (const [room, r] of Object.entries(reds)) {
     const target = r.on && G.blackT <= 0 ? 7 * (0.85 + 0.15 * Math.sin(t * 2.1 + room.length)) : 0;
@@ -1532,6 +1624,9 @@ function frame(dtOverride) {
         G.holdMax = need;
         prompt = `${useLabel()} 꾹 누르기 · 시동줄 당기기`;
       }
+    } else if (target.kind === 'work') {
+      prompt = o.on ? `${useLabel()} · 작업등 끄기` : `${useLabel()} · 작업등 켜기 (소리가 크다)`;
+      if (pressed) switchWork(!o.on);
     } else if (target.kind === 'lamp') {
       // as often as you like: pulling it again while it's on starts the 20 s over
       prompt = o.on ? `${useLabel()} · 레버 다시 당기기 (${Math.ceil(20 - o.t)}초 남음)` : `${useLabel()} · 전등 레버 당기기`;
@@ -1577,6 +1672,7 @@ function frame(dtOverride) {
   fpsAvg += (dt - fpsAvg) * 0.05;
   if (window.__NORENDER) return;
   withBright(() => { renderer.render(scene, camera); if (!(G.kill && G.kill.t > 0.5)) arms.render(renderer, camera); });   // the arms are gone once you're knocked down
+  faceBugs.render();
 }
 let fpsAvg = 1 / 60, fpsN = 0;
 
@@ -1659,6 +1755,7 @@ function beginGame({ fromIntro = false, quiet = false } = {}) {
   sfx.introMode(false); sfx.engine(false);
   if (G.started) return;
   G.started = true;
+  setTimeout(() => faceBugs.prepare(), 1500);       // build the close-up roaches while it's quiet
   G.hp = D().hp; G.spray = D().spray;
   if (fromIntro) sfx.slam();                      // the shutter comes down behind you
   if (!quiet) setTimeout(() => tip(`너무 어둡다. 손전등을 켜자 (${KEY.flash})`, 'start'), fromIntro ? 1800 : 1200);
@@ -1801,7 +1898,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, genOn, marks, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, genOn, marks, workLight, faceBugs, switchWork, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { beginGame({ quiet: true }); },
