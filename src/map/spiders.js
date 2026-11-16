@@ -638,6 +638,17 @@ export class MapSpiders {
     g.spt = new V3(k >= 0 ? nav.cx(k) : P.x, 0, k >= 0 ? nav.cz(k) : P.z);
     g.want = 'floor'; g.hT = WR; g.wallRun = 0;
   }
+  // a noise in the hall (a thrown can): the wolf comes down off its wall, or leaves off a chase it's losing, to look
+  lureWolf(x, z, P) {
+    const sp = this.wolf, nav = this._wolfNav;
+    if (!sp || !sp.g || !nav || !inHall({ x, z }, -0.3)) return false;
+    const g = sp.g;
+    if (g.phase === 'perch' || g.phase === 'home') { if (!this.wakeWolf(sp)) return false; }
+    else if (g.phase === 'chase') { if (Math.hypot(g.pos.x - P.x, g.pos.z - P.z) < 5) return false; }
+    else if (g.phase !== 'search') return false;
+    this.wolfSearch(g, nav, new V3(x, 0, z));
+    return true;
+  }
   // after a grab or a spray it puts its body on the floor and bolts for a wall
   wolfRetreat(sp) {
     const s = sp.s, b = s.bodyWorld, g = sp.g;
@@ -786,6 +797,19 @@ export class MapSpiders {
       if (sp.grabbed || inCone(s.bodyWorld)) { this.knockDown(sp, origin); res.spiders.push(sp); }
     }
     return res;
+  }
+
+  // a camera flash: the ghost cowers for a good while, the wolf bolts for a wall. Returns who it caught.
+  flash(origin, dir, range = 9, cosHalf = Math.cos(0.62)) {
+    const out = [];
+    for (const sp of this.spiders) {
+      const s = sp.s, b = s.bodyWorld, v = b.clone().sub(origin), d = v.length();
+      if (!sp.grabbed && (d > range || v.dot(dir) / (d || 1) < cosHalf)) continue;
+      const g = sp.g;
+      if (sp.mode === 'trip' && g && !g.giveup) { g.cowerT = Math.max(g.cowerT || 0, 2.6); g.cowerCd = g.cowerT + 0.9; s.whirl = 0.5; out.push(sp); }
+      else if (sp.mode === 'wall' && g && (g.phase === 'chase' || g.phase === 'search' || sp.grabbed)) { this.wolfRetreat(sp); out.push(sp); }
+    }
+    return out;
   }
 
   knockDown(sp, from) {

@@ -12,12 +12,14 @@ import { MapSpiders } from './spiders.js';
 import { EggNest } from './spiderlings.js';
 import { GhostBrood } from './ghostlings.js';
 import { createPaperMap } from './papermap.js';
-import { BUG_PAGES, drawBugPage } from './bugnotes.js';
+import { BUG_PAGES, drawBugPage, tapePhoto } from './bugnotes.js';
 import { MapCentipede, HUNT } from './centi.js';
-import { PassageGate, Phantom, DeadWorker, GATE, BODY } from './scares.js';
+import { PassageGate, Phantom, DeadWorker, GATE, BODY, LeeBody, LEE } from './scares.js';
+import { createVisions } from './visions.js';
 import { createIntro } from './intro.js';
 import { createMarks } from './marks.js';
 import { createFaceBugs } from './facebugs.js';
+import { createCans } from './cans.js';
 
 const $ = (s) => document.querySelector(s);
 const touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -45,17 +47,20 @@ scene.fog = new THREE.FogExp2(0x000000, 0.05);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 140);
 let intro = null;   // the opening drive (built near the end, see createIntro)
 // settings, kept in this browser: look sensitivity, volume, brightness, quality (see the settings panel)
-const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal' };
+const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal', sub: 'm', shake: true, tips: true, vibe: true };
 // difficulty: health, spray cans, how fast hunters run, how fast the flashlight heats, how far your
 // footsteps carry, how long the starter cord takes to catch (s), and how hard a grab is to fight off
 const DIFF = {
-  easy: { label: '쉬움', hp: 5, spray: 5, speed: 0.82, heat: 0.7, hear: 0.75, pull: 1.8, mash: 0.7, mapDark: 0.62 },
+  easy: { label: '쉬움', hp: 5, spray: 5, speed: 0.82, heat: 0, hear: 0.75, pull: 1.8, mash: 0.7, mapDark: 0.62 },
   normal: { label: '보통', hp: 3, spray: 3, speed: 1, heat: 1, hear: 1, pull: 2.4, mash: 1, mapDark: 0.36 },
   hard: { label: '어려움', hp: 2, spray: 2, speed: 1.15, heat: 1.3, hear: 1.3, pull: 3.0, mash: 1.3, mapDark: 0.16 },
 };
 const D = () => DIFF[SET.diff] || DIFF.normal;
 let devTools = (() => { try { return localStorage.getItem('mandible.dev') === '1'; } catch (e) { return false; } })();
 const SET = (() => { try { return { ...SET_DEFAULT, ...JSON.parse(localStorage.getItem('mandible.settings') || '{}') }; } catch (e) { return { ...SET_DEFAULT }; } })();
+// phones that can vibrate (Android; iPhone browsers can't)
+const canVibe = typeof navigator.vibrate === 'function' && touch;
+function buzz(p) { if (canVibe && SET.vibe !== false) { try { navigator.vibrate(p); } catch (e) { /* not allowed yet */ } } }
 // draw with the brightness setting on top of whatever exposure the scene uses
 function withBright(fn) { const e = renderer.toneMappingExposure; renderer.toneMappingExposure = e * SET.bright; fn(); renderer.toneMappingExposure = e; }
 
@@ -311,6 +316,7 @@ const voice = (() => {
     el.classList.toggle('me', v.who === '나'); el.classList.add('show');
     if (v.who === '나') sfx.mumble(Math.min(2.2, 0.5 + v.text.length * 0.06));
     else if (v.kind === 'tape') sfx.tape(Math.max(0.4, v.dur - 0.4));
+    else if (v.kind === 'whisper') sfx.whisper(v.dur);
     else { sfx.squelch(); if (/사각|기어/.test(v.text)) sfx.radioSkitter(v.dur - 0.4); else sfx.chatter(v.dur - 0.6); }
   };
   return {
@@ -343,10 +349,17 @@ const tmpV = new THREE.Vector3();
 const journal = (() => {
   const found = [];                       // page ids in the order found
   const pages = {};                       // id -> canvas (drawn once)
+  const photos = {};                      // id -> a camera print taped onto that page
   let idx = 0, open = false, toastT = 0;
   const view = $('#journal canvas'), toast = $('#bugToast canvas');
   const pageCanvas = (id) => {
-    if (!pages[id]) { const c = document.createElement('canvas'); c.width = 600; c.height = 800; drawBugPage(c, BUG_PAGES.find((p) => p.id === id), BUG_PAGES.findIndex((p) => p.id === id) + 3); pages[id] = c; }
+    if (!pages[id]) {
+      const c = document.createElement('canvas'); c.width = 600; c.height = 800;
+      const seed = BUG_PAGES.findIndex((p) => p.id === id) + 3;
+      drawBugPage(c, BUG_PAGES.find((p) => p.id === id), seed);
+      if (photos[id]) tapePhoto(c, photos[id], seed);
+      pages[id] = c;
+    }
     return pages[id];
   };
   const show = () => {
@@ -357,6 +370,7 @@ const journal = (() => {
   };
   const api = {
     has: (id) => found.includes(id),
+    get count() { return found.length; },
     get open() { return open; },
     add(id) {
       if (found.includes(id)) return false;
@@ -366,6 +380,7 @@ const journal = (() => {
       return true;
     },
     toast() { $('#bugToast').classList.add('show'); toastT = 5.5; },
+    setPhoto(id, photo) { photos[id] = photo; delete pages[id]; pageCanvas(id); if (open) show(); },
     toggle(on = !open) {
       if (on && !found.length) return;
       open = on; $('#journal').classList.toggle('show', on);
@@ -375,7 +390,7 @@ const journal = (() => {
     },
     flip(d) { if (!open) return; const n = Math.max(0, Math.min(found.length - 1, idx + d)); if (n !== idx) { idx = n; show(); sfx.paper(); } },
     update(dt) { if (toastT > 0 && (toastT -= dt) <= 0) $('#bugToast').classList.remove('show'); },
-    reset() { found.length = 0; idx = 0; if (open) api.toggle(false); toastT = 0; $('#bugToast').classList.remove('show'); document.body.classList.remove('hasbook'); },
+    reset() { for (const k of Object.keys(photos)) { delete photos[k]; delete pages[k]; } found.length = 0; idx = 0; if (open) api.toggle(false); toastT = 0; $('#bugToast').classList.remove('show'); document.body.classList.remove('hasbook'); },
   };
   for (const p of BUG_PAGES) pageCanvas(p.id);     // drawn up front (and again once the handwriting font is in)
   api.redraw = () => { for (const k of Object.keys(pages)) delete pages[k]; for (const p of BUG_PAGES) pageCanvas(p.id); if (open) show(); };
@@ -479,7 +494,7 @@ function radioCall() {
   if (!G.started || G.dead || G.won || G.kill || (intro && intro.active)) return;
   if (G.calls <= 0) { tip('무전기 배터리가 바닥났다... 더는 못 부른다'); return; }
   if (voice.busy) { tip('무전이 아직 이어지고 있다'); return; }
-  G.calls--; updateRadioBtn();
+  G.calls--; G.stats.radio++; updateRadioBtn();
   G.events.push({ x: player.pos.x, z: player.pos.z, r: 13 });          // the squelch carries
   const lines = [['나', '본부, 3조. ...어디로 가야 합니까?'], ['본부', `치익— ${radioHint()}`]];
   const extra = radioSituation(); if (extra) lines.push(['본부', extra]);
@@ -494,6 +509,8 @@ const TAPES = [
   { x: 13.5, y: 0.921, z: 18.9, lines: [['이정훈', '발전기 시동줄... 몇 번 세게 당겨야 걸린다.'], ['이정훈', '시동 걸리는 소리가 엄청 커. 그 소리에 놈들이 몰려와. 조심해.']] },
   { x: 20.8, y: 0.931, z: 63.1, lines: [['이정훈', '생산 홀. 천장에 뭔가 붙어 있다. 다리가 사람 팔만 해.'], ['이정훈', '테이블 밑마다 야광봉 놔뒀다. 숨을 땐 불 끄고... 숨도 참아.']] },
   { x: -16.6, y: 0.931, z: 60.0, lines: [['이정훈', '실험실 기록을 봤다. 여기서 만든 건 살충제가 아니었어.'], ['이정훈', '벽 안에서 뭔가 긴 게 움직인다... 3조가 오면, 셔터로 바로—'], ['이정훈', '(녹음이 뚝 끊긴다)', 2.2]] },
+  // the last one, by his hand where he lies in the hall's corner
+  { x: LEE.tape.x, y: LEE.tape.y, z: LEE.tape.z, lee: true, lines: [['이정훈', '(거친 숨) ...녹음 되나. 2조 이정훈. 몇 시인지도 모르겠다.'], ['이정훈', '놈이 벽 속을 다닌다. 길고... 다리가 끝이 없어. 발전기 소리를 따라와.'], ['이정훈', '3조, 이거 들으면... 발전기 다 돌리고 셔터로 나가. 뒤돌아보지 말고.'], ['이정훈', '사원증... 우리 집사람한테 좀... (사각사각— 녹음이 끊긴다)', 3.0]] },
 ];
 const tapes = TAPES.map((r, i) => {
   const g = new THREE.Group();
@@ -535,6 +552,7 @@ spiders.setColliders(colliders);
 const gate = new PassageGate(scene, silk, BT, colliders);
 const phantom = new Phantom(scene, silk, BT);
 const deadMan = new DeadWorker(scene, silk, colliders);
+const lee = new LeeBody(scene, colliders);
 const indicators = [0, 1, 2].map((i) => {
   const m = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 10), new THREE.MeshStandardMaterial({ color: 0x200000, emissive: new THREE.Color(0xff2010), emissiveIntensity: 1.4 }));
   m.position.set(-0.6 + i * 0.6, 4.85, 0.45);
@@ -557,6 +575,8 @@ function resetGame() {
     tipped: {}, lampSeen: false, calls: 3, hp: D().hp, dead: false, kill: null, attached: [], attachCd: 0, chasing: false, chaseLen: 0, stingAt: -99, scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
+    cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false,
+    stats: { hits: 0, deaths: 0, spray: 0, thrown: 0, photos: 0, radio: 0, work: false },
   });
   swarms.reset(); swarms.sealed = new Set([3]); gate.setOpen(false); phantom.hide();
   spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
@@ -574,6 +594,8 @@ function resetGame() {
   workLight.on = false; workLight.t = 0; workLight.seen = false; sfx.stopLampHum(workLight.x, workLight.z);
   faceBugs.clear();
   refill.taken = false; refill.m.visible = true;
+  cans.reset(); camItem.taken = false; camItem.g.visible = true; updateItems();
+  lee.reset(); visions.reset();
   emDoor.position.x = -15.5; emCol.off = false;
   shutter.position.y = 0; shCol.off = false;
   indicators.forEach((m) => m.material.emissive.set(0xff2010));
@@ -590,11 +612,12 @@ const shownTips = {};
 // what to press, named in lines that tell you to do something: "손전등을 켜자 (좌클릭)"
 // control hints in lines: the action and its PC key, e.g. (앉기 Ctrl); on touch screens the same, plus
 // '· 버튼' (the on-screen button of that name)
-const KEYS = { flash: ['손전등', '우클릭'], crouch: ['앉기', 'Ctrl'], spray: ['스프레이', 'T'], book: ['수첩', 'J'], radio: ['무전', 'R'], use: ['상호작용', 'E'] };
+const KEYS = { flash: ['손전등', '우클릭'], crouch: ['앉기', 'Ctrl'], spray: ['스프레이', 'T'], book: ['수첩', 'J'], radio: ['무전', 'R'], use: ['상호작용', 'E'], throw: ['던지기', 'G'], cam: ['카메라', 'V'] };
 const KEY = Object.fromEntries(Object.entries(KEYS).map(([k, [act, key]]) => [k, `${act} ${key}`]));   // same on phones: the action matches the button label, plus the PC key
 const tipQueue = [];
 let tipBusy = false;
 function tip(text, key) {
+  if (SET.tips === false) return;
   if (key) { shownTips[key] = (shownTips[key] || 0) + 1; if (shownTips[key] > 2) return; }
   if ((tipBusy && tipEl.textContent === text) || tipQueue.includes(text)) return;   // already showing or waiting
   tipQueue.push(text);
@@ -608,6 +631,17 @@ function nextTip() {
   tipEl.textContent = text; tipEl.classList.add('show');
   clearTimeout(tipTimer);
   tipTimer = setTimeout(() => { tipEl.classList.remove('show'); tipTimer = setTimeout(nextTip, 400); }, tipQueue.length ? 3000 : 3500);
+}
+// a line that counts down: if it is already showing, just change its text (no queue of near-copies)
+function tipLive(text, prefix) {
+  if (SET.tips === false) return;
+  if (tipBusy && tipEl.textContent.startsWith(prefix)) {
+    tipEl.textContent = text; clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => { tipEl.classList.remove('show'); tipTimer = setTimeout(nextTip, 400); }, 2500);
+    return;
+  }
+  for (let i = tipQueue.length - 1; i >= 0; i--) if (tipQueue[i].startsWith(prefix)) tipQueue.splice(i, 1);
+  tip(text);
 }
 function clearTips() { tipQueue.length = 0; clearTimeout(tipTimer); tipBusy = false; tipEl.classList.remove('show'); }
 function msg(text) {
@@ -646,6 +680,8 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyE') input.usePressed = true;
   if (e.code === 'KeyT' || e.code === 'KeyQ') useSpray();
   if (e.code === 'KeyR') radioCall();
+  if (e.code === 'KeyG') throwCan();
+  if (e.code === 'KeyV') snapPhoto();
   if (e.code === 'Space' && struggling()) mashGrab();
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -734,6 +770,8 @@ $('#bRadio').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stop
 $('#bCrouch').addEventListener('pointerdown', (e) => { e.preventDefault(); hold.crouch = !hold.crouch; $('#bCrouch').classList.toggle('on', hold.crouch); });
 $('#bFlash').addEventListener('pointerdown', (e) => { e.preventDefault(); toggleFlash(); });
 $('#bSpray').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); useSpray(); });
+$('#bThrow').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); throwCan(); });
+$('#bCam').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); snapPhoto(); });
 document.querySelectorAll('[data-act="map"]').forEach((b) => b.addEventListener('click', toggleMap));
 document.querySelectorAll('[data-act="bright"]').forEach((b) => b.addEventListener('click', toggleBright));
 document.querySelectorAll('[data-act="marks"]').forEach((b) => b.addEventListener('click', () => { markers.visible = !markers.visible; b.classList.toggle('on', markers.visible); }));
@@ -792,12 +830,97 @@ function makeMist(sc) {
 }
 
 // ------------------------------------------------------------------ spray: 60 degree cone, 3 m
+// what you're carrying: cans, the camera's shots left (status corner and the touch buttons)
+function updateItems() {
+  const bits = [];
+  if (G.cans) bits.push(`캔 <b>${G.cans}</b>`);
+  if (G.hasCam) bits.push(`카메라 <b>${G.shots}</b>`);
+  $('#items').innerHTML = bits.join(' · ');
+  $('#bThrow').classList.toggle('show', G.cans > 0); $('#bThrow b').textContent = G.cans;
+  $('#bCam').classList.toggle('show', !!G.hasCam); $('#bCam').classList.toggle('empty', G.shots <= 0); $('#bCam b').textContent = G.shots;
+}
+// a can out of your hand, along your look, with a little lift
+function throwCan() {
+  if (!G.started || G.dead || G.won || G.kill || G.grab) return;
+  if (G.cans <= 0) { tip('던질 캔이 없다'); return; }
+  const d = new THREE.Vector3(); player.forward(d); d.normalize();
+  const right = new THREE.Vector3(-d.z, 0, d.x).normalize();
+  const from = camera.position.clone().addScaledVector(d, 0.35).addScaledVector(right, -0.12); from.y -= 0.12;
+  if (!cans.throw(from, d)) return;
+  G.cans--; G.stats.thrown++; sfx.whoosh(); updateItems();
+}
+// where a thrown can lands first: a clank that carries. Roaches come to the noise, and the centipede or the
+// wolf spider goes over to look (unless it's right on you)
+function canHit(x, y, z, first, k) {
+  sfx.canClank(x, y, z, first ? Math.max(0.75, k) : k);
+  if (!first) return;
+  G.events.push({ x, z, r: 15 });
+  const lured = centi.lure(x, z, swarms.nav) | spiders.lureWolf(x, z, player.pos);
+  if (!G.tipped.canLure) { G.tipped.canLure = true; setTimeout(() => { if (G.started && !G.dead) tip(lured ? '소리 난 쪽으로 간다...' : '소리 난 쪽으로 몰려가겠지...'); }, 500); }
+}
+// the disposable camera: a blinding flash that scatters roaches, makes the ghost spider cower, sends the wolf
+// back to the walls and stops the centipede for a moment (and makes whatever has you let go). The picture of
+// whatever bug it caught goes into the notebook, taped onto its page.
+function snapPhoto() {
+  if (!G.started || G.dead || G.won || !G.hasCam) return;
+  if (G.kill && !G.kill.escapable) return;
+  if (G.shots <= 0) { tip('필름을 다 썼다'); return; }
+  if (G.camCd > 0) return;                       // still winding on
+  G.shots--; G.camCd = 1.3; G.stats.photos++;
+  updateItems(); sfx.shutter(); buzz(30);
+  const fx = $('#camFx'); fx.classList.remove('on'); void fx.offsetWidth; fx.classList.add('on');
+  const o = camera.position.clone(), d = new THREE.Vector3(); player.forward(d); d.normalize();
+  camFlash.position.copy(o).addScaledVector(d, 0.3); camFlash.intensity = 90;
+  // what's in the picture: the rarest bug in view
+  const subj = photoSubject(o, d);
+  // the picture itself: drawn now with the flash on, the middle of the screen cut out
+  if (subj) takePicture(subj);
+  // the flash hits everything in front of you
+  const nR = swarms.flashScatter(o, d);
+  const sps = spiders.flash(o, d);
+  const cS = centi.flashStun(o, d);
+  for (const sp of sps) { const p = sp.s.bodyWorld; sfx.spiderFlinch(p.x, p.y, p.z); }
+  if (cS) sfx.centiHiss(centi.head.x, centi.head.z);
+  if (G.grab) { const sp = G.grab.sp; endGrab(true); if (sp !== gate) spiders.release(sp); msg('플래시에 놀라 떨어져 나갔다'); }
+  else if (struggling() && G.kill) { sfx.centiHiss(centi.head.x, centi.head.z); centiRelease('spray'); }
+  if (!subj && !nR && !sps.length && !cS) tip('...아무것도 안 찍혔다');
+}
+function photoSubject(o, d) {
+  const inView = (p, range) => { const v = p.clone().sub(o), dist = v.length(); return dist < range && v.dot(d) / (dist || 1) > Math.cos(0.55) && canSee(p); };
+  if (centi.active && centi.state !== 'dormant' && inView(centi.head.clone().setY(Math.max(0.3, centi.head.y)), 12)) return 'centi';
+  for (const sp of spiders.spiders) if (inView(sp.s.bodyWorld, 12)) return sp.mode === 'wall' ? 'wolf' : 'ghost';
+  if (gate.s && inView(gate.s.bodyWorld, 12)) return 'gate';
+  if (!eggs.burstDone) for (const [x, y, z] of [[-7.6, 4.02, 62.6], [-6.7, 2.75, 61.3], [-9.5, 4.05, 63.2]]) if (inView(new THREE.Vector3(x, y, z), 10)) return 'eggs';
+  for (const r of swarms.roaches) if (!['off', 'attached', 'escape'].includes(r.state) && inView(r.pos.clone().setY(Math.max(0.1, r.pos.y)), 7)) return 'roach';
+  return null;
+}
+const photoCv = (() => { const c = document.createElement('canvas'); c.width = 320; c.height = 240; return c; })();
+function takePicture(id) {
+  withBright(() => renderer.render(scene, camera));
+  // the middle of the frame at 4:3, onto a small print
+  const W = el.width, H = el.height, ch = Math.min(H, W * 0.75) * 0.8, cw = ch * 4 / 3;
+  const c = document.createElement('canvas'); c.width = 320; c.height = 240;
+  const x = c.getContext('2d');
+  x.drawImage(el, (W - cw) / 2, (H - ch) / 2, cw, ch, 0, 0, 320, 240);
+  // a cheap film camera's look: warm, hard flash fall-off, grain, the date in orange
+  x.globalCompositeOperation = 'multiply'; x.fillStyle = '#ffe6c4'; x.fillRect(0, 0, 320, 240);
+  x.globalCompositeOperation = 'source-over';
+  const v = x.createRadialGradient(160, 120, 60, 160, 120, 210); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)'); x.fillStyle = v; x.fillRect(0, 0, 320, 240);
+  for (let i = 0; i < 1400; i++) { const a = Math.random() * 0.16; x.fillStyle = Math.random() < 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`; x.fillRect(Math.random() * 320, Math.random() * 240, 1, 1); }
+  const now = new Date(), two = (n) => String(n).padStart(2, '0');
+  x.font = 'bold 15px monospace'; x.fillStyle = '#ff8c2e'; x.shadowColor = 'rgba(255,120,40,.8)'; x.shadowBlur = 4;
+  x.fillText(`'${two(now.getFullYear() % 100)} ${two(now.getMonth() + 1)} ${two(now.getDate())}`, 214, 228);
+  G.photos[id] = c;
+  journal.setPhoto(id, c);
+  if (!journal.has(id)) discover(id);
+  if (!G.tipped['photo' + id]) { G.tipped['photo' + id] = true; setTimeout(() => { if (G.started && !G.dead) tip(`찍었다. 수첩에 붙여 뒀다 (${KEY.book})`); }, 700); }
+}
 function useSpray() {
   if (!G.started || G.dead || G.won) return;
   if (G.sprayCd > 0) return;
   if (G.spray <= 0) { sfx.spray(true); msg('스프레이가 다 떨어졌다...'); return; }
   if (G.kill && !G.kill.escapable) return;          // on hard, once it has you there is no reaching the can
-  G.spray--; G.sprayCd = 0.7; G.revealT = 1.5;      // the hiss gives a hiding place away
+  G.spray--; G.sprayCd = 0.7; G.revealT = 1.5; G.stats.spray++;      // the hiss gives a hiding place away
   updateHud();
   arms.sprayPuff(); sfx.spray();
   // the hit test comes from the eye along the view, the mist from the nozzle
@@ -825,7 +948,7 @@ function startGrab(sp) {
   G.grab = { sp, meter: 0.65, t: 0 };
   $('#grab .t').textContent = '거미가 덮쳤다!';
   G.attached.forEach((a) => swarms.drop(a.r, player.pos, player.pos)); G.attached.length = 0;
-  sfx.grab(); shakeScreen();
+  sfx.grab(); shakeScreen(); buzz([90, 50, 140]);
   const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on');
   document.body.classList.add('grabbed');
   $('#grab').classList.add('show');
@@ -839,6 +962,7 @@ function endGrab(sprayed) {
   const g = G.grab;
   if (!g) return;
   G.grab = null;
+  G.grabSafeT = 4;                       // a few seconds to get away before anything can grab you again
   document.body.classList.remove('grabbed');
   $('#grab').classList.remove('show');
   { const p = g.sp.s.bodyWorld; sfx.escape(p.x, p.y, p.z); }
@@ -850,11 +974,60 @@ function endGrab(sprayed) {
   if (SET.diff === 'hard') hurt('붙잡혔을 때 스프레이를 썼어야 했다');      // only the hard game makes you pay for it
 }
 
+// ------------------------------------------------------------------ the results: a grade, your best, achievements
+const ACH = [
+  ['escape', '탈출', '처음으로 공장을 빠져나왔다', () => true],
+  ['nodeath', '무사히', '한 번도 쓰러지지 않고 탈출', (r) => r.deaths === 0],
+  ['nospray', '맨손', '스프레이를 한 번도 쓰지 않고 탈출', (r) => r.spray === 0],
+  ['dark', '어둠 속으로', '홀의 작업등을 켜지 않고 탈출', (r) => !r.work],
+  ['silent', '무전 침묵', '본부에 길을 한 번도 묻지 않고 탈출', (r) => r.radio === 0],
+  ['can', '딴 데 봐', '빈 캔을 던져 벌레를 꾀어내고 탈출', (r) => r.thrown > 0],
+  ['photo', '찰칵', '벌레 세 종류를 카메라로 찍고 탈출', (r) => r.kinds >= 3],
+  ['collector', '기록 수집가', '수첩 6장과 녹음 5개를 모두 모으고 탈출', (r) => r.pages >= 6 && r.tapes >= 5],
+  ['lee', '이정훈', '이정훈의 사원증을 가지고 탈출', (r) => r.lee],
+  ['fast', '5분 컷', '5분 안에 탈출', (r) => r.time < 300],
+  ['hard', '어려움', '어려움 난이도로 탈출', (r) => r.diff === 'hard'],
+];
+const GRADE_ORDER = ['C', 'B', 'A', 'S'];
+function showResults() {
+  const st = G.stats, r = {
+    time: G.time, hits: st.hits, deaths: st.deaths, spray: st.spray, thrown: st.thrown, radio: st.radio, work: st.work, diff: SET.diff,
+    pages: journal.count, tapes: tapes.filter((x) => x.played).length, lee: !!G.leeId, kinds: Object.keys(G.photos).length, photos: st.photos,
+  };
+  // the grade: a clean, quick, thorough run scores highest
+  const score = 100 - 15 * r.deaths - 6 * r.hits - 6 * Math.max(0, r.time / 60 - 5) + 2 * r.pages + 2 * r.tapes + (r.lee ? 8 : 0);
+  const grade = score >= 105 ? 'S' : score >= 85 ? 'A' : score >= 65 ? 'B' : 'C';
+  const gEl = $('#grade'); gEl.textContent = grade; gEl.className = grade;
+  $('#winTime').textContent = fmt(r.time);
+  $('#winDiff').textContent = `난이도 ${D().label}`;
+  $('#winSub').textContent = r.lee ? '셔터 밖으로 빠져나왔다 · 이정훈의 사원증과 함께' : '셔터 밖으로 빠져나왔다';
+  // your best on this difficulty
+  let best = {}; try { best = JSON.parse(localStorage.getItem('mandible.best') || '{}'); } catch (e) { /* */ }
+  const b = best[SET.diff], better = !b || r.time < b.time, betterGrade = !b || GRADE_ORDER.indexOf(grade) > GRADE_ORDER.indexOf(b.grade);
+  if (better || betterGrade) {
+    best[SET.diff] = { time: better ? r.time : b.time, grade: betterGrade ? grade : b.grade };
+    try { localStorage.setItem('mandible.best', JSON.stringify(best)); } catch (e) { /* */ }
+  }
+  const bEl = $('#winBest');
+  bEl.textContent = !b ? '첫 기록' : better ? `새 최고 기록! (이전 ${fmt(b.time)})` : `최고 기록 ${fmt(b.time)} · ${b.grade}`;
+  bEl.classList.toggle('new', !b || better);
+  const rows = [['다친 횟수', r.hits], ['쓰러진 횟수', r.deaths], ['스프레이', `${r.spray}번`], ['던진 캔', r.thrown], ['사진', `${r.photos}장 (벌레 ${r.kinds}종)`],
+    ['무전', `${r.radio}번`], ['수첩', `${r.pages} / 6`], ['녹음', `${r.tapes} / 5`], ['이정훈의 사원증', r.lee ? '가져옴' : '—']];
+  $('#winStats').innerHTML = rows.map(([k, v]) => `<li><span>${k}</span><b>${v}</b></li>`).join('');
+  // achievements (kept in this browser)
+  let got = []; try { got = JSON.parse(localStorage.getItem('mandible.ach') || '[]'); } catch (e) { /* */ }
+  const fresh = ACH.filter(([id, , , ok]) => !got.includes(id) && ok(r)).map(([id]) => id);
+  got = got.concat(fresh);
+  try { localStorage.setItem('mandible.ach', JSON.stringify(got)); } catch (e) { /* */ }
+  $('#achN').textContent = `${got.length} / ${ACH.length}`;
+  $('#achList').innerHTML = ACH.map(([id, name, desc]) => `<li class="${fresh.includes(id) ? 'new' : got.includes(id) ? 'got' : ''}">${name}<small>${desc}</small></li>`).join('');
+}
+
 // ------------------------------------------------------------------ actions
 function toggleFlash() {
   if (!G.started) return;
   if (G.blackT > 0) tip('손전등도 안 켜진다...');
-  if (!G.flashOn && G.drained) { if (window.__SFX) window.__SFX.click(false); tip('손전등이 아직 뜨겁다'); return; }
+  if (!G.flashOn && G.drained) { if (window.__SFX) window.__SFX.click(false); tipLive(`손전등이 아직 뜨겁다 (${Math.max(1, Math.ceil((1 - G.battery) * 10))}초)`, '손전등이 아직 뜨겁다'); return; }
   G.flashOn = !G.flashOn;
   $('#bFlash').classList.toggle('on', G.flashOn);
   arms.toggleClick();
@@ -873,7 +1046,7 @@ function toggleBright() {
 // (the flashlight too). The first time, something drops on its line in front of you meanwhile;
 // and when the lights come back, the nearest roaches are suddenly a lot closer.
 function startBlackout() {
-  G.blackT = 3.0; G.backT = 0;
+  G.blackT = 3.0; G.backT = 0; buzz(90);
   G.blackPhantom = !G.blackDone; G.blackDone = true;
   for (const r of Object.values(reds)) r.light.intensity = 0;
   sfx.blackout();
@@ -896,7 +1069,7 @@ function genOn(g) {
   msg(G.gens === 3 ? '마지막 발전기다. 됐다!' : `발전기가 돌아간다. ${['', '두 대', '한 대'][G.gens]} 남았다`);
   startBlackout();
   if (G.gens === 3) { gate.setOpen(true); swarms.sealed.clear(); }
-  sfx.generatorStart(g.x, g.z);
+  sfx.generatorStart(g.x, g.z); buzz([40, 60, 120]);
   tip('발전기 소리에 벌레들이 몰려오겠다...', 'gen');
   if (g.room === 'hall' && !centi.active) { sfx.silence(1.4); setTimeout(() => { if (!G.dead) centi.wake(); }, 1300); }
   if (g.room === 'lab') {
@@ -916,6 +1089,7 @@ function switchWork(on) {
   w.on = on; w.t = 0;
   sfx.workLight(w.x, w.z, on);
   if (!on) return;
+  buzz(60); G.stats.work = true;
   G.events.push({ x: w.x, z: w.z, r: 26 });
   msg('작업등이 켜졌다. 홀이 다 보인다');
   setTimeout(() => { if (G.started && !G.dead && !G.won && spiders.wolf && !dev.freeze) spiders.wakeWolf(spiders.wolf); }, 900);   // it heard that
@@ -936,11 +1110,14 @@ function findTarget() {
   for (const g of genMeshes) consider('gen', g, g.x, g.z, 2.4);
   for (const l of lamps) consider('lamp', l, l.x, l.z, 1.9);
   consider('work', workLight, workLight.x, workLight.z, 2.0);
+  { const c = cans.nearest(player.pos, 1.5); if (c) consider('can', c, c.pos.x, c.pos.z, 1.5); }
   // notes and recorders only from inside the same room (not through a wall)
   const pr = roomAt(player.pos.x, player.pos.z), same = (x, z) => !pr || roomAt(x, z) === pr;
   for (const n of noteMeshes) if (!n.read && same(n.x, n.z)) consider('note', n, n.x, n.z, 1.9);
   for (const r of tapes) if (!r.played && same(r.x, r.z)) consider('tape', r, r.x, r.z, 1.9);
   if (!refill.taken) consider('refill', refill, refill.x, refill.z, 1.6);
+  if (!camItem.taken && same(camItem.x, camItem.z)) consider('camera', camItem, camItem.x, camItem.z, 1.8);
+  if (!G.leeId) consider('leeId', lee, LEE.id.x, LEE.id.z, 1.7);
   return best;
 }
 const useLabel = () => (touch ? 'E · 손 버튼' : 'E');   // the PC key shows on touch screens too
@@ -953,7 +1130,7 @@ const dev = { god: false, battery: false, noclip: false, freeze: false, fast: fa
 // every bug goes back to where it started.
 function respawnAtLamp(l) {
   clearTips(); voice.clear();
-  Object.assign(G, { dead: false, kill: null, chasing: false, chaseLen: 0, hp: D().hp, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
+  Object.assign(G, { dead: false, kill: null, chasing: false, chaseLen: 0, hp: D().hp, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, grabSafeT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   // stand beside the pole, on the side with the most room, facing out
@@ -979,16 +1156,16 @@ function respawnAtLamp(l) {
 
 function hurt(reason = '뛰는 소리에 바퀴들이 몰려왔다') {
   if (dev.god || G.dead) return;
-  G.hp--;
-  sfx.hurt();
+  G.hp--; G.stats.hits++;
+  sfx.hurt(); buzz(220);
   const f = $('#hit'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
   $('#hurt').style.opacity = (1 - G.hp / D().hp) * 0.84;
   if (G.hp <= 0) die(reason);
 }
 function die(deathTip) {
   if (G.dead) return;
-  G.dead = true; G.timing = false;
-  sfx.death();
+  G.dead = true; G.timing = false; G.stats.deaths++;
+  sfx.death(); buzz(500);
   if (G.grab) { if (G.grab.sp === gate) gate.release(); G.grab = null; document.body.classList.remove('grabbed'); $('#grab').classList.remove('show'); }
   G.attached.length = 0;
   $('#crawl').classList.remove('show');
@@ -1003,7 +1180,7 @@ function onAttach(r) {
   if (dev.god || G.dead || G.attached.length >= 3 || G.attachCd > 0) return false;
   G.attachCd = ATTACH_CD;
   G.attached.push({ r, age: 0, shake: 0, rev: 0, lastSign: 0, taps: 0 });
-  sfx.attach();
+  sfx.attach(); buzz(45);
   tip(touch ? '떼어내야 해! (화면 좌우로 흔들기 · 마우스 흔들기)' : '떼어내야 해! (마우스를 흔들거나 클릭 연타)', 'attach');
   return true;
 }
@@ -1013,6 +1190,7 @@ function startCentiKill(deathTip) {
   if (dev.god) return;
   if (G.grab) endGrab(true);
   if (journal.open) journal.toggle(false);
+  buzz([60, 40, 60, 40, 220]);
   // below hard it can be fought off: struggle (click / tap / Space) or spray it, and it lets go
   const escapable = SET.diff !== 'hard';
   G.kill = { t: 0, tip: deathTip, struck: false, y0: camera.position.y, fell: false, beat: 0, from: camera.position.clone(), roll: 0, escapable, meter: 0.6, done: false };
@@ -1094,7 +1272,7 @@ function centiRelease(how) {
   G.rise = { t: 0, y0: c.y };
   msg(how === 'spray' ? '머리에 스프레이를 쐈다! 빠져나왔다' : how === 'bitten' ? '물렸다... 그래도 빠져나왔다' : '걷어차고 빠져나왔다! 뛰어!');
 }
-function shakeScreen() { document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake'); }
+function shakeScreen() { if (SET.shake === false) return; document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake'); }
 
 // ------------------------------------------------------------------ minimap
 const MB = { x0: -21, x1: 25, z0: -3, z1: 71 };
@@ -1124,6 +1302,34 @@ resize();
 
 const ray = new THREE.Raycaster();
 const levelMeshes = [...levelGroup.children, shutter, emDoor];
+// empty cans to throw (cans.js)
+const cans = createCans(scene, levelMeshes);
+// team 2's disposable camera, on the warehouse table by the machine room door: 3 shots of flash
+const camItem = (() => {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+  const x = c.getContext('2d');
+  x.fillStyle = '#1d6b3a'; x.fillRect(0, 0, 128, 64); x.fillStyle = '#f2c21b'; x.fillRect(0, 22, 128, 20);
+  x.fillStyle = '#111'; x.font = 'bold 13px sans-serif'; x.fillText('FILM 27', 8, 37); x.fillStyle = '#fff'; x.fillText('2조', 92, 15);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(boxGeom(0.13, 0.068, 0.036, 0, 0, 0), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 })));
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.02, 0.016, 18).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 }));
+  lens.position.set(-0.02, -0.004, 0.024);
+  const glass = new THREE.Mesh(new THREE.CircleGeometry(0.012, 18), new THREE.MeshStandardMaterial({ color: 0x0c1520, metalness: 0.9, roughness: 0.08 }));
+  glass.position.set(-0.02, -0.004, 0.0325);
+  const flashW = new THREE.Mesh(boxGeom(0.032, 0.016, 0.004, 0.038, 0.018, 0.019), new THREE.MeshStandardMaterial({ color: 0xe8eef2, roughness: 0.2, emissive: new THREE.Color(0x9aa6b0), emissiveIntensity: 0.3 }));
+  const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.012, 14), new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.7 }));
+  wheel.position.set(0.045, 0.039, -0.006);
+  g.add(lens, glass, flashW, wheel);
+  g.position.set(11.3, 0.96, 21.0); g.rotation.y = -1.25;
+  g.children[0].castShadow = true;
+  scene.add(g);
+  return { x: 11.3, z: 21.0, g, taken: false };
+})();
+const camFlash = new THREE.PointLight(0xf2f5ff, 0, 18, 1.2);
+scene.add(camFlash);
+// things that may not be there (visions.js)
+const visions = createVisions(scene, { canSee, levelMeshes, colliders });
 const hideSpots = colliders.filter((c) => c.hide);
 // a chemical light stick left by each hiding place (the team before you marked them). Each glows faintly;
 // one shared weak light sits at the stick nearest you, so from under a table you can watch what is
@@ -1215,6 +1421,7 @@ function frame(dtOverride) {
   if (G.kill) centiKillStep(dt);
   if (G.rise && !G.kill) { G.rise.t += dt; const k = Math.min(1, G.rise.t / 0.7); camera.position.y = THREE.MathUtils.lerp(G.rise.y0, camera.position.y, k * k * (3 - 2 * k)); if (G.rise.t >= 0.7) G.rise = null; }
   G.centiCd = Math.max(0, (G.centiCd || 0) - dt);
+  G.grabSafeT = Math.max(0, (G.grabSafeT || 0) - dt);
   input.lookX = 0; input.lookY = 0;
   if (dev.battery) G.battery = 1;
   if (player.moved && !G.timing && !G.won) G.timing = true;
@@ -1245,6 +1452,10 @@ function frame(dtOverride) {
   }
   flick = Math.min(1, flick + dt * (flick < 0.5 ? 6 : 2));
   let fl = flick < 1 ? 0.6 + 0.4 * Math.abs(Math.sin(t * 60)) : 1;
+  { const vf = new THREE.Vector3(); player.forward(vf);
+    fl *= visions.update({ dt, t, cam: camera, fwd: vf, flashOn: G.flashOn && !G.drained, gens: G.gens, voiceBusy: voice.busy,
+      live: G.started && !G.dead && !G.won, calm: !G.grab && !G.kill && !G.chasing && !G.hidden && G.blackT <= 0 && G.attached.length === 0,
+      onWhisper: () => voice.say([['무전', '(치익...) ......뒤...... 에......', 2.6]], 'whisper'), onBehind: (x, z) => sfx.behind(x, z), tip, look: lookToward }); }
   if (G.battery < 0.15 && G.battery > 0) fl *= Math.random() < 0.05 ? 0.4 : 1;
   // the brightness tells you what is left: full when charged, dimming as it drains, a faint glow when empty
   const b = G.battery;
@@ -1321,6 +1532,10 @@ function frame(dtOverride) {
   G.hidden = G.stillT > 0.6;          // a moment of keeping still first
   G.hiddenT = G.hidden ? G.hiddenT + dt : 0;
   if (player.inside && G.started) tip(`불을 끄고 가만히 있자 (${KEY.flash}). 그럼 못 찾을 거야`, 'hide');
+  // ---- thrown cans, the camera's flash
+  cans.update(dt, canHit);
+  camFlash.intensity *= Math.exp(-dt * 22);
+  G.camCd = Math.max(0, (G.camCd || 0) - dt);
   // ---- roaches
   const noise = !G.started || G.dead || G.hidden || !player.moving || player.speed < 0.3 ? 0 : (player.crouch ? 1 : player.running ? 12 : 5) * D().hear;
   swarms.update({
@@ -1337,7 +1552,7 @@ function frame(dtOverride) {
     onFlyerLaunch: (p) => sfx.scareLaunch(p.x, p.y, p.z),
     onFlyerOff: () => { sfx.shakeOff(); sfx.roachDie(1); },
     onFlyerHit: () => {
-      sfx.scareHit(); shakeScreen(); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
+      sfx.scareHit(); shakeScreen(); buzz(120); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
   });
   // ---- spiders, webs, egg sacs, centipede
   const light = { on: beamPow > 20, pos: flash.position.clone(), dir: beamDir.clone() };
@@ -1345,7 +1560,7 @@ function frame(dtOverride) {
   let safeLamp = null;
   for (const l of lamps) if (l.on && G.blackT <= 0 && Math.hypot(player.pos.x - l.x, player.pos.z - l.z) < 4.2) safeLamp = { x: l.x, z: l.z, r: 4.2 };
   spiders.update({
-    dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god, hidden: G.hidden,
+    dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god || G.grabSafeT > 0, hidden: G.hidden,
     nav: swarms.nav, field: swarms.fPlayer,
     onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽에서 거미가 내려온다! 빛을 비추면 물러나려나', 'wolfwake'); discover('wolf'); },
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
@@ -1363,13 +1578,19 @@ function frame(dtOverride) {
   });
   // the spider walling off the passage, the one from the blackout, the dead man in the corridor
   gate.update({ dt, cam: camera.position, light, playerPos: player.pos,
-    canCatch: G.started && !G.dead && !G.won && !G.grab && !dev.god && !dev.freeze,
+    canCatch: G.started && !G.dead && !G.won && !G.grab && !dev.god && !dev.freeze && !(G.grabSafeT > 0),
     onCatch: (g) => startGrab(g),
     onNear: () => { tip('저 안으로는... 못 가겠다', 'gate'); discover('gate'); if (!G.tipped.seeGate) { G.tipped.seeGate = true; lookToward(gate.s.bodyWorld); } },
     onShake: (x, y, z) => sfx.spiderFlinch(x, y, z),
     onTouch: () => tip('거미줄이 너무 두껍다. 지나갈 수 없다') });
   phantom.update({ dt, cam: camera.position, light, onRetract: (x, y, z) => sfx.spiderFlinch(x, y, z) });
   deadMan.update(dt);
+  lee.update(dt);
+  if (G.started && !G.dead && !G.tipped.leeSeen && Math.hypot(player.pos.x - LEE.x, player.pos.z - LEE.z) < 11 && canSee(lee.pos)) {
+    const v = lee.pos.clone().sub(camera.position).normalize(), f = new THREE.Vector3(); player.forward(f);
+    if (v.dot(f.normalize()) > 0.75) { G.tipped.leeSeen = true; tip('저기... 누가 쓰러져 있다'); lookToward(lee.pos, 0.5); }
+  }
+  if (G.started && !G.dead && G.tipped.leeSeen && !G.tipped.leeNear && Math.hypot(player.pos.x - LEE.x, player.pos.z - (LEE.z - 1)) < 2.6) { G.tipped.leeNear = true; tip('...2조 이정훈 씨?'); }
   if (G.started && !G.tipped.body && Math.hypot(player.pos.x - BODY.x, player.pos.z - BODY.z) < 5.5 && canSee(BODY_SEE)) {
     G.tipped.body = true; sfx.sting(); tip('...나랑 같은 방역복이다. 먼저 들어온 사람인가');
     lookToward(BODY_SEE, 0.9);
@@ -1482,9 +1703,12 @@ function frame(dtOverride) {
   const searching = G.started && !G.dead && (spiders.searchers().length > 0 || centi.state === 'search');
   let chaseK = chasing ? 0.45 + 0.55 * Math.max(0, Math.min(1, 1 - (chaseD - 2) / 16)) : searching ? 0.2 : 0;
   if (G.grab || G.kill) chaseK = 1;
-  if (chasing && !G.chasing && t - G.stingAt > 8) { sfx.chaseStinger(); G.stingAt = t; }        // found you
+  if (chasing && !G.chasing && t - G.stingAt > 8) { sfx.chaseStinger(); G.stingAt = t; buzz([30, 40, 90]); }        // found you
   if (!chasing && G.chasing && G.chaseLen > 3 && !G.dead) sfx.chaseOver();                  // lost you
   G.chaseLen = chasing ? G.chaseLen + dt : 0; G.chasing = chasing;
+  // your heart in your hands: a double pulse with each beat while something is close
+  G.buzzT = (G.buzzT || 0) - dt;
+  if (canVibe && G.started && !G.dead && !G.won && inten > 0.6 && G.buzzT <= 0) { buzz([22, 110, 16]); G.buzzT = 60 / (62 + inten * 64); }
   // the factory's music tightens as the night goes on and something hunts you; it steps back while you hide or run
   sfx.setMusic(G.started && !G.won ? 'inside' : 'off', {
     dt, tension: Math.min(1, 0.15 + 0.14 * G.gens + 0.35 * Math.max(0, Math.min(1, inten))),
@@ -1504,7 +1728,7 @@ function frame(dtOverride) {
     if (lookSign && lookSign !== a.lastSign) { a.rev++; a.lastSign = lookSign; }
     a.shake += lookMag;
     if (touch) { const ms = Math.abs(inp.mx) > 0.45 ? Math.sign(inp.mx) : 0; if (ms && ms !== a.lastMx) { a.rev++; a.lastMx = ms; a.shake += 0.3; } }
-    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); G.attachCd = ATTACH_CD; swarms.throwDead(a.r, player.pos, player.yaw); msg('떼어냈다!'); sfx.shakeOff(); sfx.roachDie(1); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
+    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); G.attachCd = ATTACH_CD; swarms.throwDead(a.r, player.pos, player.yaw); msg('떼어냈다!'); sfx.shakeOff(); sfx.roachDie(1); buzz(25); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
   }
   // ...drawn up close on their own canvas; the world behind goes out of focus and shivers a little
   const faceN = faceBugs.update(dt, { list: G.attached, face: swarms.flyer.state === 'face', light: G.blackT > 0 ? 0.05 : G.flashOn ? Math.min(1, fl) : 0.12, bright: SET.bright });
@@ -1512,7 +1736,7 @@ function frame(dtOverride) {
   swarms.showAttached(camera, faceN >= 0 ? [] : G.attached, dt, t);     // (the old way, if a second canvas can't be had)
   fxBlur += ((faceN > 0 && SET.quality !== 'low' ? (touch ? 1.1 : 1.5) * Math.min(faceN, 2) : 0) - fxBlur) * Math.min(1, dt * 3);
   if (faceN > 0 || fxOn) {
-    const j = faceN > 0 ? 0.9 + 0.3 * faceN : 0;
+    const j = faceN > 0 && SET.shake !== false ? 0.9 + 0.3 * faceN : 0;
     el.style.filter = fxBlur > 0.05 ? `blur(${fxBlur.toFixed(2)}px)` : '';
     el.style.transform = j ? `translate(${(Math.sin(t * 31) * j).toFixed(1)}px, ${(Math.cos(t * 27) * j).toFixed(1)}px) scale(1.012)` : '';
     fxOn = faceN > 0 || fxBlur > 0.05;
@@ -1590,13 +1814,13 @@ function frame(dtOverride) {
     G.won = true; G.timing = false;
     $('#winTime').textContent = fmt(G.time);
     if (document.pointerLockElement) document.exitPointerLock();
-    const showWin = () => { document.body.classList.remove('ending'); renderer.toneMappingExposure = GAME_EXPOSURE; sfx.introMode(false); sfx.engine(false); sfx.win(); $('#win').classList.add('show'); };
+    const showWin = () => { document.body.classList.remove('ending'); renderer.toneMappingExposure = GAME_EXPOSURE; sfx.introMode(false); sfx.engine(false); sfx.win(); showResults(); $('#win').classList.add('show'); };
     if (intro) {
       // out in the yard: back to the truck and one last call (see intro.ending)
       clearTips(); voice.clear(); promptEl.classList.remove('show');
       if (showMap) toggleMap(); if (journal.open) journal.toggle(false);
       document.body.classList.add('ending'); sfx.introMode(true);
-      intro.ending(player.pos.x, showWin);
+      intro.ending(player.pos.x, showWin, G.leeId);
       return;
     }
     showWin();
@@ -1623,6 +1847,28 @@ function frame(dtOverride) {
         } else G.holdT = Math.max(0, G.holdT - dt * 1.5);
         G.holdMax = need;
         prompt = `${useLabel()} 꾹 누르기 · 시동줄 당기기`;
+      }
+    } else if (target.kind === 'leeId') {
+      prompt = `${useLabel()} · 사원증 챙기기`;
+      if (pressed) {
+        G.leeId = true; lee.takeCard(); sfx.paper(); buzz(30);
+        msg('이정훈의 사원증을 챙겼다');
+        tip('...같이 나가요. 이거라도', 'leeTake');
+      }
+    } else if (target.kind === 'can') {
+      prompt = `${useLabel()} · 빈 캔 줍기 (${G.cans}/3)`;
+      if (pressed) {
+        if (G.cans >= 3) msg('더는 못 든다 (3개까지)');
+        else {
+          cans.take(o); G.cans++; sfx.canClank(o.pos.x, 0.1, o.pos.z, 0.15); updateItems();
+          if (!G.tipped.canPick) { G.tipped.canPick = true; tip(`빈 살충제 캔이다. 던지면 그쪽에서 소리가 나서 벌레를 꾀어낼 수 있겠다 (${KEY.throw})`); }
+        }
+      }
+    } else if (target.kind === 'camera') {
+      prompt = `${useLabel()} · 일회용 카메라 줍기`;
+      if (pressed) {
+        camItem.taken = true; camItem.g.visible = false; G.hasCam = true; G.shots = 3; sfx.paper(); updateItems();
+        tip(`2조 카메라다. 플래시로 벌레를 잠깐 멈추게 할 수 있겠다. 찍은 건 수첩에 붙여 두자 (${KEY.cam})`);
       }
     } else if (target.kind === 'work') {
       prompt = o.on ? `${useLabel()} · 작업등 끄기` : `${useLabel()} · 작업등 켜기 (소리가 크다)`;
@@ -1687,7 +1933,7 @@ function enterFullscreen() {
   try { req = d.requestFullscreen ? d.requestFullscreen({ navigationUI: 'hide' }) : d.webkitRequestFullscreen ? d.webkitRequestFullscreen() : null; } catch (e) { return Promise.reject(e); }
   return Promise.resolve(req).then(() => {
     // desktop Chrome/Edge: in fullscreen the game keys, Ctrl combinations included, go to the game and not the browser
-    try { const kb = navigator.keyboard; if (kb && kb.lock) kb.lock(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ', 'KeyF', 'KeyM', 'KeyB', 'KeyC', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight']).catch(() => {}); } catch (e) { /* not supported */ }
+    try { const kb = navigator.keyboard; if (kb && kb.lock) kb.lock(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyE', 'KeyQ', 'KeyF', 'KeyM', 'KeyB', 'KeyC', 'KeyG', 'KeyV', 'KeyR', 'KeyT', 'KeyJ', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight']).catch(() => {}); } catch (e) { /* not supported */ }
     // phones: hold the screen sideways while in fullscreen (Android); the rotate prompt covers the rest
     try { const p = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (p && p.catch) p.catch(() => {}); } catch (e) { /* not supported */ }
   });
@@ -1794,14 +2040,25 @@ const setPanel = $('#settings');
 const SET_UI = { sens: [$('#setSens'), (v) => `${v.toFixed(2)}×`], vol: [$('#setVol'), (v) => `${Math.round(v * 100)}%`], bright: [$('#setBright'), (v) => `${Math.round(v * 100)}%`] };
 function syncSettings() {
   for (const [k, [inp, f]] of Object.entries(SET_UI)) { inp.value = SET[k]; inp.parentElement.querySelector('b').textContent = f(SET[k]); }
+  setPanel.querySelectorAll('[data-sub]').forEach((b) => b.classList.toggle('on', b.dataset.sub === SET.sub));
+  setPanel.querySelectorAll('[data-tog]').forEach((b) => b.classList.toggle('on', (SET[b.dataset.tog] !== false) === (b.dataset.v === '1')));
   setPanel.querySelectorAll('[data-q]').forEach((b) => b.classList.toggle('on', b.dataset.q === SET.quality));
   setPanel.querySelectorAll('[data-diff]').forEach((b) => b.classList.toggle('on', b.dataset.diff === SET.diff));
   $('#diffNote b').textContent = D().label;
 }
 function saveSettings() { try { localStorage.setItem('mandible.settings', JSON.stringify(SET)); } catch (e) { /* private mode */ } }
-function applySettings() { sfx.setVolume(SET.vol); HUNT.speed = D().speed; paperMap.setDiff(SET.diff); applyQuality(); syncSettings(); saveSettings(); }
+function applySettings() {
+  sfx.setVolume(SET.vol); HUNT.speed = D().speed; paperMap.setDiff(SET.diff); applyQuality();
+  document.body.dataset.sub = SET.sub || 'm';
+  document.body.classList.toggle('noshake', SET.shake === false);
+  $('#vibeRow').style.display = canVibe ? '' : 'none';
+  if (SET.tips === false) clearTips();
+  syncSettings(); saveSettings();
+}
 for (const [k, [inp]] of Object.entries(SET_UI)) inp.addEventListener('input', () => { SET[k] = +inp.value; applySettings(); });
 setPanel.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { SET.quality = b.dataset.q; applySettings(); }));
+setPanel.querySelectorAll('[data-sub]').forEach((b) => b.addEventListener('click', () => { SET.sub = b.dataset.sub; applySettings(); }));
+setPanel.querySelectorAll('[data-tog]').forEach((b) => b.addEventListener('click', () => { SET[b.dataset.tog] = b.dataset.v === '1'; applySettings(); if (b.dataset.tog === 'vibe' && SET.vibe) buzz(40); }));
 setPanel.querySelectorAll('[data-diff]').forEach((b) => b.addEventListener('click', () => {
   if (SET.diff === b.dataset.diff) return;
   SET.diff = b.dataset.diff; applySettings();
@@ -1898,7 +2155,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, genOn, marks, workLight, faceBugs, switchWork, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, workLight, faceBugs, switchWork, throwCan, snapPhoto, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { beginGame({ quiet: true }); },

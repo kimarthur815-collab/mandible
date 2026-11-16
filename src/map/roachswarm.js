@@ -703,6 +703,22 @@ export class RoachSwarms {
     this.collide(r);
   }
 
+  // a camera flash: every roach in the cone scatters away from it, and their swarms back off for a while
+  flashScatter(origin, dir, range = 9, cosHalf = Math.cos(0.62)) {
+    let n = 0;
+    const hit = new Set();
+    for (const r of this.roaches) {
+      if (r === this.flyer || ['attached', 'off', 'dead', 'escape', 'fly', 'face'].includes(r.state)) continue;
+      const dx = r.pos.x - origin.x, dy = r.pos.y - origin.y, dz = r.pos.z - origin.z, d = Math.hypot(dx, dy, dz);
+      if (d > range || (dx * dir.x + dy * dir.y + dz * dir.z) / (d || 1) < cosHalf) continue;
+      r.yaw = Math.atan2(dx, dz);
+      r.state = 'flee'; r.fleeT = 2.5; r.speed = 4.5; r.mode = 'move'; r.waitT = 0; r.pounceT = 0;
+      n++; if (r.sw >= 0) hit.add(r.sw);
+    }
+    for (const s of this.swarms) if (hit.has(s.idx) && s.state === 'hunt') { s.state = 'return'; s.target.set(s.x, 0, s.z); s.calmT = 6; s.huntT = 0; }
+    return n;
+  }
+
   drop(r, at, awayFrom) {
     // thrown off the player: land nearby and scatter
     const a = Math.random() * Math.PI * 2;

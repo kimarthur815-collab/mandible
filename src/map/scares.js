@@ -342,3 +342,104 @@ export class DeadWorker {
     this.group.rotation.y = -Math.PI / 2 + 0.35 * Math.sin(this.t * 0.23);
   }
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// Lee Jeong-hun of team 2, found at last: in the dark north-west corner of the production hall, dragged feet
+// first into a hole broken through the wall at floor level. His arms are out in front of him on the concrete,
+// his flashlight still on by his hand, his ID card on its lanyard just out of reach, his recorder by the other hand.
+export const LEE = { x: -4.85, z: 69.7, id: { x: -5.2, z: 68.05 }, tape: { x: -4.45, y: 0.013, z: 68.15 } };
+export class LeeBody {
+  constructor(scene, colliders) {
+    const g = new THREE.Group(); g.position.set(LEE.x, 0, LEE.z); scene.add(g);
+    this.group = g;
+    const R = rng(41);
+    const tyvek = sleeveMaterial(tyvekTextures(256, 21));
+    const rubber = new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.75 });
+    const cyl = (a, b, r0, r1, mat) => {
+      const len = a.distanceTo(b), m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, len, 14, 1, false), mat);
+      m.position.copy(a).lerp(b, 0.5); m.quaternion.setFromUnitVectors(new V3(0, 1, 0), b.clone().sub(a).normalize());
+      m.castShadow = m.receiveShadow = true; g.add(m); return m;
+    };
+    // the hole: black, its edges broken concrete (a decal on the wall), chunks on the floor, a drag smear into it
+    const hc = document.createElement('canvas'); hc.width = 256; hc.height = 192;
+    const x = hc.getContext('2d');
+    x.beginPath();
+    for (let i = 0; i <= 26; i++) {
+      const a = Math.PI + (i / 26) * Math.PI, rr = 0.82 + R() * 0.2;
+      const px = 128 + Math.cos(a) * 118 * rr, py = 192 + Math.sin(a) * 150 * rr;
+      if (i) x.lineTo(px, py); else x.moveTo(px, py);
+    }
+    x.closePath();
+    x.fillStyle = '#020202'; x.fill();
+    x.strokeStyle = 'rgba(70,64,56,.9)'; x.lineWidth = 7; x.stroke();
+    x.strokeStyle = 'rgba(150,140,124,.5)'; x.lineWidth = 2; x.stroke();
+    for (let i = 0; i < 14; i++) { x.strokeStyle = 'rgba(30,26,22,.6)'; x.lineWidth = 1 + R() * 2; x.beginPath(); const a = Math.PI + R() * Math.PI; x.moveTo(128 + Math.cos(a) * 110, 192 + Math.sin(a) * 140); x.lineTo(128 + Math.cos(a) * (150 + R() * 40), 192 + Math.sin(a) * (170 + R() * 40)); x.stroke(); }
+    const holeT = new THREE.CanvasTexture(hc); holeT.colorSpace = THREE.SRGBColorSpace;
+    const hole = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.98), new THREE.MeshStandardMaterial({ map: holeT, transparent: true, depthWrite: false, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    hole.position.set(0, 0.49, -0.014); hole.rotation.y = Math.PI; g.add(hole);
+    const sc = document.createElement('canvas'); sc.width = 128; sc.height = 256;
+    const y = sc.getContext('2d');
+    for (let i = 0; i < 70; i++) { y.strokeStyle = `rgba(${40 + R() * 30},${18 + R() * 12},12,${0.05 + R() * 0.12})`; y.lineWidth = 2 + R() * 6; const sx = 34 + R() * 60; y.beginPath(); y.moveTo(sx, 256); y.bezierCurveTo(sx + (R() - 0.5) * 20, 160, sx + (R() - 0.5) * 30, 80, 64 + (R() - 0.5) * 40, 0); y.stroke(); }
+    const smearT = new THREE.CanvasTexture(sc); smearT.colorSpace = THREE.SRGBColorSpace;
+    const smear = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 1.7), new THREE.MeshStandardMaterial({ map: smearT, transparent: true, depthWrite: false, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    smear.rotation.x = -Math.PI / 2; smear.position.set(0, 0.007, -0.85); g.add(smear);
+    const conc = new THREE.MeshStandardMaterial({ color: 0x8c8678, roughness: 0.95 });
+    for (let i = 0; i < 9; i++) { const s = 0.04 + R() * 0.09; const m = new THREE.Mesh(new THREE.BoxGeometry(s, s * 0.7, s * 1.2), conc); m.position.set((R() - 0.5) * 1.3, s * 0.35, -0.08 - R() * 0.5); m.rotation.set(R(), R() * 6, R()); m.castShadow = true; g.add(m); }
+    // the body, face down, head toward the room: hips at the hole's mouth, the legs gone into the dark
+    const hip = new V3(0, 0.15, -0.28), chest = new V3(0.02, 0.15, -0.78), neck = new V3(0.03, 0.13, -1.0);
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.42, 6, 14), tyvek);
+    torso.position.copy(hip).lerp(chest, 0.5); torso.quaternion.setFromUnitVectors(new V3(0, 1, 0), chest.clone().sub(hip).normalize());
+    torso.scale.set(1.18, 1, 0.78); torso.castShadow = torso.receiveShadow = true; g.add(torso);
+    for (const sx of [-1, 1]) cyl(new V3(sx * 0.1, 0.12, -0.2), new V3(sx * 0.13, 0.11, 0.25), 0.085, 0.075, tyvek);   // into the wall
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.12, 22, 16), tyvek);
+    hood.scale.set(1, 0.9, 1.15); hood.position.set(0.04, 0.12, -1.13); g.add(hood);
+    const mask = new THREE.Mesh(new THREE.SphereGeometry(0.068, 18, 12), rubber);
+    mask.scale.set(1.05, 0.7, 1); mask.position.set(0.1, 0.07, -1.2); g.add(mask);
+    const filt = new THREE.MeshStandardMaterial({ color: 0x8a2a5a, roughness: 0.6 });
+    for (const s of [-1, 1]) { const f = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.026, 16), filt); f.position.set(0.1 + s * 0.06, 0.05, -1.24); f.rotation.set(0.3, 0, s * 0.5); g.add(f); }
+    // arms out ahead on the floor, clawing; gloves
+    const glove = new THREE.MeshPhysicalMaterial({ color: 0x1d48d4, roughness: 0.42, clearcoat: 0.3, clearcoatRoughness: 0.35 });
+    for (const s of [-1, 1]) {
+      const sh = new V3(s * 0.2, 0.14, -0.86), el = new V3(s * 0.33, 0.07, -1.22), wr = new V3(s * 0.25 + R() * 0.04, 0.05, -1.6 - (s > 0 ? 0.08 : 0));
+      cyl(sh, el, 0.072, 0.064, tyvek); cyl(el, wr, 0.064, 0.05, tyvek);
+      const palm = new THREE.Mesh(new THREE.SphereGeometry(0.05, 14, 10), glove); palm.scale.set(1, 0.42, 1.25); palm.position.copy(wr).add(new V3(0, -0.012, -0.06)); g.add(palm);
+      for (let f = 0; f < 4; f++) { const a = new V3(wr.x + (f - 1.5) * 0.022, 0.03, wr.z - 0.11), b = a.clone().add(new V3((f - 1.5) * 0.008, -0.018, -0.055)); cyl(a, b, 0.011, 0.009, glove); }
+    }
+    // his flashlight by his right hand, still on, pointing back out into the hall
+    const fl = makeFlashlight(), fa = Math.PI - 0.35;
+    fl.position.set(0.55, 0.022, -1.55); fl.rotation.set(0, fa, Math.PI / 2 - 0.1); g.add(fl);
+    this.led = fl.userData.led;
+    this.light = new THREE.SpotLight(0xffe8cc, 0, 12, 0.45, 0.55, 1.5);
+    this.light.position.set(LEE.x + 0.55 + Math.sin(fa) * 0.09, 0.06, LEE.z - 1.55 + Math.cos(fa) * 0.09);
+    this.light.target.position.set(LEE.x + 0.55 + Math.sin(fa) * 4, 0.3, LEE.z - 1.55 + Math.cos(fa) * 4);
+    scene.add(this.light, this.light.target);
+    // the ID card on its lanyard, dropped just past his left hand
+    const ic = document.createElement('canvas'); ic.width = 128; ic.height = 200;
+    const z = ic.getContext('2d');
+    z.fillStyle = '#f4f4f0'; z.fillRect(0, 0, 128, 200); z.fillStyle = '#1f5fa8'; z.fillRect(0, 0, 128, 42);
+    z.fillStyle = '#fff'; z.font = 'bold 15px sans-serif'; z.textAlign = 'center'; z.fillText('한빛방역', 64, 27);
+    z.fillStyle = '#c9c4b8'; z.fillRect(34, 52, 60, 72); z.fillStyle = '#7d776c'; z.beginPath(); z.arc(64, 80, 15, 0, 6.29); z.fill(); z.fillRect(42, 100, 44, 24);
+    z.fillStyle = '#222'; z.font = 'bold 19px sans-serif'; z.fillText('이정훈', 64, 150); z.font = '12px sans-serif'; z.fillText('방역팀 2조', 64, 170);
+    z.fillStyle = 'rgba(90,40,20,.35)'; z.beginPath(); z.arc(92, 160, 18, 0, 6.29); z.fill();
+    const idT = new THREE.CanvasTexture(ic); idT.colorSpace = THREE.SRGBColorSpace;
+    const card = new THREE.Group();
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(0.056, 0.088), new THREE.MeshStandardMaterial({ map: idT, roughness: 0.35, metalness: 0.05 }));
+    face.rotation.x = -Math.PI / 2; face.position.y = 0.004; card.add(face);
+    const strap = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new V3(0, 0.004, -0.044), new V3(0.03, 0.005, -0.12), new V3(0.11, 0.005, -0.15), new V3(0.17, 0.006, -0.08), new V3(0.15, 0.006, 0.02)]), 20, 0.006, 4), new THREE.MeshStandardMaterial({ color: 0x1f5fa8, roughness: 0.8 }));
+    card.add(strap);
+    card.position.set(LEE.id.x - LEE.x, 0, LEE.id.z - LEE.z); card.rotation.y = 0.4;
+    g.add(card);
+    this.card = card;
+    colliders.push({ x0: LEE.x - 0.32, x1: LEE.x + 0.36, z0: LEE.z - 1.32, z1: LEE.z });
+    this.t = 0; this.fl = 1; this.flickT = 0;
+  }
+  takeCard() { this.card.visible = false; }
+  reset() { this.card.visible = true; }
+  get pos() { return new V3(LEE.x, 0.15, LEE.z - 0.9); }
+  update(dt) {
+    this.t += dt; this.flickT -= dt;
+    if (this.flickT <= 0) { this.flickT = Math.random() < 0.3 ? 0.03 + Math.random() * 0.08 : 0.4 + Math.random() * 1.8; this.fl = Math.random() < 0.3 ? Math.random() * 0.25 : 0.7 + Math.random() * 0.3; }
+    this.light.intensity = 8 * this.fl;
+    this.led.emissiveIntensity = 2.2 * this.fl;
+  }
+}

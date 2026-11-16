@@ -227,5 +227,25 @@ export class MapCentipede {
     return prevStun;
   }
 
+  // a camera flash in its face: it stops dead and curls for a moment (shorter than the spray)
+  flashStun(origin, dir, range = 9, cosHalf = Math.cos(0.62)) {
+    if (!this.active || this.c.mode === 'kill' || this.state === 'dormant') return false;
+    const b = this.c.b, v = this.c.rPos[0].clone().sub(origin), d = v.length();
+    if (d > range || v.dot(dir) / (d || 1) < cosHalf) return false;
+    if (this.c.mode === 'lunge') { this.c.mode = 'drive'; b.lunge = 0; b.caught = false; }
+    b.stun = true; b.prev = 'drive'; b.hold = 2.2; b.curlSide = Math.random() < 0.5 ? -1 : 1; b.immune = 0;
+    this.sprayStun = true;
+    return true;
+  }
+  // a noise somewhere else (a thrown can): unless it has you in sight, it goes over there to feel about
+  lure(x, z, nav) {
+    if (!this.active || this.state === 'dormant' || this.state === 'emerge') return false;
+    if (this.state === 'chase' && this.lostT < 1.5) return false;
+    const k = nav.nearestFree(x, z, 12);
+    this.state = 'search'; this.searchT = 6 + Math.random() * 3; this.lostT = 0; this.sField = null;
+    this.spt = new THREE.Vector2(k >= 0 ? nav.cx(k) : x, k >= 0 ? nav.cz(k) : z);
+    this.orbitA = Math.atan2(this.head.x - this.spt.x, this.head.z - this.spt.y); this.orbitDir = Math.random() < 0.5 ? -1 : 1;
+    return true;
+  }
   info() { return this.state === 'dormant' ? '잠듦' : this.c.b.stun ? '경직' : this.c.mode === 'lunge' ? '덮침' : ({ emerge: '등장', patrol: '순찰', chase: '추격', search: '수색' })[this.state]; }
 }

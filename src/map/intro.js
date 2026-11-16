@@ -31,6 +31,15 @@ const END_LINES = [
   ['나', '...2조? 이정훈 씨? 살아 있어요?', 2.2],
   ['본부', '(사각사각사각— 무언가 마이크 위를 기어 다닌다)', 3.6],
 ];
+// ...or, with Lee Jeong-hun's ID card in your pocket
+const END_LINES_TRUE = [
+  ['나', '본부, 3조. 발전기 세 대 다 돌리고 나왔습니다.', 2.8],
+  ['나', '...2조 이정훈 씨는 안에서 찾았습니다. 사원증만 가지고 나왔어요.', 3.4],
+  ['본부', '치익— ......수고했다, 3조.', 2.4],
+  ['본부', '그 공장은 오늘 밤 안으로 봉쇄한다. 바로 복귀해라.', 3.0],
+  ['나', '(사원증 뒤에 볼펜으로 꾹꾹 눌러 쓴 글씨가 있다)', 3.0],
+  ['나', '\'3조에게 — 셔터 열리면 뒤돌아보지 마. 고맙다. 이정훈\'', 3.8],
+];
 const AROUND = new V3(0.9, 1.62, -8.6);          // past the truck's nose on the way to its door
 const ease = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
 const lerp = THREE.MathUtils.lerp;
@@ -72,7 +81,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     const [who, text, dur] = lines[i];
     ui.subtitle(who, text);
     if (who === '본부') { sfx.squelch(); if (/사각|기어/.test(text)) sfx.radioSkitter(dur); else sfx.chatter(dur - 0.6); }
-    else sfx.mumble(Math.min(2.2, 0.5 + text.length * 0.06));
+    else if (!/^[('"]/.test(text)) sfx.mumble(Math.min(2.2, 0.5 + text.length * 0.06));   // (not for what you read or what happens)
   };
   // a footstep each half stride while walking
   const stepSound = (dt, speedK = 1) => {
@@ -101,8 +110,8 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     },
     skip() { if (state !== 'title' && state !== 'out') go('out'); },
     // the ending: out of the shutter at night, back to the truck, one more call. done() when it fades out
-    ending(x, done) {
-      api.active = true; api.isEnding = true; lines = END_LINES; finish = done; api._shut = false;
+    ending(x, done, withId = false) {
+      api.active = true; api.isEnding = true; api.trueEnd = withId; lines = withId ? END_LINES_TRUE : END_LINES; finish = done; api._shut = false;
       setTime('night'); renderer.toneMappingExposure = 1.4;
       g.position.copy(PARK); g.rotation.set(0, 0, 0); truck.setRinging(false);
       ext.dockShutter.position.y = 4.35;
@@ -219,7 +228,8 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
       } else if (state === 'outTalk') {
         lineT += dt;
         // the radio, then the last line: a start, staring at it
-        if (line >= lines.length - 1) { want.yaw = -0.66 + Math.sin(time * 37) * 0.01; want.pitch = -0.4; }
+        if (api.trueEnd && line >= lines.length - 2) { want.yaw = 0.05; want.pitch = -0.62; }      // reading the back of his card
+        else if (line >= lines.length - 1) { want.yaw = -0.66 + Math.sin(time * 37) * 0.01; want.pitch = -0.4; }
         else if (line >= 1) { want.yaw = -0.62; want.pitch = -0.36; }
         else { want.yaw = -0.3; want.pitch = -0.2; }
       } else if (state === 'outFade') {

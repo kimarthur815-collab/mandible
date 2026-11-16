@@ -351,3 +351,20 @@ export function drawBugPage(canvas, page, seed = 1) {
   c.restore();
   c.setTransform(1, 0, 0, 1, 0, 0);
 }
+
+// a photo from the disposable camera, taped onto a page (top right, over the drawing's corner)
+export function tapePhoto(canvas, photo, seed = 1) {
+  const c = canvas.getContext('2d'), PW = 600, PH = 800;
+  let s = seed * 7919 + 13; const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  c.save(); c.setTransform(canvas.width / PW, 0, 0, canvas.height / PH, 0, 0);
+  c.translate(470, 118); c.rotate(0.05 + rnd() * 0.07);
+  const w = 212, h = 172, b = 9;
+  c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = 10; c.shadowOffsetX = 3; c.shadowOffsetY = 5;
+  c.fillStyle = '#f2efe6'; c.fillRect(-w / 2, -h / 2, w, h + 10);
+  c.shadowColor = 'transparent';
+  c.drawImage(photo, -w / 2 + b, -h / 2 + b, w - 2 * b, h - 2 * b);
+  // two strips of tape, a bit crooked
+  c.fillStyle = 'rgba(214,200,160,.62)';
+  for (const sx of [-1, 1]) { c.save(); c.translate(sx * (w / 2 - 14), -h / 2 - 2); c.rotate(sx * (0.5 + rnd() * 0.3)); c.fillRect(-26, -9, 52, 18); c.restore(); }
+  c.restore();
+}

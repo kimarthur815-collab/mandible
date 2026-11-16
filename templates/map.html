@@ -54,9 +54,9 @@
   #paperMap.show { transform: translate(-50%, 0) rotate(-2.5deg); }
   #paperMap canvas { width: 100%; height: 100%; display: block; filter: drop-shadow(0 14px 26px rgba(0,0,0,.75)); }
   #cross { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(255,255,255,.45); pointer-events: none; }
-  #tip { left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom)); font-size: 16px; line-height: 1.4; color: rgba(255,255,255,.92); text-shadow: 0 1px 6px #000, 0 0 2px #000; opacity: 0; transition: opacity .3s; width: max-content; max-width: min(92vw, 720px); text-align: center; word-break: keep-all; }
+  #tip { left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom)); font-size: calc(16px * var(--subk, 1)); line-height: 1.4; color: rgba(255,255,255,.92); text-shadow: 0 1px 6px #000, 0 0 2px #000; opacity: 0; transition: opacity .3s; width: max-content; max-width: min(92vw, 720px); text-align: center; word-break: keep-all; }
   #tip.show { opacity: 1; }
-  #msg { left: 50%; top: 22%; transform: translateX(-50%); font-size: 15px; letter-spacing: .06em; color: #fff; text-shadow: 0 1px 8px #000; opacity: 0; transition: opacity .4s; white-space: nowrap; }
+  #msg { left: 50%; top: 22%; transform: translateX(-50%); font-size: calc(15px * var(--subk, 1)); letter-spacing: .06em; color: #fff; text-shadow: 0 1px 8px #000; opacity: 0; transition: opacity .4s; white-space: nowrap; }
   #msg.show { opacity: 1; }
   #note { --tilt: -1deg; --lh: 34px; --pt: 38px; left: 50%; top: 50%; transform: translate(-50%,-50%) rotate(var(--tilt)); width: min(300px, 70vw); max-height: 80vh; overflow: hidden; padding: var(--pt) 22px 26px 48px; color: #1e2546; font-family: 'Nanum Pen Script', 'Noto Sans KR', cursive; font-size: 27px; line-height: var(--lh); opacity: 0; transition: opacity .3s;
     background:
@@ -91,7 +91,11 @@
   #stamina { width: 54px; height: 3px; background: rgba(255,255,255,.12); border-radius: 2px; overflow: hidden; transition: opacity .4s; }
   #stamina i { display: block; height: 100%; background: rgba(236,230,220,.8); }
   #stamina.tired i { background: #ff6a4a; }
-  #spray { font-size: 11px; color: var(--dim); }
+  #spray, #items { font-size: 11px; color: var(--dim); }
+  #items:empty { display: none; }
+  #camFx { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 6; }
+  #camFx.on { animation: camflash .5s ease-out; }
+  @keyframes camflash { 0% { opacity: .96; } 30% { opacity: .7; } 100% { opacity: 0; } }
   #safe { left: 50%; transform: translateX(-50%); top: calc(14px + env(safe-area-inset-top)); font-size: 12px; color: #ffb24a; opacity: 0; transition: opacity .3s; }
   #safe.show { opacity: .9; }
   #hide { left: 50%; transform: translateX(-50%); bottom: calc(64px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 7px; font-size: 15px; color: #ffb24a; text-shadow: 0 1px 6px #000; opacity: 0; transition: opacity .25s, color .25s; white-space: nowrap; }
@@ -117,6 +121,10 @@
   #pad button.radio { height: 34px; border-radius: 17px; color: #e7c98a; border-color: rgba(231,180,106,.35); font-size: 11px; }
   #pad button.radio b { font-weight: 500; margin-left: 4px; opacity: .8; }
   #pad button.radio.empty { opacity: .35; }
+  #pad button.mini { display: none; height: 34px; border-radius: 17px; width: auto; font-size: 11px; color: #e8dcc0; border-color: rgba(231,180,106,.3); }
+  #pad button.mini.show { display: block; }
+  #pad button.mini.empty { opacity: .35; }
+  #pad button.mini b { font-weight: 500; margin-left: 3px; opacity: .8; }
   body.touch #tip { bottom: calc(170px + env(safe-area-inset-bottom)); max-width: min(86vw, 560px); }
   body.touch #prompt { bottom: calc(200px + env(safe-area-inset-bottom)); }
   /* overlays */
@@ -130,7 +138,34 @@
   .only-touch { display: none; } body.touch .only-touch { display: block; } body.touch .only-desk { display: none; }
   #win { opacity: 0; pointer-events: none; }
   #win.show { opacity: 1; pointer-events: auto; }
-  #win b { display: block; margin-top: 14px; font-size: 30px; font-variant-numeric: tabular-nums; color: var(--amber); }
+  #win { place-content: start center; overflow-y: auto; }
+  #win .wrap { display: flex; gap: 28px; align-items: flex-start; justify-content: center; text-align: left; margin: auto; padding-top: 6px; }
+  #win .t { margin-left: 0; }
+  #win .gradeRow { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
+  #grade { font-family: 'Oswald', Impact, sans-serif; font-size: 64px; line-height: 1; width: 64px; text-align: center; color: var(--amber); text-shadow: 0 0 18px rgba(231,180,106,.35); }
+  #grade.S { color: #ffd76a; } #grade.B { color: #c9ced4; } #grade.C { color: rgba(236,230,220,.6); }
+  #winTime { display: block; font-size: 26px; font-variant-numeric: tabular-nums; color: var(--ink); }
+  #winDiff, #winBest { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  #winBest.new { color: #9be38c; }
+  #winStats { list-style: none; padding: 0; margin: 14px 0 0; font-size: 12.5px; line-height: 1.75; color: rgba(236,230,220,.82); min-width: 210px; }
+  #winStats li { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid rgba(236,230,220,.08); }
+  #winStats li b { font-weight: 500; color: var(--ink); }
+  #win .ach { min-width: 230px; max-width: 440px; }
+  #win .ach h4 { margin: 4px 0 8px; font-size: 13px; letter-spacing: .15em; color: var(--amber); font-weight: 600; }
+  #win .ach h4 span { letter-spacing: 0; color: var(--dim); font-weight: 400; margin-left: 6px; }
+  #achList { list-style: none; padding: 0; margin: 0; font-size: 12px; line-height: 1.35; columns: 2; column-gap: 18px; }
+  #achList li { break-inside: avoid; }
+  #achList li { padding: 5px 0 5px 22px; position: relative; color: rgba(236,230,220,.38); }
+  #achList li::before { content: '○'; position: absolute; left: 2px; top: 5px; }
+  #achList li.got { color: rgba(236,230,220,.9); } #achList li.got::before { content: '●'; color: var(--amber); }
+  #achList li.new { color: #9be38c; } #achList li.new::before { content: '★'; color: #9be38c; }
+  #achList li small { display: block; font-size: 10.5px; opacity: .75; }
+  #win button { margin-top: 18px; }
+  @media (max-height: 620px), (max-width: 700px) {
+    #win .wrap { gap: 16px; } #win .t { font-size: 22px; } #win .gradeRow { margin-top: 6px; } #grade { font-size: 46px; width: 48px; } #winTime { font-size: 20px; }
+    #winStats { font-size: 11.5px; line-height: 1.55; min-width: 180px; } #achList { font-size: 11px; } #achList li { padding: 3px 0 3px 20px; }
+    #win button { margin-top: 10px; }
+  }
   #loading { position: fixed; inset: 0; display: grid; place-content: center; background: #000; z-index: 9; transition: opacity .6s; color: var(--dim); font-size: 12px; }
   #loading.done { opacity: 0; pointer-events: none; }
 
@@ -186,7 +221,7 @@
     #pad button.radio { height: 28px; }
     #paperMap { height: 92vh; bottom: -4vh; }
     /* between the stick and the buttons, so the end of a line (the control in brackets) isn't hidden under them */
-    body.touch #tip { bottom: calc(14px + env(safe-area-inset-bottom)); font-size: 14px; max-width: calc(100vw - 320px - env(safe-area-inset-right)); min-width: 0; }
+    body.touch #tip { bottom: calc(14px + env(safe-area-inset-bottom)); font-size: calc(14px * var(--subk, 1)); max-width: calc(100vw - 320px - env(safe-area-inset-right)); min-width: 0; }
     body.touch #prompt { bottom: calc(66px + env(safe-area-inset-bottom)); max-width: calc(100vw - 300px); }
     body.touch #prompt span { font-size: 13px; display: inline-block; }
     body.touch #hide { bottom: calc(118px + env(safe-area-inset-bottom)); }
@@ -200,9 +235,9 @@
   /* ---- main screen: the cab of the truck (body.intro) */
   #fadeBlack { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 4; }
   #subtitle { position: fixed; left: 50%; bottom: 15%; transform: translateX(-50%); width: max-content; max-width: min(720px, 86vw); padding: 10px 18px; border-radius: 10px;
-    background: rgba(0,0,0,.6); font-size: 16px; line-height: 1.5; text-align: center; opacity: 0; transition: opacity .25s; z-index: 6; pointer-events: none; }
+    background: rgba(0,0,0,.6); font-size: calc(16px * var(--subk, 1)); line-height: 1.5; text-align: center; opacity: 0; transition: opacity .25s; z-index: 6; pointer-events: none; }
   #subtitle.show { opacity: 1; }
-  body:not(.intro):not(.ending) #subtitle { bottom: calc(180px + env(safe-area-inset-bottom)); font-size: 15px; }
+  body:not(.intro):not(.ending) #subtitle { bottom: calc(180px + env(safe-area-inset-bottom)); font-size: calc(15px * var(--subk, 1)); }
   body.touch:not(.intro):not(.ending) #subtitle { bottom: calc(240px + env(safe-area-inset-bottom)); }
   #subtitle b { color: var(--amber); margin-right: 10px; font-weight: 700; }
   #subtitle.me b { color: #cfd6dd; }
@@ -224,6 +259,8 @@
   #settings { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 12; width: min(340px, 90vw); max-height: 90vh; overflow-y: auto; display: none; padding: 16px 18px 14px;
     background: rgba(14,13,12,.95); border: 1px solid var(--line); border-radius: 14px; font-size: 13px; box-shadow: 0 16px 50px rgba(0,0,0,.7); }
   #settings.show { display: block; }
+  body[data-sub="s"] { --subk: .85; } body[data-sub="l"] { --subk: 1.25; }
+  body.noshake #app, body.noshake.shake #app, body.noshake.grabbed #app { animation: none !important; }
   #settings h3 { margin: 0 0 10px; font-size: 14px; letter-spacing: .2em; color: var(--amber); font-weight: 600; }
   #settings label { display: block; margin: 12px 0 0; color: rgba(236,230,220,.9); }
   #settings label b { float: right; font-weight: 500; color: var(--amber); font-variant-numeric: tabular-nums; }
@@ -251,8 +288,8 @@
     body.intro #start > .s { top: calc(48px + env(safe-area-inset-top)); font-size: 11px; }
     body.intro #start .helpBox { bottom: calc(12px + env(safe-area-inset-bottom)); max-width: 330px; }
     body.intro #start .help { font-size: 10.5px; line-height: 1.5; margin-top: 4px; }
-    #subtitle { font-size: 13px; bottom: 12%; padding: 7px 12px; }
-    body.touch:not(.intro):not(.ending) #subtitle { bottom: calc(150px + env(safe-area-inset-bottom)); font-size: 13px; max-width: calc(100vw - 300px); }
+    #subtitle { font-size: calc(13px * var(--subk, 1)); bottom: 12%; padding: 7px 12px; }
+    body.touch:not(.intro):not(.ending) #subtitle { bottom: calc(150px + env(safe-area-inset-bottom)); font-size: calc(13px * var(--subk, 1)); max-width: calc(100vw - 300px); }
   }
 </style>
 </head>
@@ -264,7 +301,7 @@
 <div id="paperMap"><canvas></canvas></div>
 <div id="bugToast"><canvas width="240" height="320"></canvas></div>
 <div id="journal"><div class="page"><canvas width="600" height="800"></canvas></div><div class="nav"><button id="jPrev">◀</button><span id="jNum">1 / 1</span><button id="jNext">▶</button><button id="jClose">닫기</button></div></div>
-<div id="hurt"></div><div id="hit"></div>
+<div id="hurt"></div><div id="hit"></div><div id="camFx"></div>
 <div id="crawl"></div>
 <div id="grab"><div class="t">거미가 덮쳤다!</div><div class="bar"><i></i></div><div class="s only-desk">클릭 연타로 버텨라 · T 스프레이</div><div class="s only-touch">화면 연타로 버텨라 (클릭 연타) · 스프레이 버튼 (T)</div></div>
 <div id="devinfo"></div>
@@ -288,25 +325,33 @@
 <div class="hud" id="note"></div>
 <div class="hud" id="prompt"><span></span><div class="bar"><i></i></div></div>
 <div class="hud" id="tip"></div>
-<div class="hud" id="status"><div id="stamina"><i></i></div><div id="spray">스프레이 <b>3</b></div></div>
+<div class="hud" id="status"><div id="stamina"><i></i></div><div id="spray">스프레이 <b>3</b></div><div id="items"></div></div>
 <div id="touch">
   <div id="joy"><i></i></div>
   <div id="joyHint">왼쪽을 끌어 이동 · 오른쪽을 끌어 둘러보기</div>
-  <div id="pad"><button id="bRadio" class="wide radio">무전 <b>3</b></button><button id="bSpray" class="wide">스프레이</button><button id="bFlash">손전등</button><button id="bUse">손</button><button id="bCrouch">앉기</button><button id="bRun">달리기</button></div>
+  <div id="pad"><button id="bThrow" class="mini">던지기 <b>0</b></button><button id="bCam" class="mini">카메라 <b>3</b></button><button id="bRadio" class="wide radio">무전 <b>3</b></button><button id="bSpray" class="wide">스프레이</button><button id="bFlash">손전등</button><button id="bUse">손</button><button id="bCrouch">앉기</button><button id="bRun">달리기</button></div>
 </div>
 <div class="overlay" id="start">
   <div class="t">MANDIBLE</div>
   <div class="s">D-7 산업시설 · 해충 방역 작업</div>
   <div class="helpBox">
-  <div class="help only-desk">WASD 이동 · 마우스(좌클릭) 화면 전환 · 우클릭(또는 F) 손전등 · T 스프레이<br>Shift 달리기 · Ctrl 앉기 · E 상호작용 (발전기: E 꾹 누르기) · R 무전(본부에 길 묻기, 3번)<br>앉은 채(Ctrl) 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히)<br>M 지도 · J 수첩(벌레 기록) · Esc 마우스 풀기 · 오른쪽 위 설정(난이도·감도·소리·밝기·화질)<br>오른쪽 위 전체화면 버튼 또는 F11로 전체화면</div>
-  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용 (발전기: 손 버튼 꾹 누르기 · PC는 E) · 무전 버튼: 본부에 길 묻기(3번) · 스프레이 버튼: 앞쪽 3m에 뿌리기<br>앉기(Ctrl)를 켜고 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히)<br>위 버튼: 설정(난이도·감도·소리·밝기·화질) · 소리 · 전체화면 · 지도 · 수첩(벌레 기록)</div>
+  <div class="help only-desk">WASD 이동 · 마우스(좌클릭) 화면 전환 · 우클릭(또는 F) 손전등 · T 스프레이<br>Shift 달리기 · Ctrl 앉기 · E 상호작용 (발전기: E 꾹 누르기) · R 무전(본부에 길 묻기, 3번)<br>앉은 채(Ctrl) 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히) · G 빈 캔 던지기(소리로 유인) · V 카메라(플래시)<br>M 지도 · J 수첩(벌레 기록) · Esc 마우스 풀기 · 오른쪽 위 설정(난이도·감도·소리·밝기·화질)<br>오른쪽 위 전체화면 버튼 또는 F11로 전체화면</div>
+  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용 (발전기: 손 버튼 꾹 누르기 · PC는 E) · 무전 버튼: 본부에 길 묻기(3번) · 스프레이 버튼: 앞쪽 3m에 뿌리기<br>빈 캔·카메라를 주우면 던지기·카메라 버튼이 생겨요 (PC는 G·V)<br>앉기(Ctrl)를 켜고 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히)<br>위 버튼: 설정(난이도·감도·소리·밝기·화질) · 소리 · 전체화면 · 지도 · 수첩(벌레 기록)</div>
   <div class="help" id="iosHint">아이폰에서 전체화면으로 하려면<br>Safari로 열고 공유 버튼 → 홈 화면에 추가 → 홈 화면의 MANDIBLE 아이콘으로 실행하세요.</div>
   <div class="help" id="diffNote">난이도 <b>보통</b> · 오른쪽 위 설정에서 바꿀 수 있어요</div>
   <div class="help">발전기 3개를 켜고 처음 들어온 셔터로 탈출하세요.<br>이어폰을 끼면 벌레 소리가 어느 쪽에서 나는지 들려요.</div>
   </div>
   <div><button id="startBtn">무전 받기</button></div>
 </div>
-<div class="overlay" id="win"><div class="t">탈출</div><div class="s">셔터 밖으로 빠져나왔다</div><b id="winTime">0:00</b><div><button id="againBtn">다시 하기</button></div></div>
+<div class="overlay" id="win"><div class="wrap">
+  <div class="res">
+    <div class="t">탈출</div><div class="s" id="winSub">셔터 밖으로 빠져나왔다</div>
+    <div class="gradeRow"><div id="grade">S</div><div><b id="winTime">0:00</b><div id="winDiff"></div><div id="winBest"></div></div></div>
+    <ul id="winStats"></ul>
+    <div><button id="againBtn">다시 하기</button></div>
+  </div>
+  <div class="ach"><h4>도전과제 <span id="achN"></span></h4><ul id="achList"></ul></div>
+</div></div>
 <div id="dead"><div class="t">죽었다</div><div class="s"></div></div>
 <div id="rotate"><div class="ic"></div><div>폰을 가로로 돌려 주세요</div><div class="s">MANDIBLE은 가로 화면에서만 플레이할 수 있어요</div></div>
 <div id="fsHint">화면을 누르면 전체화면으로 바뀌어요</div>
@@ -318,8 +363,12 @@
   <label>소리 크기 <b></b><input type="range" id="setVol" min="0" max="1.5" step="0.05"></label>
   <label>밝기 <b></b><input type="range" id="setBright" min="0.6" max="1.8" step="0.05"></label>
   <div class="row"><span>난이도</span><div class="seg"><button data-diff="easy">쉬움</button><button data-diff="normal">보통</button><button data-diff="hard">어려움</button></div></div>
-  <div class="hint">쉬움: 체력 5 · 스프레이 5 · 벌레가 느리고 소리를 덜 들음<br>어려움: 체력 2 · 스프레이 2 · 더 빠르고 손전등이 빨리 뜨거워짐</div>
+  <div class="hint">쉬움: 체력 5 · 스프레이 5 · 손전등 과열 없음 · 벌레가 느리고 소리를 덜 들음<br>어려움: 체력 2 · 스프레이 2 · 더 빠르고 손전등이 빨리 뜨거워짐</div>
   <div class="row"><span>화질</span><div class="seg"><button data-q="low">낮음</button><button data-q="mid">중간</button><button data-q="high">높음</button></div></div>
+  <div class="row"><span>자막 크기</span><div class="seg"><button data-sub="s">작게</button><button data-sub="m">보통</button><button data-sub="l">크게</button></div></div>
+  <div class="row"><span>화면 흔들림</span><div class="seg"><button data-tog="shake" data-v="1">켜기</button><button data-tog="shake" data-v="0">끄기</button></div></div>
+  <div class="row"><span>힌트 혼잣말</span><div class="seg"><button data-tog="tips" data-v="1">켜기</button><button data-tog="tips" data-v="0">끄기</button></div></div>
+  <div class="row" id="vibeRow"><span>진동</span><div class="seg"><button data-tog="vibe" data-v="1">켜기</button><button data-tog="vibe" data-v="0">끄기</button></div></div>
   <div class="foot"><button id="setReset">기본값</button><button id="setClose">닫기</button></div>
 </div>
 <div id="fadeBlack"></div>

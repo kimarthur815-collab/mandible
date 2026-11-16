@@ -675,6 +675,48 @@ export class Sound {
     l.g.gain.setTargetAtTime(0.35, this.ctx.currentTime + 0.1, 0.1);
     this.lampSrc.set(`${x},${z}`, { ...l, p });
   }
+  // a whisper through the radio: a hiss, then two breathy syllables right at your ear
+  whisper(dur = 2.4) {
+    if (!this.ctx) return;
+    this.burst({ dur, f: 2400, q: 0.4, gain: 0.035, attack: 0.2, buf: this.white });
+    for (const [t, f1, f2, l] of [[0.4, 320, 2250, 0.34], [0.95, 470, 1850, 0.5]]) {
+      this.burst({ t, dur: l, f: f1, q: 6, gain: 0.09, attack: 0.09 });
+      this.burst({ t, dur: l, f: f2, q: 8, gain: 0.055, attack: 0.09 });
+      this.burst({ t, dur: l * 0.8, f: 5200, q: 1.2, gain: 0.035, attack: 0.06 });
+    }
+  }
+  // something small, right behind you
+  behind(x, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, 0.1, z, 1.2, 1.2); p.connect(this.sfx);
+    const s = this.ctx.createBufferSource(); s.buffer = this.skitBufs[1];
+    const g = this.ctx.createGain(), now = this.ctx.currentTime;
+    g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.45, now + 0.05); g.gain.linearRampToValueAtTime(0, now + 0.75);
+    s.connect(g); g.connect(p); s.start(now, Math.random()); s.stop(now + 0.8);
+  }
+  // the disposable camera: the shutter, the flash's pop, then the thumbwheel winding on and the flash charging
+  shutter() {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.02, f: 4200, q: 1.5, gain: 0.5, attack: 0.001 });
+    this.tone({ f0: 1900, f1: 1200, dur: 0.03, gain: 0.12, type: 'square', attack: 0.001 });
+    this.burst({ t: 0.01, dur: 0.06, f: 900, q: 0.6, gain: 0.25, attack: 0.001, buf: this.brown });
+    for (let i = 0; i < 7; i++) this.burst({ t: 0.45 + i * 0.055, dur: 0.012, f: 3000 + Math.random() * 900, q: 3, gain: 0.12, attack: 0.001 });
+    this.tone({ t: 0.6, f0: 2400, f1: 7600, dur: 1.1, gain: 0.018, type: 'sine', attack: 0.5 });
+  }
+  // an empty can thrown: the swish out of your hand, then clanks where it lands (the first one carries)
+  whoosh() {
+    if (!this.ctx) return;
+    const f = this.burst({ dur: 0.22, f: 900, q: 0.8, gain: 0.12, attack: 0.03 });
+    f.frequency.exponentialRampToValueAtTime(2600, this.ctx.currentTime + 0.2);
+  }
+  canClank(x, y, z, k) {
+    if (!this.ctx) return;
+    const p = this.panner(x, y, z, 2.5 * (0.4 + k), 0.9); p.connect(this.sfx);
+    const g = 0.15 + 0.7 * k;
+    for (const [r, a] of [[1, 1], [2.31, 0.6], [3.97, 0.4], [5.6, 0.25]]) this.tone({ dest: p, f0: 820 * r * rnd(0.97, 1.03), f1: 800 * r, dur: 0.08 + 0.25 * k / r, gain: g * a * 0.25, attack: 0.001 });
+    this.burst({ dest: p, dur: 0.05, f: 3200, q: 0.7, gain: g * 0.5, attack: 0.001 });
+    if (k > 0.3) this.burst({ dest: p, t: 0.03, dur: 0.18, f: 600, q: 1.2, gain: g * 0.25, buf: this.brown });
+  }
   // team 2's work light: a heavy switch, the driver whining up, then a loud hum that carries
   workLight(x, z, on) {
     if (!this.ctx) return;
