@@ -32,9 +32,27 @@
   #tools { position: fixed; top: calc(12px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); display: flex; gap: 6px; z-index: 3; }
   #tools button { font: inherit; font-size: 12px; color: var(--ink); background: rgba(12,11,10,.55); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; }
   #tools button.on { color: var(--amber); border-color: rgba(231,180,106,.5); }
-  #minimap { position: fixed; top: calc(52px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); width: 170px; height: 270px; background: rgba(8,8,8,.72); border: 1px solid var(--line); border-radius: 10px; display: none; pointer-events: none; }
-  #minimap.show { display: block; }
-  #minimap canvas { width: 100%; height: 100%; }
+  /* team 2's notebook: a page slides in at the side when you meet something new; J / 수첩 reads them */
+  #tools button[data-act="book"] { display: none; }
+  body.hasbook #tools button[data-act="book"] { display: inline-block; }
+  #bugToast { position: fixed; left: calc(14px + env(safe-area-inset-left)); top: 26%; width: 132px; aspect-ratio: 3 / 4; pointer-events: none; z-index: 2;
+    transform: translateX(-150%) rotate(-9deg); transition: transform .45s cubic-bezier(.2,.8,.3,1); }
+  #bugToast.show { transform: translateX(0) rotate(-5deg); }
+  #bugToast canvas { width: 100%; height: 100%; display: block; filter: brightness(.86) drop-shadow(0 8px 16px rgba(0,0,0,.7)); }
+  #journal { position: fixed; inset: 0; z-index: 9; display: none; place-items: center; background: rgba(0,0,0,.45); }
+  #journal.show { display: grid; }
+  #journal .page { height: min(78vh, 640px); aspect-ratio: 3 / 4; transform: rotate(-1.5deg); }
+  #journal .page canvas { width: 100%; height: 100%; display: block; filter: drop-shadow(0 14px 30px rgba(0,0,0,.8)); }
+  #journal .nav { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 12px; color: var(--ink); font-size: 13px; }
+  #journal .nav button { font: inherit; font-size: 13px; color: var(--ink); background: rgba(12,11,10,.7); border: 1px solid var(--line); border-radius: 9px; padding: 7px 14px; }
+  #journal .nav button:disabled { opacity: .3; }
+  #journal .nav #jClose { background: var(--amber); color: #1a1612; border: 0; }
+  @media (max-height: 500px) { #journal .page { height: 76vh; } #journal .nav { margin-top: 6px; } #bugToast { width: 96px; top: 30%; } }
+  /* the map: team 2's sketch on a notebook page, held up low in front of you */
+  #paperMap { position: fixed; left: 50%; bottom: -5vh; height: min(80vh, 580px); aspect-ratio: 0.72; transform: translate(-50%, 105%) rotate(-4deg); transition: transform .35s cubic-bezier(.2,.8,.3,1); pointer-events: none; z-index: 2;
+    filter: brightness(1); }
+  #paperMap.show { transform: translate(-50%, 0) rotate(-2.5deg); }
+  #paperMap canvas { width: 100%; height: 100%; display: block; filter: drop-shadow(0 14px 26px rgba(0,0,0,.75)); }
   #cross { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(255,255,255,.45); pointer-events: none; }
   #tip { left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom)); font-size: 16px; line-height: 1.4; color: rgba(255,255,255,.92); text-shadow: 0 1px 6px #000, 0 0 2px #000; opacity: 0; transition: opacity .3s; width: max-content; max-width: min(92vw, 720px); text-align: center; word-break: keep-all; }
   #tip.show { opacity: 1; }
@@ -166,7 +184,7 @@
     #pad { grid-template-columns: 54px 54px; gap: 8px; bottom: calc(10px + env(safe-area-inset-bottom)); }
     #pad button { width: 54px; height: 54px; font-size: 11px; }
     #pad button.wide { height: 38px; }
-    #minimap { top: calc(46px + env(safe-area-inset-top)); width: 120px; height: 190px; }
+    #paperMap { height: 92vh; bottom: -4vh; }
     /* between the stick and the buttons, so the end of a line (the control in brackets) isn't hidden under them */
     body.touch #tip { bottom: calc(14px + env(safe-area-inset-bottom)); font-size: 14px; max-width: calc(100vw - 320px - env(safe-area-inset-right)); min-width: 0; }
     body.touch #prompt { bottom: calc(66px + env(safe-area-inset-bottom)); max-width: calc(100vw - 300px); }
@@ -197,11 +215,11 @@
     font-size: 12px; color: rgba(236,230,220,.85); background: rgba(0,0,0,.45); border-radius: 999px; padding: 6px 14px; animation: fsBlink 2.4s ease-in-out infinite; }
   body.intro:not(.fs):not(.nofs) #fsHint { display: block; }
   @keyframes fsBlink { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
-  body.intro #cross, body.intro #top, body.intro #minimap, body.intro #status, body.intro #touch, body.intro #safe, body.intro #hide, body.intro #prompt, body.intro #tip, body.intro #msg { display: none !important; }
+  body.intro #cross, body.intro #top, body.intro #paperMap, body.intro #bugToast, body.intro #journal, body.intro #status, body.intro #touch, body.intro #safe, body.intro #hide, body.intro #prompt, body.intro #tip, body.intro #msg { display: none !important; }
   #tools button[data-act="dev"], #tools button[data-act="marks"], #tools button[data-act="bright"] { display: none; }
   body.devtools #tools button[data-act="dev"], body.devtools #tools button[data-act="marks"], body.devtools #tools button[data-act="bright"] { display: inline-block; }
   body.intro #tools button:not([data-act="snd"]):not([data-act="fs"]):not([data-act="dev"]):not([data-act="set"]) { display: none; }
-  body.ending #cross, body.ending #top, body.ending #minimap, body.ending #status, body.ending #touch, body.ending #safe, body.ending #hide, body.ending #prompt, body.ending #tip, body.ending #msg, body.ending #note, body.ending #crawl, body.ending #grab { display: none !important; }
+  body.ending #cross, body.ending #top, body.ending #paperMap, body.ending #bugToast, body.ending #journal, body.ending #status, body.ending #touch, body.ending #safe, body.ending #hide, body.ending #prompt, body.ending #tip, body.ending #msg, body.ending #note, body.ending #crawl, body.ending #grab { display: none !important; }
   body.ending #tools button:not([data-act="snd"]):not([data-act="fs"]):not([data-act="set"]) { display: none; }
   /* settings */
   #settings { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 12; width: min(340px, 90vw); max-height: 90vh; overflow-y: auto; display: none; padding: 16px 18px 14px;
@@ -243,8 +261,10 @@
 <div id="app"></div>
 <div id="cross"></div>
 <div class="hud" id="top"><div class="logo">MANDIBLE</div><div class="sub">바퀴 떼 · 천장 거미 · 거미줄 · 알집 · 지네</div><div class="row"><span id="obj">발전기 0/3</span><span id="timer">0:00</span></div></div>
-<div id="tools"><button data-act="set">설정</button><button data-act="snd" class="on">소리</button><button data-act="fs">전체화면</button><button data-act="dev">개발</button><button data-act="map">지도</button><button data-act="marks">벌레 위치</button><button data-act="bright">밝게</button></div>
-<div id="minimap"><canvas></canvas></div>
+<div id="tools"><button data-act="set">설정</button><button data-act="snd" class="on">소리</button><button data-act="fs">전체화면</button><button data-act="dev">개발</button><button data-act="map">지도</button><button data-act="book">수첩</button><button data-act="marks">벌레 위치</button><button data-act="bright">밝게</button></div>
+<div id="paperMap"><canvas></canvas></div>
+<div id="bugToast"><canvas width="240" height="320"></canvas></div>
+<div id="journal"><div class="page"><canvas width="600" height="800"></canvas></div><div class="nav"><button id="jPrev">◀</button><span id="jNum">1 / 1</span><button id="jNext">▶</button><button id="jClose">닫기</button></div></div>
 <div id="hurt"></div><div id="hit"></div>
 <div id="crawl"></div>
 <div id="grab"><div class="t">거미가 덮쳤다!</div><div class="bar"><i></i></div><div class="s only-desk">클릭 연타로 버텨라 · 우클릭 스프레이</div><div class="s only-touch">화면 연타로 버텨라 · 스프레이 버튼</div></div>
@@ -279,8 +299,8 @@
   <div class="t">MANDIBLE</div>
   <div class="s">D-7 산업시설 · 해충 방역 작업</div>
   <div class="helpBox">
-  <div class="help only-desk">WASD 이동 · 마우스 시점 · 좌클릭 손전등 · 우클릭(또는 Q) 스프레이<br>Shift 달리기 · Ctrl 웅크리기 · E 상호작용 (발전기: 초록 칸에서 E)<br>웅크린 채 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히)<br>M 지도 · Esc 마우스 풀기 · 오른쪽 위 설정(난이도·감도·소리·밝기·화질)<br>오른쪽 위 전체화면 버튼 또는 F11로 전체화면</div>
-  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용 (발전기: 초록 칸에서 손 버튼) · 스프레이 버튼: 앞쪽 3m에 뿌리기<br>웅크리기를 켜고 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히)<br>위 버튼: 설정(난이도·감도·소리·밝기·화질) · 소리 · 전체화면 · 지도</div>
+  <div class="help only-desk">WASD 이동 · 마우스 시점 · 좌클릭 손전등 · 우클릭(또는 Q) 스프레이<br>Shift 달리기 · Ctrl 웅크리기 · E 상호작용 (발전기: 초록 칸에서 E)<br>웅크린 채 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히)<br>M 지도 · J 수첩(벌레 기록) · Esc 마우스 풀기 · 오른쪽 위 설정(난이도·감도·소리·밝기·화질)<br>오른쪽 위 전체화면 버튼 또는 F11로 전체화면</div>
+  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용 (발전기: 초록 칸에서 손 버튼) · 스프레이 버튼: 앞쪽 3m에 뿌리기<br>웅크리기를 켜고 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히)<br>위 버튼: 설정(난이도·감도·소리·밝기·화질) · 소리 · 전체화면 · 지도 · 수첩(벌레 기록)</div>
   <div class="help" id="iosHint">아이폰에서 전체화면으로 하려면<br>Safari로 열고 공유 버튼 → 홈 화면에 추가 → 홈 화면의 MANDIBLE 아이콘으로 실행하세요.</div>
   <div class="help" id="diffNote">난이도 <b>보통</b> · 오른쪽 위 설정에서 바꿀 수 있어요</div>
   <div class="help">발전기 3개를 켜고 처음 들어온 셔터로 탈출하세요.<br>이어폰을 끼면 벌레 소리가 어느 쪽에서 나는지 들려요.</div>

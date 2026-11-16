@@ -11,6 +11,8 @@ import { dressLevel } from './dressing.js';
 import { MapSpiders } from './spiders.js';
 import { EggNest } from './spiderlings.js';
 import { GhostBrood } from './ghostlings.js';
+import { createPaperMap } from './papermap.js';
+import { BUG_PAGES, drawBugPage } from './bugnotes.js';
 import { MapCentipede, HUNT } from './centi.js';
 import { PassageGate, Phantom, DeadWorker, GATE, BODY } from './scares.js';
 import { createIntro } from './intro.js';
@@ -41,9 +43,9 @@ const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal
 // difficulty: health, spray cans, how fast hunters run, how fast the flashlight heats, how far your
 // footsteps carry, the starter cord's green zone and speed, and how hard a grab is to fight off
 const DIFF = {
-  easy: { label: '쉬움', hp: 5, spray: 5, speed: 0.82, heat: 0.7, hear: 0.75, zone: 1.35, cord: 0.8, mash: 0.7 },
-  normal: { label: '보통', hp: 3, spray: 3, speed: 1, heat: 1, hear: 1, zone: 1, cord: 1, mash: 1 },
-  hard: { label: '어려움', hp: 2, spray: 2, speed: 1.15, heat: 1.3, hear: 1.3, zone: 0.75, cord: 1.25, mash: 1.3 },
+  easy: { label: '쉬움', hp: 5, spray: 5, speed: 0.82, heat: 0.7, hear: 0.75, zone: 1.35, cord: 0.8, mash: 0.7, mapDark: 0.62 },
+  normal: { label: '보통', hp: 3, spray: 3, speed: 1, heat: 1, hear: 1, zone: 1, cord: 1, mash: 1, mapDark: 0.36 },
+  hard: { label: '어려움', hp: 2, spray: 2, speed: 1.15, heat: 1.3, hear: 1.3, zone: 0.75, cord: 1.25, mash: 1.3, mapDark: 0.16 },
 };
 const D = () => DIFF[SET.diff] || DIFF.normal;
 let devTools = (() => { try { return localStorage.getItem('mandible.dev') === '1'; } catch (e) { return false; } })();
@@ -239,7 +241,7 @@ const noteMeshes = SPOTS.notes.map((n, i) => {
   return { ...n, idx: i, m, c, tex, read: false };
 });
 // redraw the pages once the handwriting font is in
-if (document.fonts && document.fonts.load) document.fonts.load(`40px ${HAND}`, '약쳤는데').then(() => { for (const n of noteMeshes) { drawPage(n.c, n.text, n.idx + 1); n.tex.needsUpdate = true; } }).catch(() => {});
+if (document.fonts && document.fonts.load) document.fonts.load(`40px ${HAND}`, '약쳤는데').then(() => { for (const n of noteMeshes) { drawPage(n.c, n.text, n.idx + 1); n.tex.needsUpdate = true; } paperMap.redraw(); journal.redraw(); }).catch(() => {});
 // ------------------------------------------------------------------ voices at the bottom: radio calls and recordings, one after another
 const voice = (() => {
   const q = []; let cur = null, t = 0;
@@ -277,6 +279,73 @@ const RADIO_ODD = [
   [['본부', '(지직거림 속에 누군가의 숨소리가 섞여 있다)']],
   [['본부', '치익— ...안에... 아직...']],
 ];
+// ------------------------------------------------------------------ team 2's notebook: a page per bug, the first time you meet it
+const tmpV = new THREE.Vector3();
+const journal = (() => {
+  const found = [];                       // page ids in the order found
+  const pages = {};                       // id -> canvas (drawn once)
+  let idx = 0, open = false, toastT = 0;
+  const view = $('#journal canvas'), toast = $('#bugToast canvas');
+  const pageCanvas = (id) => {
+    if (!pages[id]) { const c = document.createElement('canvas'); c.width = 600; c.height = 800; drawBugPage(c, BUG_PAGES.find((p) => p.id === id), BUG_PAGES.findIndex((p) => p.id === id) + 3); pages[id] = c; }
+    return pages[id];
+  };
+  const show = () => {
+    const c = view.getContext('2d'); c.clearRect(0, 0, view.width, view.height);
+    if (found.length) c.drawImage(pageCanvas(found[idx]), 0, 0, view.width, view.height);
+    $('#jNum').textContent = `${idx + 1} / ${found.length}`;
+    $('#jPrev').disabled = idx <= 0; $('#jNext').disabled = idx >= found.length - 1;
+  };
+  const api = {
+    has: (id) => found.includes(id),
+    get open() { return open; },
+    add(id) {
+      if (found.includes(id)) return false;
+      found.push(id); idx = found.length - 1;
+      document.body.classList.add('hasbook');
+      const c = toast.getContext('2d'); c.clearRect(0, 0, toast.width, toast.height); c.drawImage(pageCanvas(id), 0, 0, toast.width, toast.height);
+      return true;
+    },
+    toast() { $('#bugToast').classList.add('show'); toastT = 5.5; },
+    toggle(on = !open) {
+      if (on && !found.length) return;
+      open = on; $('#journal').classList.toggle('show', on);
+      document.querySelectorAll('[data-act="book"]').forEach((b) => b.classList.toggle('on', on));
+      if (on) { show(); $('#bugToast').classList.remove('show'); sfx.paper(); if (document.pointerLockElement) document.exitPointerLock(); }
+      else if (G.started && !G.won && !G.dead && !viaTouch()) requestLock();
+    },
+    flip(d) { if (!open) return; const n = Math.max(0, Math.min(found.length - 1, idx + d)); if (n !== idx) { idx = n; show(); sfx.paper(); } },
+    update(dt) { if (toastT > 0 && (toastT -= dt) <= 0) $('#bugToast').classList.remove('show'); },
+    reset() { found.length = 0; idx = 0; if (open) api.toggle(false); toastT = 0; $('#bugToast').classList.remove('show'); document.body.classList.remove('hasbook'); },
+  };
+  for (const p of BUG_PAGES) pageCanvas(p.id);     // drawn up front (and again once the handwriting font is in)
+  api.redraw = () => { for (const k of Object.keys(pages)) delete pages[k]; for (const p of BUG_PAGES) pageCanvas(p.id); if (open) show(); };
+  return api;
+})();
+// a new bug: a torn page of team 2's notebook turns up (shown small at the side; J / 수첩 to read it)
+function discover(id) {
+  if (!G.started || journal.has(id)) return;
+  journal.add(id);
+  const first = !G.tipped.book; G.tipped.book = true;
+  const title = BUG_PAGES.find((p) => p.id === id).title;
+  setTimeout(() => {
+    if (!journal.has(id)) return;
+    journal.toast(); sfx.paper();
+    tip(first ? `2조 이정훈의 수첩 한 장을 주웠다: '${title}' (${KEY.book}로 펼치기)` : `수첩에 한 장 더: '${title}'`);
+  }, 1400);
+}
+document.querySelectorAll('[data-act="book"]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); journal.toggle(); }));
+$('#jPrev').addEventListener('click', (e) => { e.stopPropagation(); journal.flip(-1); });
+$('#jNext').addEventListener('click', (e) => { e.stopPropagation(); journal.flip(1); });
+$('#jClose').addEventListener('click', (e) => { e.stopPropagation(); journal.toggle(false); });
+$('#journal').addEventListener('pointerdown', (e) => e.stopPropagation());
+$('#journal').addEventListener('click', (e) => { if (e.target.id === 'journal') journal.toggle(false); });   // tap beside the page
+addEventListener('keydown', (e) => {
+  if (e.code === 'KeyJ' && !e.repeat && G.started && !G.won) journal.toggle();
+  else if (journal.open && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) { e.preventDefault(); journal.flip(e.code === 'ArrowLeft' ? -1 : 1); }
+  else if (journal.open && e.code === 'Escape') journal.toggle(false);
+});
+
 // pocket recorders left by Lee Jeong-hun of team 2, on the tables
 const TAPES = [
   { x: 11.25, y: 0.931, z: 20.0, lines: [['이정훈', '방역팀 2조 이정훈. 오후 4시 10분, 하역장으로 들어왔다.'], ['이정훈', '...바닥이 움직이는 줄 알았는데, 전부 바퀴다. 보통 양이 아니야.']] },
@@ -376,6 +445,7 @@ function resetGame() {
   for (const g of genMeshes) { g.on = false; g.pulls = 0; g.zone = null; g.led.material.emissive.set(0xff2a10); }
   for (const r of tapes) { r.played = false; }
   voice.clear(); G.oddN = 0; G.oddT = 70 + Math.random() * 50;
+  journal.reset();
   for (const r of Object.values(reds)) { r.on = false; r.light.intensity = 0; r.fixture.material.emissiveIntensity = 0; }
   for (const n of noteMeshes) { n.read = false; n.m.visible = true; }
   refill.taken = false; refill.m.visible = true;
@@ -393,7 +463,7 @@ let tipTimer = 0, msgTimer = 0, noteTimer = 0;
 const shownTips = {};
 // the lines at the bottom wait their turn: a new one queues behind the one showing instead of replacing it
 // what to press, named in lines that tell you to do something: "손전등을 켜자 (좌클릭)"
-const KEY = touch ? { flash: '손전등 버튼', crouch: '웅크리기 버튼', spray: '스프레이 버튼' } : { flash: '좌클릭', crouch: 'Ctrl', spray: '우클릭' };
+const KEY = touch ? { flash: '손전등 버튼', crouch: '웅크리기 버튼', spray: '스프레이 버튼', book: '수첩 버튼' } : { flash: '좌클릭', crouch: 'Ctrl', spray: '우클릭', book: 'J' };
 const tipQueue = [];
 let tipBusy = false;
 function tip(text, key) {
@@ -655,7 +725,7 @@ function toggleFlash() {
   if (window.__SFX) window.__SFX.click(G.flashOn);
 }
 let showMap = false, bright = false;
-function toggleMap() { showMap = !showMap; $('#minimap').classList.toggle('show', showMap); document.querySelectorAll('[data-act="map"]').forEach((b) => b.classList.toggle('on', showMap)); }
+function toggleMap() { showMap = !showMap; if (showMap) paperMap.resize(); $('#paperMap').classList.toggle('show', showMap); if (showMap) sfx.paper(); document.querySelectorAll('[data-act="map"]').forEach((b) => b.classList.toggle('on', showMap)); }
 function toggleBright() {
   bright = !bright;
   hemi.intensity = bright ? 1.5 : 0;
@@ -795,57 +865,66 @@ function startCentiKill(deathTip) {
   if (G.dead || G.kill) return;
   if (dev.god) return;
   if (G.grab) endGrab(true);
-  G.kill = { t: 0, tip: deathTip, struck: false };
+  if (journal.open) journal.toggle(false);
+  G.kill = { t: 0, tip: deathTip, struck: false, y0: camera.position.y, fell: false, beat: 0, from: camera.position.clone(), roll: 0 };
   centi.kill(camera.position);
+  sfx.centiScreech(centi.head.x, centi.head.z); sfx.grab();
   shakeScreen();
 }
+// caught by the centipede (about 2.6 s): it rears up in your face, knocks you down, drags you in and
+// coils round you on the floor; the head hangs over you, lowers, and strikes
 function centiKillStep(dt) {
   const K = G.kill, h = centi.head, cam = camera.position;
   K.t += dt;
+  const sm = (x) => { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); };
+  // knocked down: falling, then on your back with your head tipped to one side
+  const fall = Math.min(1, Math.max(0, (K.t - 0.45) / 0.4)), fallK = fall * fall;
+  // dragged toward its body in two jerks
+  const body = centi.c.rPos[24] || h, toB = new THREE.Vector3(body.x - K.from.x, 0, body.z - K.from.z);
+  const tl = toB.length() || 1; toB.divideScalar(tl);
+  const drag = Math.min(tl - 0.6, 0.28 * sm((K.t - 0.9) / 0.18) + 0.22 * sm((K.t - 1.25) / 0.18));
+  cam.set(K.from.x + toB.x * Math.max(0, drag), K.y0 - (K.y0 - 0.3) * fallK + (fall >= 1 ? 0.02 * Math.max(0, Math.sin((K.t - 0.85) * 18)) * Math.exp(-(K.t - 0.85) * 6) : 0), K.from.z + toB.z * Math.max(0, drag));
+  if (fall > 0.3 && !K.drop) { const a = player.yaw - 1.2; K.drop = new THREE.Vector3(cam.x + Math.sin(a) * 0.7, 0.07, cam.z + Math.cos(a) * 0.7); }
+  if (fall >= 1 && !K.fell) {
+    K.fell = true; shakeScreen();
+    if (sfx.ctx) { sfx.tone({ dest: sfx.sfx, f0: 85, f1: 38, dur: 0.3, gain: 0.9, attack: 0.004 }); sfx.burst({ dest: sfx.sfx, dur: 0.18, f: 400, q: 0.8, type: 'lowpass', gain: 0.6, buf: sfx.brown }); }
+  }
+  if (centi.c.kill) centi.c.kill.cam.copy(cam);
+  // always looking at the head
   const yaw = Math.atan2(h.x - cam.x, h.z - cam.z), pitch = Math.atan2(h.y - cam.y, Math.hypot(h.x - cam.x, h.z - cam.z));
   let dy = yaw - player.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-  const k = Math.min(1, dt * 9);
-  player.yaw += dy * k; player.pitch += (THREE.MathUtils.clamp(pitch, -0.6, 0.8) - player.pitch) * k;
-  camera.quaternion.setFromEuler(new THREE.Euler(player.pitch + (Math.random() - 0.5) * 0.01, player.yaw + Math.PI + (Math.random() - 0.5) * 0.01, 0, 'YXZ'));
-  if (!K.struck && K.t >= 1.08) {
+  const k = Math.min(1, dt * (K.t < 0.5 ? 9 : 5));
+  player.yaw += dy * k; player.pitch += (THREE.MathUtils.clamp(pitch, -0.6, 1.3) - player.pitch) * k;
+  K.roll += (0.45 * fallK - K.roll) * Math.min(1, dt * 6);
+  const jit = K.t > 1.5 ? 0.02 : 0.01;
+  camera.quaternion.setFromEuler(new THREE.Euler(player.pitch + (Math.random() - 0.5) * jit, player.yaw + Math.PI + (Math.random() - 0.5) * jit, K.roll, 'YXZ'));
+  // pinned: legs all over you, the edges going dark, your heart going
+  if (K.t > 0.9) {
+    const n = Math.min(3, 1 + (K.t - 0.9) * 1.6);
+    const cr = $('#crawl'); cr.style.setProperty('--n', n.toFixed(2)); cr.classList.add('show');
+    $('#hurt').style.opacity = Math.min(0.9, 0.3 + (K.t - 0.9) * 0.4);
+    if ((K.beat -= dt) <= 0) { if (sfx.ctx) sfx.heartbeat(1); K.beat = Math.max(0.28, 0.55 - (K.t - 0.9) * 0.18); }
+  }
+  if (!K.struck && K.t >= 2.42) {
     K.struck = true;
-    sfx.scareHit(); sfx.hurt(); shakeScreen();
+    sfx.centiScreech(h.x, h.z); sfx.scareHit(); sfx.hurt(); shakeScreen();
     const el = $('#hit'); el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');
   }
-  if (K.t >= 1.3) { const tipTxt = K.tip; G.kill = null; die(tipTxt); }
+  if (K.t >= 2.65) { const tipTxt = K.tip; G.kill = null; $('#crawl').classList.remove('show'); die(tipTxt); }
 }
 function shakeScreen() { document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake'); }
 
 // ------------------------------------------------------------------ minimap
-const mm = $('#minimap canvas'), mctx = mm.getContext('2d');
 const MB = { x0: -21, x1: 25, z0: -3, z1: 71 };
-function drawMap() {
-  const W = mm.width, H = mm.height, s = Math.min(W / (MB.x1 - MB.x0), H / (MB.z1 - MB.z0));
-  const X = (x) => (MB.x1 - x) * s, Y = (z) => H - (z - MB.z0) * s;   // +x drawn to the left so the map matches the view when facing north
-  mctx.clearRect(0, 0, W, H);
-  for (const r of Object.values(ROOMS)) {
-    mctx.fillStyle = 'rgba(200,200,190,0.10)';
-    mctx.strokeStyle = 'rgba(230,225,215,0.55)'; mctx.lineWidth = 1;
-    mctx.fillRect(X(r.x1), Y(r.z1), (r.x1 - r.x0) * s, (r.z1 - r.z0) * s);
-    mctx.strokeRect(X(r.x1), Y(r.z1), (r.x1 - r.x0) * s, (r.z1 - r.z0) * s);
-  }
-  for (const d of DOORS) {
-    mctx.strokeStyle = d.locked === 'emergency' && emCol.off === false ? '#ff5a3a' : d.locked === 'shutter' && !shCol.off ? '#ff5a3a' : 'rgba(0,0,0,0.9)';
-    mctx.lineWidth = 3;
-    mctx.beginPath();
-    if (d.axis === 'z') { mctx.moveTo(X(d.from), Y(d.at)); mctx.lineTo(X(d.to), Y(d.at)); } else { mctx.moveTo(X(d.at), Y(d.from)); mctx.lineTo(X(d.at), Y(d.to)); }
-    mctx.stroke();
-  }
-  if (markers.visible) for (const b of SPOTS.bugs) { mctx.fillStyle = 'rgba(255,60,40,0.75)'; mctx.beginPath(); mctx.arc(X(b.x), Y(b.z), 3, 0, Math.PI * 2); mctx.fill(); }
-  for (const l of lamps) {
-    mctx.fillStyle = l.burnt ? '#5a4a3a' : l.on ? '#ffb24a' : '#a07a40'; mctx.fillRect(X(l.x) - 2.5, Y(l.z) - 2.5, 5, 5);
-    if (l === G.checkpoint) { mctx.strokeStyle = '#ffd890'; mctx.lineWidth = 1.5; mctx.beginPath(); mctx.arc(X(l.x), Y(l.z), 6, 0, Math.PI * 2); mctx.stroke(); }
-  }
-  for (const g of genMeshes) { mctx.fillStyle = g.on ? '#40ff70' : '#ffd23a'; mctx.beginPath(); mctx.arc(X(g.x), Y(g.z), 4, 0, Math.PI * 2); mctx.fill(); }
-  const px = X(player.pos.x), py = Y(player.pos.z), a = player.yaw;
-  mctx.save(); mctx.translate(px, py); mctx.rotate(-a);
-  mctx.fillStyle = '#ffffff'; mctx.beginPath(); mctx.moveTo(0, -7); mctx.lineTo(4.5, 5); mctx.lineTo(-4.5, 5); mctx.closePath(); mctx.fill();
-  mctx.restore();
+// the map is team 2's hand-drawn floor plan, held up in front of you (papermap.js); what's on it depends on the difficulty
+const paperMap = createPaperMap({ canvas: $('#paperMap canvas'), ROOMS, DOORS, SPOTS, MB });
+let mapLight = 1;
+function drawMap(dt) {
+  // it needs light to read: flashlight, a lamp, or (barely) your eyes in the dark
+  const want = G.flashOn && !G.drained && G.blackT <= 0 ? 1 : G.inSafe ? 0.85 : D().mapDark;
+  mapLight += (want - mapLight) * Math.min(1, dt * 4);
+  $('#paperMap').style.filter = `brightness(${mapLight.toFixed(3)})`;
+  paperMap.draw({ x: player.pos.x, z: player.pos.z, yaw: player.yaw, room: roomAt(player.pos.x, player.pos.z), gens: genMeshes });
 }
 
 // ------------------------------------------------------------------ loop
@@ -854,8 +933,7 @@ function resize() {
   camera.aspect = innerWidth / innerHeight;
   camera.fov = innerWidth < innerHeight ? 80 : 70;
   camera.updateProjectionMatrix();
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  mm.width = 170 * dpr; mm.height = 270 * dpr;
+  paperMap.resize();
   if (intro) intro.resize();
 }
 addEventListener('resize', resize);
@@ -1020,6 +1098,8 @@ function frame(dtOverride) {
   arms.lensWorld(camera, hd, lensW);
   flash.position.copy(lensW);
   flash.target.position.copy(aimS);
+  // knocked down by the centipede: the flashlight lies where it fell, still pointing at it
+  if (G.kill && G.kill.drop) { flash.position.copy(G.kill.drop); flash.target.position.copy(centi.head); }
   // a wall right in front of you would go white: the beam is turned down the closer the wall is
   nearK += (beamNear(hd) - nearK) * Math.min(1, dt * 10);
   flash.intensity = G.flashOn ? FLASH_I * fl * nearK : 0;
@@ -1063,7 +1143,7 @@ function frame(dtOverride) {
     onFirstFlee: () => tip('바퀴들이 빛을 피한다', 'roachlight'),
     onEscape: (p, dur) => sfx.wingTakeoff(p.x, p.z, dur),
     onFirstWait: () => tip('빛 밖에서 기다리고 있다... 불을 돌리면 덮치겠지', 'roachwait'),
-    onFirstHunt: () => tip(`소리를 듣고 오는 건가... 몸을 낮추고 걷자 (${KEY.crouch})`, 'roachsound'),
+    onFirstHunt: () => { tip(`소리를 듣고 오는 건가... 몸을 낮추고 걷자 (${KEY.crouch})`, 'roachsound'); discover('roach'); },
     onFlyerLaunch: (p) => sfx.scareLaunch(p.x, p.y, p.z),
     onFlyerOff: () => { sfx.shakeOff(); sfx.roachDie(1); },
     onFlyerHit: () => {
@@ -1077,7 +1157,7 @@ function frame(dtOverride) {
   spiders.update({
     dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god, hidden: G.hidden,
     nav: swarms.nav, field: swarms.fPlayer,
-    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽에서 거미가 내려온다! 빛을 비추면 물러나려나', 'wolfwake'); },
+    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽에서 거미가 내려온다! 빛을 비추면 물러나려나', 'wolfwake'); discover('wolf'); },
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드렸다... 뭔가 깨어났다', 'tripwake'); },
     onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추니 움츠러든다', 'ghostlit'); },
@@ -1095,7 +1175,7 @@ function frame(dtOverride) {
   gate.update({ dt, cam: camera.position, light, playerPos: player.pos,
     canCatch: G.started && !G.dead && !G.won && !G.grab && !dev.god && !dev.freeze,
     onCatch: (g) => startGrab(g),
-    onNear: () => { tip('저 안으로는... 못 가겠다', 'gate'); if (!G.tipped.seeGate) { G.tipped.seeGate = true; lookToward(gate.s.bodyWorld); } },
+    onNear: () => { tip('저 안으로는... 못 가겠다', 'gate'); discover('gate'); if (!G.tipped.seeGate) { G.tipped.seeGate = true; lookToward(gate.s.bodyWorld); } },
     onShake: (x, y, z) => sfx.spiderFlinch(x, y, z),
     onTouch: () => tip('거미줄이 너무 두껍다. 지나갈 수 없다') });
   phantom.update({ dt, cam: camera.position, light, onRetract: (x, y, z) => sfx.spiderFlinch(x, y, z) });
@@ -1109,12 +1189,12 @@ function frame(dtOverride) {
     spiders.spiders.forEach((sp, i) => {
       if (G.tipped['see' + i]) return;
       const b = sp.s.bodyWorld;
-      if (b.distanceTo(camera.position) < 7 && canSee(b)) { G.tipped['see' + i] = true; lookToward(b); }
+      if (b.distanceTo(camera.position) < 7 && canSee(b)) { G.tipped['see' + i] = true; lookToward(b); discover(sp.mode === 'trip' ? 'ghost' : 'wolf'); }
     });
   }
   if (G.started && !G.dead && !G.grab) {
     const tr = spiders.threadAt(player.pos, camera.position.y + 0.12);
-    if (tr) { spiders.snapThread(tr); sfx.threadSnap(player.pos.x, 1.4, player.pos.z); msg('실을 끊어 버렸다...'); }
+    if (tr) { spiders.snapThread(tr); sfx.threadSnap(player.pos.x, 1.4, player.pos.z); msg('실을 끊어 버렸다...'); discover('ghost'); }
     const w = spiders.webAt(player.pos);
     if (w) {
       spiders.hitWeb(w, player.pos);
@@ -1126,7 +1206,7 @@ function frame(dtOverride) {
   if (G.started && !G.dead) {
     if (noise >= 12) eggs.hear(player.pos.x, player.pos.z, noise) && sfx.eggBurst(-7.6, 4, 62.6);
     for (const e of G.events) if (eggs.hear(e.x, e.z, e.r)) sfx.eggBurst(-7.6, 4, 62.6);
-    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip(`알집이다... 소리 내지 말자 (${KEY.crouch}로 웅크려 걷기)`, 'eggs'); }
+    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip(`알집이다... 소리 내지 말자 (${KEY.crouch}로 웅크려 걷기)`, 'eggs'); discover('eggs'); }
   }
   const lingInfo = eggs.update({
     dt, player: { pos: player.pos }, nav: swarms.nav, field: swarms.fPlayer, light, frozen, hidden: G.hidden,
@@ -1200,6 +1280,8 @@ function frame(dtOverride) {
   if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
   if (broodInfo.moving > 4) inten = Math.max(inten, 0.4);
+  if (G.started && !G.dead && !journal.has('roach') && ai.swarms.some((w) => w.n && w.d < 6 && canSee(tmpV.set(w.x, 0.2, w.z)))) discover('roach');
+  if (G.started && !G.dead && !journal.has('centi') && centi.active && centi.state !== 'dormant' && Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z) < 22) discover('centi');
   // who's after you: a spider or the centipede chasing drives the chase music, something searching keeps a low pulse
   let chaseD = 99;
   for (const q of spiders.chasers()) chaseD = Math.min(chaseD, Math.hypot(q.x - player.pos.x, q.z - player.pos.z));
@@ -1219,7 +1301,7 @@ function frame(dtOverride) {
   for (const a of G.attached) a.age += dt;
   G.attachCd = Math.max(0, G.attachCd - dt);
   // roaches on you: no damage, but they slow you down and crawl over your face until shaken off
-  player.slowMul = Math.max(0.3, Math.max(0.4, 1 - 0.22 * G.attached.length) * (1 - G.lingSlow) * (G.webSlowT > 0 ? 0.5 : 1));
+  player.slowMul = Math.max(0.3, Math.max(0.4, 1 - 0.22 * G.attached.length) * (1 - G.lingSlow) * (G.webSlowT > 0 ? 0.5 : 1)) * (showMap || journal.open ? 0.55 : 1);
   if (G.attached.length) {
     const a = G.attached[0];
     if (lookSign && lookSign !== a.lastSign) { a.rev++; a.lastSign = lookSign; }
@@ -1228,8 +1310,7 @@ function frame(dtOverride) {
   }
   swarms.showAttached(camera, G.attached, dt, t);
   { const on = G.attached.length > 0 || swarms.flyer.state === 'face', k = on ? (G.flashOn ? 0.3 : 0.22) : 0; swarms.faceAmb += (k - swarms.faceAmb) * Math.min(1, dt * 6); }
-  $('#crawl').classList.toggle('show', G.attached.length > 0);
-  $('#crawl').style.setProperty('--n', G.attached.length);
+  if (!G.kill) { $('#crawl').classList.toggle('show', G.attached.length > 0); $('#crawl').style.setProperty('--n', G.attached.length); }
 
   // ---- lamps (safe zones)
   G.inSafe = false;
@@ -1330,7 +1411,7 @@ function frame(dtOverride) {
   if (pullGen) { const z = pullGen.zone; pullZone.style.left = `${(z.c - z.w / 2) * 100}%`; pullZone.style.width = `${z.w * 100}%`; pullMark.style.left = `${pullMarker(pullGen) * 100}%`; }
   // recorders still to play blink their red light; the radio and recordings run at the bottom
   for (const r of tapes) if (!r.played) r.led.material.emissiveIntensity = Math.sin(t * 4 + r.x) > 0.2 ? 2.2 : 0.15;
-  voice.update(dt);
+  voice.update(dt); journal.update(dt);
   if (G.started && !G.dead && !G.won && G.oddN < RADIO_ODD.length && (G.oddT -= dt) <= 0 && !voice.busy) { voice.say(RADIO_ODD[G.oddN++]); G.oddT = 80 + Math.random() * 70; }
 
   // ---- HUD
@@ -1339,14 +1420,15 @@ function frame(dtOverride) {
   $('#stamina').classList.toggle('tired', player.exhausted);
   $('#spray b').textContent = G.spray;
   if (Math.floor(t * 4) !== Math.floor((t - dt) * 4)) updateHud();
-  if (showMap) drawMap();
+  if (showMap && (G.grab || G.dead || G.kill)) toggleMap();          // it drops when something has you
+  if (showMap) drawMap(dt);
   if (dev.info && Math.floor(t * 4) !== Math.floor((t - dt) * 4)) {
     fpsN++;
     $('#devinfo').textContent = `FPS ${Math.round(1 / Math.max(1e-3, fpsAvg))}  위치 ${player.pos.x.toFixed(1)}, ${player.pos.z.toFixed(1)}  방 ${(ROOMS[roomAt(player.pos.x, player.pos.z)] || {}).name || '-'}\n체력 ${G.hp}/${D().hp}  열 ${Math.round((1 - G.battery) * 100)}%${G.drained ? ' 과열' : ''}  소음 반경 ${noise}m  붙은 바퀴 ${G.attached.length}\n숨기 ${G.hidden ? '숨음' : player.inside ? '들킴' : '-'}  바퀴 떼 ${swarms.states().map((x, i) => `${i + 1}:${({ hide: '숨음', hunt: '추적', search: '수색', return: '복귀' })[x]}`).join('  ')}\n거미 ${spiders.states().join(' / ')}  지네 ${centi.info()}  알집 ${eggs.burstDone ? '터짐' : '그대로'}  느려짐 ${Math.round((1 - player.slowMul) * 100)}%`;
   }
   fpsAvg += (dt - fpsAvg) * 0.05;
   if (window.__NORENDER) return;
-  withBright(() => { renderer.render(scene, camera); arms.render(renderer, camera); });
+  withBright(() => { renderer.render(scene, camera); if (!(G.kill && G.kill.t > 0.5)) arms.render(renderer, camera); });   // the arms are gone once you're knocked down
 }
 let fpsAvg = 1 / 60, fpsN = 0;
 
@@ -1470,7 +1552,7 @@ function syncSettings() {
   $('#diffNote b').textContent = D().label;
 }
 function saveSettings() { try { localStorage.setItem('mandible.settings', JSON.stringify(SET)); } catch (e) { /* private mode */ } }
-function applySettings() { sfx.setVolume(SET.vol); HUNT.speed = D().speed; applyQuality(); syncSettings(); saveSettings(); }
+function applySettings() { sfx.setVolume(SET.vol); HUNT.speed = D().speed; paperMap.setDiff(SET.diff); applyQuality(); syncSettings(); saveSettings(); }
 for (const [k, [inp]] of Object.entries(SET_UI)) inp.addEventListener('input', () => { SET[k] = +inp.value; applySettings(); });
 setPanel.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { SET.quality = b.dataset.q; applySettings(); }));
 setPanel.querySelectorAll('[data-diff]').forEach((b) => b.addEventListener('click', () => {
@@ -1569,7 +1651,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, gate, phantom, deadMan, genOn, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, genOn, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { beginGame({ quiet: true }); },

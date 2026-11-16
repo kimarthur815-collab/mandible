@@ -397,21 +397,23 @@ export function buildTruck() {
   box('trim', 0.27, 0.075, 0.17, -0.4, 1.29, 2.02, C('#141516'));
   panel('lcd', 0.11, 0.034, -0.43, 1.295, 1.926);
   for (const [x, r] of [[-0.515, 0.016], [-0.33, 0.011], [-0.3, 0.011]]) { const kn = new THREE.CylinderGeometry(r, r, 0.016, 12); kn.rotateX(Math.PI / 2); kn.translate(x, 1.285, 1.93); add('wheel', kn, C('#3a3b3c')); }
-  box('trim', 0.022, 0.045, 0.022, -0.6, 1.28, 1.96, dark);
-  const micM = new THREE.Matrix4().compose(new V3(-0.6, 1.2, 1.955), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.08, 0, 0.1)), new V3(1, 1, 1));
+  // the mic hangs on a hook on the face of the dash, below the radio; its coiled cord comes over the lip
+  box('trim', 0.022, 0.045, 0.022, -0.38, 1.18, 1.85, dark);
+  const micM = new THREE.Matrix4().compose(new V3(-0.38, 1.1, 1.835), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.04, 0, 0.06)), new V3(1, 1, 1));
   { const mic = new THREE.CapsuleGeometry(0.03, 0.07, 6, 12); mic.scale(1, 1, 0.55); mic.applyMatrix4(micM); add('wheel', mic, C('#1a1b1c')); }
   { const grill = P.box(0.04, 0.05, 0.004); grill.translate(0, 0.0, -0.017); grill.applyMatrix4(micM); add('trim', grill, C('#0a0a0a')); }
   {
-    const pts = []; const a = new V3(-0.5, 1.26, 1.935), b = new V3(-0.6, 1.14, 1.955);
-    for (let i = 0; i <= 160; i++) { const t = i / 160, p = a.clone().lerp(b, t); p.y -= Math.sin(t * Math.PI) * 0.1; const ang = t * 26 * Math.PI; p.x += Math.cos(ang) * 0.008; p.z += Math.sin(ang) * 0.008; pts.push(p); }
-    add('wheel', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 320, 0.0035, 5), C('#0d0d0d'));
+    const path = new THREE.CatmullRomCurve3([[-0.45, 1.268, 1.93], [-0.455, 1.277, 1.862], [-0.46, 1.16, 1.834], [-0.45, 0.99, 1.832], [-0.405, 0.975, 1.832], [-0.382, 1.035, 1.835]].map((a) => new V3(...a)));
+    const pts = [];
+    for (let i = 0; i <= 200; i++) { const t = i / 200, p = path.getPoint(t), ang = t * 30 * Math.PI, k = Math.min(1, Math.min(t, 1 - t) * 12); p.x += Math.cos(ang) * 0.007 * k; p.z += Math.sin(ang) * 0.005 * k; pts.push(p); }
+    add('wheel', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 400, 0.0035, 5), C('#0d0d0d'));
   }
-  // work order on a clipboard, leaning on the passenger side of the dash
+  // work order on a clipboard, hanging flat against the passenger side of the dash face (clear of the lip)
   {
-    const m = new THREE.Matrix4().compose(new V3(-0.6, 1.06, 1.83), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.3, -0.25, 0.05)), new V3(1, 1, 1));
+    const m = new THREE.Matrix4().compose(new V3(-0.62, 1.06, 1.836), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.04, -0.08, 0.04)), new V3(1, 1, 1));
     const bd = P.box(0.25, 0.34, 0.008); bd.applyMatrix4(m); add('wood', bd, C('#7a5c3a'));
-    const paper = new THREE.PlaneGeometry(0.22, 0.29); paper.rotateY(Math.PI); paper.translate(0, -0.015, -0.012); paper.applyMatrix4(m); add('paper', paper);
-    const clip = P.box(0.1, 0.03, 0.02); clip.translate(0, 0.16, -0.008); clip.applyMatrix4(m); add('chrome', clip);
+    const paper = new THREE.PlaneGeometry(0.22, 0.29); paper.rotateY(Math.PI); paper.translate(0, -0.015, -0.0075); paper.applyMatrix4(m); add('paper', paper);
+    const clip = P.box(0.1, 0.03, 0.014); clip.translate(0, 0.16, -0.011); clip.applyMatrix4(m); add('chrome', clip);
   }
 
   // ---------------------------------------------------------------- materials

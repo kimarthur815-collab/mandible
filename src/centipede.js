@@ -275,20 +275,40 @@ export class Centipede {
         this.rPos[i].addScaledVector(this.lungeDir, 0.55 * g * w);
       }
     }
-    // caught: the front rears up to your face, writhing, then the head comes at it
+    // caught: the front rears up into your face; then, as you go down, it drops onto you and coils right
+    // round you on the floor, the head hanging over your face, lowering, until it strikes
     if (this.mode === 'kill' && this.kill) {
-      const K = this.kill, cam = K.cam, base = this.rPos[14];
+      const K = this.kill, cam = K.cam, NK = 28;
       const sm = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
-      const k = sm(K.t / 0.55), strike = sm((K.t - 1.0) / 0.2);
-      const dir = new V3(cam.x - base.x, 0, cam.z - base.z); dir.divideScalar(dir.length() || 1);
-      const reach = 0.62 - 0.52 * strike;
-      const head = new V3(cam.x - dir.x * reach, cam.y - 0.12 + 0.04 * Math.sin(t * 7), cam.z - dir.z * reach);
-      for (let i = 0; i < 14; i++) {
+      const rear = sm(K.t / 0.5), pin = sm((K.t - 0.55) / 0.6), lower = sm((K.t - 1.5) / 0.85), strike = sm((K.t - 2.35) / 0.18);
+      // the rest of the body slides in after you (the whole trunk is recomputed from the path each frame)
+      const b0 = this.rPos[NK], tc = new V3(cam.x - b0.x, 0, cam.z - b0.z), dC = tc.length() || 1;
+      tc.divideScalar(dC);
+      const pull = Math.max(0, dC - 1.1) * pin;
+      for (let i = NK; i < N_SEG; i++) this.rPos[i].addScaledVector(tc, pull);
+      const base = this.rPos[NK], base14 = this.rPos[14];
+      const dir = new V3(cam.x - base14.x, 0, cam.z - base14.z); dir.divideScalar(dir.length() || 1);
+      const head1 = new V3(cam.x - dir.x * 0.62, cam.y - 0.12 + 0.04 * Math.sin(t * 7), cam.z - dir.z * 0.62);
+      // the coil: round you at r, starting next to where the body comes in, almost all the way round
+      const r = 0.42, ab = Math.atan2(base.x - cam.x, base.z - cam.z), step = SP / r;
+      const ring = (j) => { const a = ab + 0.4 + (j - 3) * step; return new V3(cam.x + Math.sin(a) * r, BODY_Y + 0.05 + 0.03 * Math.sin(t * 6 + j), cam.z + Math.cos(a) * r); };
+      const r3 = ring(3), out = new V3(r3.x - cam.x, 0, r3.z - cam.z).normalize();
+      const hover = 0.5 - 0.24 * lower - 0.2 * strike;
+      const head2 = new V3(cam.x + out.x * 0.08 * (1 - strike), cam.y + hover + 0.03 * Math.sin(t * 9), cam.z + out.z * 0.08 * (1 - strike));
+      const n1 = head2.clone().addScaledVector(out, 0.08); n1.y += 0.1;
+      const n2 = n1.clone().lerp(r3, 0.5); n2.y += 0.12;
+      for (let i = 0; i < NK; i++) {
         const u = i / 14;
-        const tgt = head.clone().lerp(base, u);
-        tgt.y = Math.max(BODY_Y, tgt.y + Math.sin(u * Math.PI) * 0.18);
-        tgt.x += Math.sin(t * 9 + i * 0.8) * 0.035 * (1 - u); tgt.z += Math.cos(t * 8 + i * 0.7) * 0.035 * (1 - u);
-        this.rPos[i].lerp(tgt, k * (1 - u * 0.5));
+        let tgt;
+        if (i < 14) { tgt = head1.clone().lerp(base14, u); tgt.y = Math.max(BODY_Y, tgt.y + Math.sin(u * Math.PI) * 0.18); }
+        else tgt = this.rPos[i].clone();
+        if (pin > 0) {
+          const c2 = i === 0 ? head2.clone() : i === 1 ? n1.clone() : i === 2 ? n2.clone() : i <= 21 ? ring(i) : ring(21).lerp(base, (i - 21) / (NK - 21));
+          tgt.lerp(c2, pin);
+        }
+        const wr = i < 22 ? 1 - Math.min(1, i / 22) * 0.4 : 0.5;
+        tgt.x += Math.sin(t * 9 + i * 0.8) * 0.03 * wr; tgt.z += Math.cos(t * 8 + i * 0.7) * 0.03 * wr;
+        this.rPos[i].lerp(tgt, (i < 14 ? rear * (1 - u * 0.5) : pin) );
       }
     }
     for (let i = 0; i < N_SEG; i++) {
@@ -442,7 +462,7 @@ export class Centipede {
     const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12 - 0.35 * this.b.lunge + 0.08 * this.b.curl, 0.12 * Math.sin(t * 0.9), 0));
     this.head.quaternion.multiply(look);
     this.head.position.copy(P).addScaledVector(T, 0.11).addScaledVector(U, 0.005);
-    const open = this.mode === 'kill' ? 0.95 + 0.12 * Math.sin(t * 26) : 0.25 + 0.5 * Math.max(this.b.lunge, this.b.curl * 0.6) + 0.06 * Math.sin(t * 2.3);
+    const open = this.mode === 'kill' ? (this.kill && this.kill.t < 1.5 ? 0.6 + 0.25 * Math.sin(t * 9) : 0.95 + 0.12 * Math.sin(t * 26)) : 0.25 + 0.5 * Math.max(this.b.lunge, this.b.curl * 0.6) + 0.06 * Math.sin(t * 2.3);
     this.headParts.animate(t, open);
     this.head.updateMatrixWorld(true);
   }
