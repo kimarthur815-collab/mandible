@@ -201,7 +201,7 @@ function resetGame() {
   Object.assign(G, {
     battery: 1, flashOn: false, locked: false, holdT: 0, holdKey: null, shutter: 0, shutterOpening: false,
     emergency: 0, emergencyOpening: false, time: 0, timing: false, won: false, gens: 0, spray: 3, inSafe: false,
-    tipped: {}, lampSeen: false, hp: 3, dead: false, attached: [], attachCd: 0, scared: false, events: [],
+    tipped: {}, lampSeen: false, hp: 3, dead: false, kill: null, attached: [], attachCd: 0, scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
   });
@@ -559,7 +559,7 @@ const dev = { god: false, battery: false, noclip: false, freeze: false, fast: fa
 // every bug goes back to where it started.
 function respawnAtLamp(l) {
   clearTips();
-  Object.assign(G, { dead: false, hp: 3, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
+  Object.assign(G, { dead: false, kill: null, hp: 3, attached: [], attachCd: 0, grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, holdT: 0, events: [], hidden: false, revealT: 0, hiddenT: 0 });
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
   // stand beside the pole, on the side with the most room, facing out
@@ -613,6 +613,30 @@ function onAttach(r) {
   tip(touch ? '떼어내야 해! (화면 연타)' : '떼어내야 해! (마우스를 흔들거나 클릭 연타)', 'attach');
   return true;
 }
+// caught by the centipede: your head is turned to it as it rears up, jaws working, then it strikes
+function startCentiKill(deathTip) {
+  if (G.dead || G.kill) return;
+  if (dev.god) return;
+  if (G.grab) endGrab(true);
+  G.kill = { t: 0, tip: deathTip, struck: false };
+  centi.kill(camera.position);
+  shakeScreen();
+}
+function centiKillStep(dt) {
+  const K = G.kill, h = centi.head, cam = camera.position;
+  K.t += dt;
+  const yaw = Math.atan2(h.x - cam.x, h.z - cam.z), pitch = Math.atan2(h.y - cam.y, Math.hypot(h.x - cam.x, h.z - cam.z));
+  let dy = yaw - player.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  const k = Math.min(1, dt * 9);
+  player.yaw += dy * k; player.pitch += (THREE.MathUtils.clamp(pitch, -0.6, 0.8) - player.pitch) * k;
+  camera.quaternion.setFromEuler(new THREE.Euler(player.pitch + (Math.random() - 0.5) * 0.01, player.yaw + Math.PI + (Math.random() - 0.5) * 0.01, 0, 'YXZ'));
+  if (!K.struck && K.t >= 1.08) {
+    K.struck = true;
+    sfx.scareHit(); sfx.hurt(); shakeScreen();
+    const el = $('#hit'); el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');
+  }
+  if (K.t >= 1.3) { const tipTxt = K.tip; G.kill = null; die(tipTxt); }
+}
 function shakeScreen() { document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake'); }
 
 // ------------------------------------------------------------------ minimap
@@ -663,6 +687,47 @@ resize();
 const ray = new THREE.Raycaster();
 const levelMeshes = [...levelGroup.children, shutter, emDoor];
 const hideSpots = colliders.filter((c) => c.hide);
+// a chemical light stick left by each hiding place (the team before you marked them). Each glows faintly;
+// one shared weak light sits at the stick nearest you, so from under a table you can watch what is
+// prowling round outside. The bugs don't care about it (it isn't part of what they treat as light).
+const glow = (() => {
+  const mat = new THREE.MeshStandardMaterial({ color: 0x3a5a22, emissive: 0xb4ff5c, emissiveIntensity: 1.6, roughness: 0.4 });
+  const halo = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(180,255,92,0.55)'); gr.addColorStop(1, 'rgba(180,255,92,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  })();
+  const stickG = new THREE.CapsuleGeometry(0.011, 0.13, 4, 8); stickG.rotateZ(Math.PI / 2);
+  const haloG = new THREE.PlaneGeometry(0.7, 0.7); haloG.rotateX(-Math.PI / 2);
+  const sticks = [];
+  const put = (c, x, z, ry) => {
+    const m = new THREE.Mesh(stickG, mat); m.position.set(x, 0.012, z); m.rotation.y = ry; scene.add(m);
+    const h = new THREE.Mesh(haloG, halo); h.position.set(x, 0.006, z); h.renderOrder = 2; scene.add(h);
+    sticks.push({ c, x, z });
+  };
+  for (const c of hideSpots) {
+    const long = c.z1 - c.z0 > 4;               // conveyor lines: a stick every 5 m, side to side
+    if (long) for (let z = c.z0 + 2.5, k = 0; z < c.z1 - 1; z += 5, k++) put(c, k % 2 ? c.x0 - 0.18 : c.x1 + 0.18, z, 1.2 + k);
+    else {                                      // a table: on the floor beside it, on an open side
+      const xc = (c.x0 + c.x1) / 2, zc = (c.z0 + c.z1) / 2;
+      const at = [[c.x1 + 0.35, zc + 0.2], [c.x0 - 0.35, zc - 0.2], [xc + 0.2, c.z1 + 0.35], [xc - 0.2, c.z0 - 0.35]].find(([x, z]) => swarms.nav.free(x, z)) || [c.x1 + 0.2, zc];
+      put(c, at[0], at[1], 0.6);
+    }
+  }
+  const light = new THREE.PointLight(0xccffa0, 0, 7.5, 1.3);
+  scene.add(light);
+  let cur = null;
+  return {
+    update(dt) {
+      let best = null, bd = 6;
+      if (G.started && !G.dead) for (const s of sticks) { const d = Math.hypot(s.x - player.pos.x, s.z - player.pos.z); if (d < bd) { bd = d; best = s; } }
+      if (best !== cur && light.intensity < 0.02) { cur = best; if (cur) light.position.set(cur.x, 0.35, cur.z); }
+      const want = cur && best === cur ? 0.8 : 0;
+      light.intensity += (want - light.intensity) * Math.min(1, dt * 3);
+    },
+  };
+})();
 // turning the view toward something worth seeing (the dead man, a spider, the brood):
 // eases round over ~0.8 s and holds a moment, ignoring your own looking meanwhile
 let focus = null;
@@ -705,7 +770,8 @@ function frame(dtOverride) {
   if (needRotate) { renderer.render(scene, camera); return; }
   const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
-  if (G.started && !G.won && !G.dead && !G.grab) player.update(dt, applyFocus(dt, inp));
+  if (G.started && !G.won && !G.dead && !G.grab && !G.kill) player.update(dt, applyFocus(dt, inp));
+  if (G.kill) centiKillStep(dt);
   input.lookX = 0; input.lookY = 0;
   if (dev.battery) G.battery = 1;
   if (player.moved && !G.timing && !G.won) G.timing = true;
@@ -791,6 +857,7 @@ function frame(dtOverride) {
   adapt = G.flashOn ? Math.max(0, adapt - dt / 0.6) : Math.min(1, adapt + dt / 7);
   nightEye.position.copy(camera.position);
   nightEye.intensity = bright || G.blackT > 0 ? 0 : Math.pow(adapt, 1.5) * NIGHT_K;
+  glow.update(dt);
   bounce.position.copy(camera.position).addScaledVector(fwd, Math.min(hd * 0.75, 4.5));
   bounce.intensity = G.flashOn ? 2.2 * fl * Math.min(1, nearK * 1.6) : 0;
   dress.update(dt, camera.position, flash.position, beamDir.subVectors(flash.target.position, flash.position).normalize(), G.flashOn ? fl : 0, renderer.domElement.height * 1.2);
@@ -910,7 +977,7 @@ function frame(dtOverride) {
       tip('지네가 빛에 움찔한다', 'centilight');
       if (hold < 2) tip('빛에 점점 익숙해지는 것 같다...', 'centiadapt');
     },
-    onCatch: () => die(G.lingSlow > 0.15 ? '실험실에 들어가기 전에 스프레이를 남겨 뒀어야 했다' : '전등 불빛 안으로 도망쳤어야 했다'),
+    onCatch: () => startCentiKill(G.lingSlow > 0.15 ? '실험실에 들어가기 전에 스프레이를 남겨 뒀어야 했다' : '전등 불빛 안으로 도망쳤어야 했다'),
   });
   G.events.length = 0;
 
@@ -1228,7 +1295,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, gate, phantom, deadMan, genOn, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, centiKill: startCentiKill, gate, phantom, deadMan, genOn, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   renderInfo() { const i = renderer.info; i.autoReset = false; i.reset(); frame(1 / 30); const o = { calls: i.render.calls, tris: i.render.triangles, geos: i.memory.geometries, tex: i.memory.textures }; i.autoReset = true; return o; },
   step(n = 1, dt = 1 / 60) { for (let i = 0; i < n; i++) frame(dt); },
   start() { beginGame({ quiet: true }); },

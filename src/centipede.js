@@ -205,14 +205,15 @@ export class Centipede {
     for (let i = 0; i < 260; i++) this.path.push(new V3(x - dx * i * 0.02, 0, z - dz * i * 0.02));
     const b = this.b;
     b.stun = false; b.curl = 0; b.lunge = 0; b.caught = false; b.immune = 0.5; b.hits = 0;
-    if (this.mode === 'lunge') this.mode = 'idle';
+    if (this.mode === 'lunge' || this.mode === 'kill') this.mode = 'idle';
+    this.kill = null;
     this.computeSegments();
     this.applyPose(0);
     for (const l of this.legs) { this.homeOf(l, l.foot); l.stepping = false; }
   }
 
   setMode(mode) {
-    if (this.mode === 'lunge') return;
+    if (this.mode === 'lunge' || this.mode === 'kill') return;
     if (this.b.stun) this.b.prev = mode; else this.mode = mode;
     if (mode === 'wander') { this.b.sub = 'pause'; this.b.timer = 0.2; }
   }
@@ -268,10 +269,26 @@ export class Centipede {
       this.lift[i] = lift;
     }
     // lunge pushes the raised front toward the target
-    if (g > 0 && this.lungeDir) {
+    if (g > 0 && this.lungeDir && this.mode !== 'kill') {
       for (let i = 0; i < 14; i++) {
         const w = Math.pow(1 - i / 14, 2);
         this.rPos[i].addScaledVector(this.lungeDir, 0.55 * g * w);
+      }
+    }
+    // caught: the front rears up to your face, writhing, then the head comes at it
+    if (this.mode === 'kill' && this.kill) {
+      const K = this.kill, cam = K.cam, base = this.rPos[14];
+      const sm = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+      const k = sm(K.t / 0.55), strike = sm((K.t - 1.0) / 0.2);
+      const dir = new V3(cam.x - base.x, 0, cam.z - base.z); dir.divideScalar(dir.length() || 1);
+      const reach = 0.62 - 0.52 * strike;
+      const head = new V3(cam.x - dir.x * reach, cam.y - 0.12 + 0.04 * Math.sin(t * 7), cam.z - dir.z * reach);
+      for (let i = 0; i < 14; i++) {
+        const u = i / 14;
+        const tgt = head.clone().lerp(base, u);
+        tgt.y = Math.max(BODY_Y, tgt.y + Math.sin(u * Math.PI) * 0.18);
+        tgt.x += Math.sin(t * 9 + i * 0.8) * 0.035 * (1 - u); tgt.z += Math.cos(t * 8 + i * 0.7) * 0.035 * (1 - u);
+        this.rPos[i].lerp(tgt, k * (1 - u * 0.5));
       }
     }
     for (let i = 0; i < N_SEG; i++) {
@@ -301,6 +318,7 @@ export class Centipede {
   // ------------------------------------------------------ behaviour
   think(dt, light, cam) {
     const b = this.b;
+    if (this.mode === 'kill') { this.kill.t += dt; b.lunge = Math.min(1, b.lunge + dt * 3); b.curl = 0; b.stun = false; return 0; }
     const lit = !!(light && light.on && (this.inCone(this.rPos[0], light) || this.inCone(this.rPos[6], light)));
     if (this.time - b.lastHit > 12) b.hits = 0;
     let desired = 0;
@@ -424,7 +442,7 @@ export class Centipede {
     const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12 - 0.35 * this.b.lunge + 0.08 * this.b.curl, 0.12 * Math.sin(t * 0.9), 0));
     this.head.quaternion.multiply(look);
     this.head.position.copy(P).addScaledVector(T, 0.11).addScaledVector(U, 0.005);
-    const open = 0.25 + 0.5 * Math.max(this.b.lunge, this.b.curl * 0.6) + 0.06 * Math.sin(t * 2.3);
+    const open = this.mode === 'kill' ? 0.95 + 0.12 * Math.sin(t * 26) : 0.25 + 0.5 * Math.max(this.b.lunge, this.b.curl * 0.6) + 0.06 * Math.sin(t * 2.3);
     this.headParts.animate(t, open);
     this.head.updateMatrixWorld(true);
   }

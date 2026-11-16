@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { Spider } from '../spider.js';
 import { Thread, makeDoorWeb, sagLine, segmentsGeometry } from '../silk.js';
 import { eggSacGeometry } from './ghostlings.js';
+import { catchUp } from './centi.js';
 
 const V3 = THREE.Vector3;
 
@@ -554,7 +555,7 @@ export class MapSpiders {
     // jerky rhythm
     g.burst -= dt;
     if (g.burst <= 0) { const srch = g.phase === 'search'; g.go = Math.random() < (srch ? 0.55 : 0.82); g.burst = g.go ? 0.5 + Math.random() * 0.9 : srch ? 0.5 + Math.random() * 1.2 : 0.12 + Math.random() * 0.3; }
-    let speed = g.phase === 'perch' || g.phase === 'hold' ? 0 : g.phase === 'bolt' ? 5.2 : g.phase === 'home' ? 2.6 : g.phase === 'search' ? (g.go ? 1.9 : 0) : g.go ? 4.6 : 0.4;
+    let speed = g.phase === 'perch' || g.phase === 'hold' ? 0 : g.phase === 'bolt' ? 5.2 : g.phase === 'home' ? 2.6 : g.phase === 'search' ? (g.go ? 1.9 : 0) : g.go ? 4.6 * catchUp(dP) : 0.4;
 
     if (g.surf === 'floor') {
       if (g.phase === 'chase') {

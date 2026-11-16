@@ -479,9 +479,11 @@ export class Spider {
     const homeW = new V3(), lift = new V3(0, 1, 0).applyQuaternion(this.root.quaternion);
     if (air || this.state === 'caught') {
       // legs splay out and grab at the air
-      const t = this.time;
+      const t = this.time, onBack = this.state === 'fallen';
       for (const l of this.legs) {
-        homeW.set(l.home.x * 0.95, 0.12 + 0.05 * Math.sin(t * 11 + l.ph), l.home.z * 0.85 + 0.12);
+        // on its back (root flipped, so local -y is up): legs drawn in over the belly, kicking
+        if (onBack) homeW.set(l.home.x * 0.5, -(0.16 + 0.07 * Math.sin(t * 13 + l.ph)), l.home.z * 0.55);
+        else homeW.set(l.home.x * 0.95, 0.12 + 0.05 * Math.sin(t * 11 + l.ph), l.home.z * 0.85 + 0.12);
         homeW.applyMatrix4(this.root.matrixWorld);
         l.foot.lerp(homeW, 1 - Math.exp(-dt * 14));
         l.stepping = false;
@@ -535,21 +537,23 @@ export class Spider {
     const P = this.P;
     const hip = new V3(), C = new V3(), F = new V3(), A = new V3(), K = new V3(), Pt = new V3(), M = new V3(), h = new V3(), td = new V3(), b1 = new V3();
     const up = UPV;
+    // normally the knees arch up (local +y); on its back that is down into the floor, so arch them the other way
+    const kf = this.state === 'fallen' ? -1 : 1;
     for (const l of this.legs) {
       const [Lc, Lf, Lp, Lt, Lm, Lta] = l.lens;
       hip.copy(l.hip).applyMatrix4(this.body.matrix);
       F.copy(l.foot); this.root.worldToLocal(F);
       h.set(F.x - hip.x, 0, F.z - hip.z);
       const hl = h.length() || 1; h.divideScalar(hl);
-      C.copy(hip).addScaledVector(h, Lc * 0.9); C.y -= Lc * 0.3;
+      C.copy(hip).addScaledVector(h, Lc * 0.9); C.y -= kf * Lc * 0.3;
       const Ld = Lm + Lta;
-      A.copy(F).addScaledVector(h, -Ld * P.ka); A.y = F.y + Ld * P.kh;
+      A.copy(F).addScaledVector(h, -Ld * P.ka); A.y = F.y + kf * Ld * P.kh;
       const L1 = Lf, L2 = Lp + Lt;
       const dx = Math.hypot(A.x - C.x, A.z - C.z), dy = A.y - C.y;
       let D = clamp(Math.hypot(dx, dy), Math.abs(L1 - L2) + 0.01, (L1 + L2) * 0.995);
       const al = Math.atan2(dy, dx);
       const gm = Math.acos(clamp((L1 * L1 + D * D - L2 * L2) / (2 * L1 * D), -1, 1));
-      K.copy(C).addScaledVector(h, L1 * Math.cos(al + gm)); K.y += L1 * Math.sin(al + gm);
+      K.copy(C).addScaledVector(h, L1 * Math.cos(al + kf * gm)); K.y += L1 * Math.sin(al + kf * gm);
       const Aa = new V3().copy(C).addScaledVector(h, D * Math.cos(al)); Aa.y += D * Math.sin(al);
       Pt.lerpVectors(K, Aa, Lp / L2);
       td.subVectors(Aa, K).normalize();

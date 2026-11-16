@@ -8,6 +8,8 @@ import * as THREE from 'three';
 import { Centipede } from '../centipede.js';
 
 const V3 = THREE.Vector3;
+// chasing: slower up close (you can still outrun it), faster when far behind (it catches up)
+export const catchUp = (d) => { const t = Math.min(1, Math.max(0, (d - 3) / 13)); return 0.75 + 0.7 * t * t * (3 - 2 * t); };
 
 const VENT = { x: 15, z: 69.7, y: 0.55 };
 const PATROL = [[20.5, 52], [12.5, 61], [7.2, 50], [18.5, 44], [18.5, 30], [17.5, 15], [18.5, 24], [18.5, 46.5], [14, 66]];
@@ -73,8 +75,11 @@ export class MapCentipede {
     this.state = 'chase'; this.lostT = 0;
   }
 
+  // it has you: the kill (see Centipede applyPose); cam is where your head is
+  kill(cam) { this.c.mode = 'kill'; this.c.kill = { t: 0, cam: cam.clone() }; }
+
   spray(origin, dir, range = 3.4, cosHalf = Math.cos(Math.PI / 6)) {
-    if (!this.active) return false;
+    if (!this.active || this.c.mode === 'kill') return false;
     const b = this.c.b;
     for (const p of [this.c.rPos[0], this.c.rPos[3]]) {
       const v = p.clone().sub(origin), d = v.length();
@@ -104,7 +109,7 @@ export class MapCentipede {
     const D = { x: 0, z: 0 };
     let target = null, speed = 0;
 
-    if (ctx.frozen) { c.driveSpeed = 0; c.update(dt, null, null); return; }
+    if (ctx.frozen || c.mode === 'kill') { c.driveSpeed = 0; c.update(dt, null, null); return; }
 
     if (this.state === 'emerge') {
       this.emergeT += dt;
@@ -176,7 +181,7 @@ export class MapCentipede {
       } else if (this.state === 'chase') {
         if (nav.descend(ctx.field, H.x, H.y, D)) target = new THREE.Vector2(H.x + D.x * 1.6, H.y + D.z * 1.6);
         else target = new THREE.Vector2(P.x, P.z);
-        speed = 4.5;
+        speed = 4.5 * catchUp(dP);
         if (dP < 2.2 && c.mode !== 'lunge' && !b.stun && ctx.player.alive && !ctx.safe && !hid) {
           c.mode = 'lunge'; b.lt = 0; b.caught = false;
           c.lungeDir = new V3(P.x - H.x, 0, P.z - H.y).normalize();
