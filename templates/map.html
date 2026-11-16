@@ -162,6 +162,10 @@
   #skipBtn { position: fixed; right: calc(18px + env(safe-area-inset-right)); bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 7; display: none; font: inherit; font-size: 13px;
     color: #eee; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.25); border-radius: 10px; padding: 8px 14px; }
   #skipBtn.show { display: block; }
+  #fsHint { position: fixed; left: 50%; top: calc(18px + env(safe-area-inset-top)); transform: translateX(-50%); z-index: 6; display: none; pointer-events: none;
+    font-size: 12px; color: rgba(236,230,220,.85); background: rgba(0,0,0,.45); border-radius: 999px; padding: 6px 14px; animation: fsBlink 2.4s ease-in-out infinite; }
+  body.intro:not(.fs):not(.nofs) #fsHint { display: block; }
+  @keyframes fsBlink { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
   body.intro #cross, body.intro #top, body.intro #minimap, body.intro #status, body.intro #touch, body.intro #safe, body.intro #hide, body.intro #prompt, body.intro #tip, body.intro #msg { display: none !important; }
   body.intro #tools button:not([data-act="snd"]):not([data-act="fs"]):not([data-act="dev"]) { display: none; }
   body.intro #start { display: block; background: linear-gradient(90deg, rgba(0,0,0,.6), rgba(0,0,0,0) 46%); text-align: left; pointer-events: none; padding: 0; }
@@ -232,6 +236,7 @@
 <div class="overlay" id="win"><div class="t">탈출</div><div class="s">셔터 밖으로 빠져나왔다</div><b id="winTime">0:00</b><div><button id="againBtn">다시 하기</button></div></div>
 <div id="dead"><div class="t">죽었다</div><div class="s"></div></div>
 <div id="rotate"><div class="ic"></div><div>폰을 가로로 돌려 주세요</div><div class="s">MANDIBLE은 가로 화면에서만 플레이할 수 있어요</div></div>
+<div id="fsHint">화면을 누르면 전체화면으로 바뀌어요</div>
 <div id="subtitle"><b></b><span></span></div>
 <button id="skipBtn">건너뛰기 ›</button>
 <div id="fadeBlack"></div>

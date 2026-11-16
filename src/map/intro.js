@@ -52,7 +52,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
   const q = new THREE.Quaternion(), e3 = new THREE.Euler(0, 0, 0, 'YXZ'), tmp = new V3();
   const toWorld = (v) => { g.updateMatrixWorld(); return v.clone().applyMatrix4(g.matrixWorld); };
 
-  let state = 'title', st = 0, time = 0, line = -1, lineT = 0, speed = SPEED, stepPhase = 0, fadeK = 0;
+  let state = 'title', st = 0, time = 0, line = -1, lineT = 0, speed = SPEED, stepPhase = 0, fadeK = 0, ringT = 0;
   let from = null, to = null, yaw0 = 0, yaw1 = 0;
   const go = (s) => { state = s; st = 0; };
   const showLine = (i) => {
@@ -98,6 +98,8 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
 
       // ---- the story
       if (state === 'title') {
+        // once sound is allowed (any tap), the engine runs and the radio calls
+        if (sfx.ctx && sfx.ctx.state === 'running') { sfx.engine(true); ringT -= dt; if (ringT <= 0) { ringT = 1.6; sfx.radioBeep(); } }
         want.yaw = -0.2 + Math.sin(time * 0.23) * 0.05; want.pitch = -0.1 + Math.sin(time * 0.31) * 0.02;
       } else if (state === 'call') {
         lineT += dt;

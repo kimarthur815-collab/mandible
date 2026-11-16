@@ -311,6 +311,12 @@ export class Sound {
       setTimeout(() => e.srcs.forEach((s) => { try { s.stop(); } catch (er) { /* already stopped */ } }), 2000);
     }
   }
+  // the radio calling: two short tones
+  radioBeep() {
+    if (!this.ctx) return;
+    this.tone({ f0: 1450, f1: 1450, dur: 0.16, gain: 0.05, type: 'square', attack: 0.004, pan: -0.25 });
+    this.tone({ t: 0.22, f0: 1150, f1: 1150, dur: 0.16, gain: 0.05, type: 'square', attack: 0.004, pan: -0.25 });
+  }
   // keying the radio: a burst of static and the roger beep
   squelch() {
     if (!this.ctx) return;

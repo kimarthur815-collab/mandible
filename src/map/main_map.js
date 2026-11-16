@@ -1068,13 +1068,22 @@ function toggleFullscreen() {
 }
 function syncFs() {
   const on = !!fsEl() || standalone;
+  document.body.classList.toggle('fs', on); document.body.classList.toggle('nofs', !fsOK() && !standalone);
   document.querySelectorAll('[data-act="fs"]').forEach((b) => { b.classList.toggle('on', on); b.textContent = on ? '창 모드' : '전체화면'; });
   if (standalone) document.querySelectorAll('[data-act="fs"]').forEach((b) => { b.style.display = 'none'; });
 }
 document.addEventListener('fullscreenchange', syncFs);
 // sound needs a first tap or key press before the browser lets it play
-addEventListener('pointerdown', () => sfx.start(), { once: true, capture: true });
-addEventListener('keydown', () => sfx.start(), { once: true, capture: true });
+// (on the main screen the factory's own sounds stay off until you are inside)
+const firstSound = () => { sfx.start(); if (intro && intro.active) sfx.introMode(true); };
+addEventListener('pointerdown', firstSound, { once: true, capture: true });
+addEventListener('keydown', firstSound, { once: true, capture: true });
+// the main screen wants the whole screen; browsers only allow that from a tap, so the first tap on it asks
+addEventListener('pointerup', (e) => {
+  if (!(intro && intro.active) || fsEl() || standalone || !fsOK()) return;
+  if (e.target.closest && e.target.closest('#tools, #dev')) return;
+  enterFullscreen().catch(() => {});
+}, { capture: true });
 document.querySelectorAll('[data-act="snd"]').forEach((b) => b.addEventListener('click', (e) => {
   e.stopPropagation(); sfx.start(); sfx.setMuted(!sfx.muted);
   document.querySelectorAll('[data-act="snd"]').forEach((x) => { x.classList.toggle('on', !sfx.muted); x.textContent = sfx.muted ? '소리 꺼짐' : '소리'; });
@@ -1117,7 +1126,7 @@ function beginGame({ fromIntro = false, quiet = false } = {}) {
 }
 $('#startBtn').addEventListener('click', () => {
   sfx.start();
-  if (touch && fsOK() && !fsEl() && !standalone) enterFullscreen().catch(() => {});
+  if (fsOK() && !fsEl() && !standalone) enterFullscreen().catch(() => {});
   if (!viaTouch()) requestLock();
   if (intro && intro.active) { sfx.introMode(true); $('#start').classList.add('hide'); intro.answer(); }
   else beginGame();
