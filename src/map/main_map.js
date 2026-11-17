@@ -16,6 +16,7 @@ import { BUG_PAGES, drawBugPage, tapePhoto } from './bugnotes.js';
 import { MapCentipede, HUNT } from './centi.js';
 import { PassageGate, Phantom, DeadWorker, GATE, BODY, LeeBody, LEE } from './scares.js';
 import { createVisions } from './visions.js';
+import { createDread } from './dread.js';
 import { createIntro } from './intro.js';
 import { createMarks } from './marks.js';
 import { createFaceBugs } from './facebugs.js';
@@ -312,13 +313,15 @@ const voice = (() => {
     el.classList.toggle('me', v.who === '나'); el.classList.add('show');
     if (v.who === '나') sfx.mumble(Math.min(2.2, 0.5 + v.text.length * 0.06));
     else if (v.kind === 'tape') sfx.tape(Math.max(0.4, v.dur - 0.4));
+    else if (v.kind === 'mimic') sfx.mimic(v.dur, v.at.x, v.at.y, v.at.z, v.at.muffle);
     else if (v.kind === 'whisper') sfx.whisper(v.dur);
     else { sfx.squelch(); if (/사각|기어/.test(v.text)) sfx.radioSkitter(v.dur - 0.4); else sfx.chatter(v.dur - 0.6); }
   };
   return {
-    // lines: [[who, text, seconds?]]; kind: 'radio' or 'tape'
-    say(lines, kind = 'radio') {
-      for (const [who, text, dur] of lines) q.push({ who, text, kind, label: who === '나' ? '나' : kind === 'tape' ? `녹음 · ${who}` : '무전', dur: dur || Math.min(6, 1.9 + text.length * 0.09) });
+    // lines: [[who, text, seconds?]]; kind: 'radio', 'tape' or 'mimic' (a voice from somewhere in the building:
+    // who is where it comes from, at: { x, y, z, muffle })
+    say(lines, kind = 'radio', at = null) {
+      for (const [who, text, dur] of lines) q.push({ who, text, kind, at, label: who === '나' ? '나' : kind === 'tape' ? `녹음 · ${who}` : kind === 'mimic' ? who : '무전', dur: dur || Math.min(6, 1.9 + text.length * 0.09) });
     },
     update(dt) {
       if (cur) { t += dt; if (t >= cur.dur) { cur = null; show(null); t = -0.35; } }
@@ -644,7 +647,7 @@ function resetGame() {
   faceBugs.clear();
   refill.taken = false; refill.m.visible = true;
   cans.reset(); camItem.taken = false; camItem.g.visible = true; updateItems();
-  lee.reset(); visions.reset(); duct.reset();
+  lee.reset(); visions.reset(); duct.reset(); dread.reset();
   emDoor.position.x = -15.5; emCol.off = false;
   Object.assign(labDoor, { k: 1, want: 1, broken: false, fall: 0, closedT: 0, angry: false, smash: -1 });
   labDoor.panel.rotation.set(0, 0, 0); labDoor.panel.position.set(0, 0, 0); labDoor.col.off = true;
@@ -1402,6 +1405,9 @@ const camFlash = new THREE.PointLight(0xf2f5ff, 0, 18, 1.2);
 scene.add(camFlash);
 // things that may not be there (visions.js)
 const visions = createVisions(scene, { canSee, levelMeshes, colliders });
+// more of the dark (dread.js): his voice from the vents, something outside your hiding place, the flashlight
+// stuttering near them, something crawling over the ceiling
+const dread = createDread(scene, { sfx, voice, canSee });
 const hideSpots = colliders.filter((c) => c.hide);
 // a chemical light stick left by each hiding place (the team before you marked them). Each glows faintly;
 // one shared weak light sits at the stick nearest you, so from under a table you can watch what is
@@ -1435,6 +1441,8 @@ const glow = (() => {
   scene.add(light);
   let cur = null;
   return {
+    light,
+    get at() { return cur; },
     update(dt) {
       let best = null, bd = 6;
       if (G.started && !G.dead) for (const s of sticks) { const d = Math.hypot(s.x - player.pos.x, s.z - player.pos.z); if (d < bd) { bd = d; best = s; } }
@@ -1807,6 +1815,7 @@ function frame(dtOverride) {
   if (G.started && !G.won && !G.dead && !G.grab && !G.kill && !G.drop) {
     player.update(dt, applyFocus(dt, applyLookSeq(dt, applyCine(dt, inp))));
     updateZoom(dt);
+    if (dread.shake && SET.shake !== false) { camera.position.x += (Math.random() - 0.5) * dread.shake; camera.position.y += (Math.random() - 0.5) * dread.shake * 2; }
     if (G.ductJolt > 0.001) { camera.position.x += (Math.random() - 0.5) * G.ductJolt; camera.position.y += (Math.random() - 0.5) * G.ductJolt; camera.position.z += (Math.random() - 0.5) * G.ductJolt; }
     if (G.attached.length && SET.shake !== false) faceShudder(dt);
     if (G.glance) {
@@ -1855,6 +1864,12 @@ function frame(dtOverride) {
     fl *= visions.update({ dt, t, cam: camera, fwd: vf, flashOn: G.flashOn && !G.drained, gens: G.gens, voiceBusy: voice.busy,
       live: G.started && !G.dead && !G.won && !G.dk.in && !G.drop, calm: !G.grab && !G.kill && !G.chasing && !G.hidden && G.blackT <= 0 && G.attached.length === 0,
       onWhisper: () => voice.say([['무전', '(치익...) ......뒤...... 에......', 2.6]], 'whisper'), onBehind: (x, z) => sfx.behind(x, z), tip, look: lookToward }); }
+  { const rm = roomAt(player.pos.x, player.pos.z);
+    fl *= dread.update({ dt, P: player.pos, live: G.started && !G.dead && !G.won && !G.dk.in && !G.drop && !G.grab && !G.kill,
+      calm: !G.grab && !G.kill && !G.chasing && !G.hidden && G.blackT <= 0 && G.attached.length === 0,
+      hidden: G.hidden && !G.chasing, hiddenT: G.hiddenT, hideIn: player.inside && player.inside.hide ? player.inside : null, glowAt: glow.at,
+      room: rm, roomH: rm && ROOMS[rm] ? ROOMS[rm].h : 4, flashOn: G.flashOn && !G.drained, centi, spiders: spiders.spiders,
+      tapesHeard: tapes.filter((x) => x.played).length, leeDead: !!G.tipped.leeSeen, time: G.time }).fl; }
   if (G.battery < 0.15 && G.battery > 0) fl *= Math.random() < 0.05 ? 0.4 : 1;
   // the brightness tells you what is left: full when charged, dimming as it drains, a faint glow when empty
   const b = G.battery;
@@ -1913,7 +1928,7 @@ function frame(dtOverride) {
   adapt = G.flashOn ? Math.max(0, adapt - dt / 0.6) : Math.min(1, adapt + dt / 7);
   nightEye.position.copy(camera.position);
   nightEye.intensity = bright || G.blackT > 0 ? 0 : Math.pow(adapt, 1.5) * NIGHT_K;
-  glow.update(dt);
+  glow.update(dt); glow.light.intensity *= dread.glowK;
   bounce.position.copy(camera.position).addScaledVector(fwd, Math.min(hd * 0.75, 4.5));
   bounce.intensity = G.flashOn ? 2.2 * fl * Math.min(1, nearK * 1.6) * ductK : 0;
   dress.update(dt, camera.position, flash.position, beamDir.subVectors(flash.target.position, flash.position).normalize(), G.flashOn ? fl : 0, renderer.domElement.height * 1.2);
@@ -2661,7 +2676,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, duct, DUCT, labDoor, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, faceBugs, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, duct, DUCT, labDoor, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, faceBugs, dread, tapes, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   FrustumCls: THREE.Frustum, cullRooms, uncull, culled, dynRes, adaptRes, pixelRatio: () => renderer.getPixelRatio(),
   // draw one frame from a set viewpoint without moving anything (to compare culled and unculled)
   renderView(x, y, z, yaw, pitch) {

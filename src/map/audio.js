@@ -713,6 +713,89 @@ export class Sound {
     g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.45, now + 0.05); g.gain.linearRampToValueAtTime(0, now + 0.75);
     s.connect(g); g.connect(p); s.start(now, Math.random()); s.stop(now + 0.8);
   }
+  // a panner that travels: pts [[t, x, y, z], ...] (t in s from now, straight lines between)
+  mover(pts, ref = 1.4, roll = 1.1) {
+    const [, x0, y0, z0] = pts[0], p = this.panner(x0, y0, z0, ref, roll), now = this.ctx.currentTime;
+    if (p.positionX) {
+      const P = [p.positionX, p.positionY, p.positionZ];
+      P.forEach((a, i) => { a.cancelScheduledValues(now); a.setValueAtTime([x0, y0, z0][i], now); });
+      for (const [t, x, y, z] of pts.slice(1)) [x, y, z].forEach((v, i) => P[i].linearRampToValueAtTime(v, now + t));
+    }
+    p.connect(this.sfx);
+    return p;
+  }
+  // a voice that isn't his: the syllables of his tapes, but from somewhere in the building, ringing as if in a
+  // duct, now and then sliding down where no voice goes; after it, the click of mandibles
+  mimic(dur, x, y, z, muffle = true) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.05;
+    const p = this.panner(x, y, z, 4, 1.0); p.connect(this.sfx);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = muffle ? 1200 : 2400; lp.connect(p);
+    const dl = ctx.createDelay(0.05); dl.delayTime.value = 0.011; const fb = ctx.createGain(); fb.gain.value = 0.55;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1150; bp.Q.value = 0.8;
+    bp.connect(lp); bp.connect(dl); dl.connect(fb); fb.connect(dl); fb.connect(lp);
+    for (let x = 0.15; x < dur - 0.7; x += rnd(0.12, 0.22)) {
+      if (Math.random() < 0.12) { x += 0.3; continue; }
+      const now = t0 + x, len = rnd(0.08, 0.18), r = Math.random(), f = rnd(130, 175) * (r < 0.1 ? 1.8 : 1);
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, now); o.frequency.linearRampToValueAtTime(r > 0.8 ? f * 0.5 : f * rnd(0.85, 1.15), now + len * (r > 0.8 ? 1.6 : 1));
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(rnd(0.25, 0.35), now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + len * (r > 0.8 ? 1.6 : 1));
+      o.connect(g); g.connect(bp); o.start(now); o.stop(now + len * 1.7 + 0.05);
+    }
+    this.burst({ dest: lp, t: 0.05, dur: dur - 0.5, f: 1800, q: 0.6, gain: 0.05, attack: 0.3 });
+    for (let i = 0, t = dur - 0.5; i < 9; i++, t += rnd(0.035, 0.06)) this.burst({ dest: p, t, dur: 0.01, f: rnd(2500, 4200), q: 6, gain: rnd(0.35, 0.5), attack: 0.001 });
+  }
+  // something going past right outside where you hide: legs on the floor, a stop beside you to sniff, on again.
+  // pts: its path (see mover); pause: [from, to] the stop, in s from now
+  prowlBy(pts, pause) {
+    if (!this.ctx) return;
+    const p = this.mover(pts, 1.2, 1.2), end = pts[pts.length - 1][0];
+    for (let t = 0.05; t < end; t += rnd(0.05, 0.09)) {
+      if (t > pause[0] && t < pause[1]) continue;
+      this.burst({ dest: p, t, dur: 0.012, f: rnd(1800, 3500), q: 5, gain: rnd(0.12, 0.22), attack: 0.001 });
+      if (Math.random() < 0.08) this.burst({ dest: p, t, dur: 0.12, f: rnd(900, 1500), q: 3, gain: 0.1, attack: 0.02 });
+    }
+    for (const k of [0.25, 0.75, 1.25]) {
+      const t = pause[0] + k * (pause[1] - pause[0]) / 1.5;
+      for (let i = 0; i < 3; i++) this.burst({ dest: p, t: t + i * 0.13, dur: 0.08, f: rnd(1400, 2400), q: 1.2, gain: 0.3, attack: 0.05 });   // sniffing
+      this.burst({ dest: p, t: t + 0.42, dur: 0.012, f: 3600, q: 6, gain: 0.35, attack: 0.001 });                                          // a click
+    }
+    this.burst({ dest: p, t: pause[0] + 0.3, dur: 0.7, f: 380, q: 0.8, gain: 0.25, attack: 0.2, buf: this.brown });                     // a breath
+  }
+  // something heavy and long crawling over the ceiling: thumps, a rush of legs, the scrape of its body, pipes creaking
+  overhead(pts) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, end = pts[pts.length - 1][0];
+    const p = this.mover(pts, 2.2, 1.0);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1500; lp.connect(p);
+    for (let t = 0.1; t < end; t += rnd(0.28, 0.4)) {
+      this.tone({ dest: lp, t, f0: 75, f1: 40, dur: 0.2, gain: 0.55, attack: 0.003 });
+      this.burst({ dest: lp, t, dur: 0.1, f: 300, q: 0.8, gain: 0.45, buf: this.brown, attack: 0.002 });
+    }
+    for (let t = 0.05; t < end; t += rnd(0.03, 0.06)) this.burst({ dest: lp, t, dur: 0.01, f: rnd(900, 1800), q: 3, gain: rnd(0.1, 0.18), attack: 0.001 });
+    const f = this.burst({ dest: lp, dur: end, f: 700, q: 4, gain: 0.12, attack: 0.4 });
+    for (let t = 0; t < end; t += 0.5) f.frequency.linearRampToValueAtTime(rnd(500, 1100), ctx.currentTime + t);
+    for (const k of [0.3, 0.7]) setTimeout(() => { const i = Math.min(pts.length - 1, Math.round(k * (pts.length - 1))), [, x, y, z] = pts[i]; this.creak(x, y, z); }, k * end * 1000);
+  }
+  // the drive home: something moving under the seat (a bag rustling, legs on the floor pan, a knock)
+  seatRustle() {
+    if (!this.ctx) return;
+    for (let i = 0; i < 4; i++) this.burst({ t: i * 0.22 + rnd(0, 0.08), dur: rnd(0.12, 0.25), f: rnd(2600, 3800), q: 0.7, gain: 0.12, attack: 0.03, pan: 0.15 });
+    for (let t = 0.9; t < 1.6; t += rnd(0.04, 0.08)) this.burst({ t, dur: 0.01, f: rnd(2000, 3400), q: 5, gain: 0.14, attack: 0.001, pan: 0.1 });
+    this.tone({ t: 1.7, f0: 110, f1: 60, dur: 0.12, gain: 0.35, attack: 0.002 });
+  }
+  // mandibles, close behind you
+  clicks(n = 8, gain = 0.3) { if (this.ctx) for (let i = 0, t = 0; i < n; i++, t += rnd(0.04, 0.07)) this.burst({ t, dur: 0.01, f: rnd(2500, 4200), q: 6, gain, attack: 0.001, pan: 0.1 }); }
+  // and it comes for you: a shriek, the strings, a blow
+  lunge() {
+    if (!this.ctx) return;
+    this.violinStab(1.4);
+    const f = this.burst({ dur: 0.8, f: 3000, q: 4, gain: 0.7, attack: 0.01 });
+    f.frequency.setValueAtTime(3000, this.ctx.currentTime); f.frequency.exponentialRampToValueAtTime(1100, this.ctx.currentTime + 0.8);
+    this.tone({ f0: 900, f1: 1500, dur: 0.5, gain: 0.18, type: 'sawtooth', attack: 0.01 });
+    this.tone({ t: 0.05, f0: 90, f1: 30, dur: 1.2, gain: 1.0, attack: 0.003 });
+    this.burst({ t: 0.05, dur: 0.6, f: 200, q: 0.8, gain: 0.8, buf: this.brown });
+  }
   // the disposable camera: the shutter, the flash's pop, then the thumbwheel winding on and the flash charging
   shutter() {
     if (!this.ctx) return;

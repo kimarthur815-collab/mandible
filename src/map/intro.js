@@ -2,7 +2,8 @@
 // and on, while the radio on the dash rings. Answering it plays the orders over the radio; then a fade
 // to night: the truck stands in the yard, you climb out, walk to the dock shutter, it rolls up, and you
 // step into the dark - where the game starts. The same scene plays the ending: out through the shutter at
-// night, back to the truck, and one last call on the radio. It has its own scene (the outside, the truck, their own
+// night, back to the truck, and one last call on the radio. Then something stirs under the seat; you look
+// up into the rear-view mirror, and it's in the cab with you. It has its own scene (the outside, the truck, their own
 // lights) so none of it weighs on the game once you are inside.
 import * as THREE from 'three';
 import { buildExterior, ROAD_PERIOD } from './exterior.js';
@@ -55,6 +56,56 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
   const truck = buildTruck();
   scene.add(truck.group);
   const g = truck.group;
+
+  // ---- the ending's last thing: it came out from under the seat and rises between the seats, beside you.
+  // Only its eyes catch the light. You see it in the rear-view mirror (a camera behind the glass, rendered
+  // into the mirror's face while it lasts; flipped, as a mirror is)
+  const thing = new THREE.Group(); thing.visible = false; g.add(thing);
+  const fur = new THREE.MeshStandardMaterial({ color: 0x1c1610, roughness: 1 });
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x050302, emissive: 0xcfe8b0, emissiveIntensity: 0, roughness: 0.2 });
+  { const h = new THREE.Mesh(new THREE.SphereGeometry(0.1, 20, 14), fur); h.scale.set(1, 0.85, 1.15); thing.add(h);
+    const b = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), fur); b.position.set(0, -0.06, -0.16); b.scale.set(1, 0.8, 1.3); thing.add(b);
+    // eight eyes: four small in front, two big over them, two looking out to the sides
+    for (const [x, y, z, r] of [[-0.06, -0.02, 0.1, 0.009], [-0.022, -0.025, 0.112, 0.009], [0.022, -0.025, 0.112, 0.009], [0.06, -0.02, 0.1, 0.009],
+      [-0.032, 0.022, 0.104, 0.017], [0.032, 0.022, 0.104, 0.017], [-0.066, 0.045, 0.06, 0.012], [0.066, 0.045, 0.06, 0.012]]) {
+      const e = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), eyeMat); e.position.set(x, y, z); thing.add(e);
+    }
+    // fangs under the eyes, and the palps either side of them
+    const band = new THREE.MeshStandardMaterial({ color: 0x3a2f22, roughness: 1 });
+    for (const sd of [1, -1]) {
+      const f = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.07, 8), new THREE.MeshStandardMaterial({ color: 0x0c0907, roughness: 0.35 })); f.position.set(sd * 0.025, -0.075, 0.085); f.rotation.set(Math.PI - 0.3, 0, sd * 0.15); thing.add(f);
+      const pp = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.06, 4, 8), fur); pp.position.set(sd * 0.065, -0.06, 0.1); pp.rotation.set(1.1, 0, -sd * 0.4); thing.add(pp);
+    }
+    // legs hooked over the seat cushions on either side: hairy, banded at the joints
+    const leg = (pts) => {
+      for (let i = 1; i < pts.length; i++) {
+        const a = new V3(...pts[i - 1]), b = new V3(...pts[i]), r = 0.022 - i * 0.004;
+        const m = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.8, r, a.distanceTo(b), 7), fur); m.position.copy(a).lerp(b, 0.5); m.quaternion.setFromUnitVectors(new V3(0, 1, 0), b.clone().sub(a).normalize()); thing.add(m);
+        const j = new THREE.Mesh(new THREE.SphereGeometry(r * 1.1, 8, 6), band); j.position.copy(a); thing.add(j);
+      }
+    };
+    for (const sd of [1, -1]) { leg([[sd * 0.07, 0, 0.02], [sd * 0.2, 0.12, 0.08], [sd * 0.26, -0.2, 0.2]]); leg([[sd * 0.08, -0.03, -0.05], [sd * 0.24, 0.08, -0.06], [sd * 0.3, -0.25, 0.02]]); }
+    // bristles all over the head and body
+    const br = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.0015, 0.003, 0.03, 3), fur, 220), M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), up = new V3(0, 1, 0);
+    for (let i = 0; i < 220; i++) {
+      const onBody = i >= 110, n = new V3(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).normalize();
+      const c = onBody ? new V3(0, -0.06, -0.16) : new V3(0, 0, 0), sc = onBody ? new V3(0.13, 0.104, 0.169) : new V3(0.1, 0.085, 0.115);
+      const p = c.clone().add(n.clone().multiply(sc)).addScaledVector(n, 0.012);
+      Q.setFromUnitVectors(up, n); M4.compose(p, Q, new V3(1, 0.6 + Math.random() * 0.9, 1)); br.setMatrixAt(i, M4);
+    }
+    thing.add(br);
+  }
+  const glim = new THREE.PointLight(0x8a96aa, 0, 1.2, 1.5); glim.position.set(0, 0.25, 0.35); thing.add(glim);   // the dash's glow on it
+  const mirrorRT = new THREE.WebGLRenderTarget(512, 134);
+  const mirrorCam = new THREE.PerspectiveCamera(17, 0.25 / 0.065, 0.05, 40);
+  const mirror = (() => {
+    const geo = new THREE.PlaneGeometry(0.25, 0.065), uv = geo.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+    geo.rotateY(Math.PI); geo.translate(0, 1.78, 1.918);        // (just proud of the glass box's face)
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: mirrorRT.texture })); m.visible = false; g.add(m);
+    return m;
+  })();
+  const MIRROR = new V3(0, 1.78, 1.92), MIRROR_AIM = new V3(0.05, 1.3, 1.15);
   const sun = ext.sun, sunOff = new V3();
   Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24 }); sun.shadow.camera.updateProjectionMatrix();
   const setTime = (k) => {
@@ -107,7 +158,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     tap() {
       if ((state === 'call' || state === 'outTalk') && lineT > 0.35) {
         if (line < lines.length - 1) showLine(line + 1);
-        else { showLine(lines.length); go(state === 'call' ? 'fadeout' : 'outFade'); }
+        else { showLine(lines.length); go(state === 'call' ? 'fadeout' : 'outTwist'); }
       }
     },
     skip() { if (state !== 'title' && state !== 'out') go('out'); },
@@ -118,6 +169,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
       g.position.copy(PARK); g.rotation.set(0, 0, 0); truck.setRinging(false);
       ext.dockShutter.position.y = 4.35;
       seated = false; fadeK = 1; line = -1; ui.skip(true); ui.radioButton(null);
+      thing.visible = false; mirror.visible = false; camera.fov = 66; camera.updateProjectionMatrix();
       stand.pos.set(THREE.MathUtils.clamp(x, -2, 2), 1.62, -0.6); stand.yaw = Math.PI; stand.pitch = 0;
       path = [SHUTTER_FRONT.clone(), AROUND.clone(), toWorld(DOOR_OUT)]; pathI = 0;
       go('outWalk');
@@ -126,18 +178,27 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     musicMode() {
       if (state === 'title' || state === 'call') return 'dusk';
       if (state === 'fadeout') return 'off';
-      if (state === 'outTalk' || state === 'outFade' || (state === 'out' && api.isEnding)) return 'end';
+      if (state === 'outTwist') return 'off';
+      if (state === 'outTalk' || (state === 'out' && api.isEnding)) return 'end';
       if (state === 'enter' || state === 'out') return 'inside';
       return 'night';
     },
     musicDuck() { return state === 'call' || state === 'outTalk' ? 0.55 : 1; },
     stop() {
       api.active = false;
+      thing.visible = false; mirror.visible = false; camera.fov = 66; camera.updateProjectionMatrix();
       ui.subtitle(null); ui.skip(false); ui.radioButton(null); ui.fade(0);
       sfx.engine(false);
     },
     resize() { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); },
-    render() { renderer.render(scene, camera); },
+    render() {
+      if (mirror.visible) {
+        g.updateMatrixWorld();
+        mirrorCam.position.copy(MIRROR).applyMatrix4(g.matrixWorld); mirrorCam.lookAt(MIRROR_AIM.clone().applyMatrix4(g.matrixWorld));
+        mirror.visible = false; renderer.setRenderTarget(mirrorRT); renderer.render(scene, mirrorCam); renderer.setRenderTarget(null); mirror.visible = true;
+      }
+      renderer.render(scene, camera);
+    },
     update(dt) {
       time += dt; st += dt;
       // ---- the truck
@@ -237,9 +298,27 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
         else if (line >= lines.length - 1) { want.yaw = -0.66 + Math.sin(time * 37) * 0.01; want.pitch = -0.4; }
         else if (line >= 1) { want.yaw = -0.62; want.pitch = -0.36; }
         else { want.yaw = -0.3; want.pitch = -0.2; }
-      } else if (state === 'outFade') {
-        fadeK = ease(st / 2.0);
-        if (st >= 2.2) { api.stop(); finish(); return; }
+      } else if (state === 'outTwist') {
+        // quiet; something under the seat; a look up into the mirror; it rises between the seats; it comes
+        const T = (a) => st >= a && st - dt < a;
+        if (st < 2.6) { want.yaw = -0.1; want.pitch = -0.1; }
+        if (T(0.8)) sfx.seatRustle();
+        if (T(1.9)) { ui.subtitle('나', '...?'); sfx.mumble(0.4); }
+        if (T(2.6)) { ui.subtitle(null); thing.visible = true; mirror.visible = true; thing.position.set(0.02, 0.95, 1.14); thing.rotation.set(0.15, 0.5, 0); }
+        if (st >= 2.6) {
+          want.yaw = -0.58; want.pitch = 0.4;                                            // up into the mirror
+          camera.fov += (22 - camera.fov) * Math.min(1, dt * 1.6); camera.updateProjectionMatrix();
+          const up = ease((st - 3.2) / 1.4);
+          if (st < 5.0) thing.position.y = 0.95 + 0.37 * up;
+          eyeMat.emissiveIntensity = st > 3.9 && st < 4.02 ? 0 : 1.3 * ease((st - 3.4) / 0.6);   // (a blink)
+          glim.intensity = 0.25 * up;
+        }
+        if (T(4.2)) sfx.clicks(8, 0.25);
+        if (T(5.0)) sfx.lunge();
+        if (st >= 5.0 && st < 5.2) { const k = (st - 5.0) / 0.18; thing.position.lerpVectors(new V3(0.02, 1.32, 1.14), new V3(0.3, 1.45, 1.3), Math.min(1, k)); want.yaw = -0.58 + (Math.random() - 0.5) * 0.1; }
+        if (T(5.18)) { fadeK = 1; sfx.engine(false); }
+        if (st >= 5.18) fadeK = 1;
+        if (st >= 6.8) { api.stop(); finish(); return; }
       } else if (state === 'out') {                       // skipped: a quick fade, then on
         fadeK = Math.min(1, fadeK + dt / 0.35);
         if (fadeK >= 1) { api.stop(); finish(); return; }
