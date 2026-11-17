@@ -16,7 +16,7 @@ import { BUG_PAGES, drawBugPage, tapePhoto } from './bugnotes.js';
 import { MapCentipede, HUNT } from './centi.js';
 import { PassageGate, Phantom, DeadWorker, GATE, BODY, LeeBody, LEE } from './scares.js';
 import { createVisions } from './visions.js';
-import { createDread } from './dread.js';
+import { createDread, DREAD_CLIPS } from './dread.js';
 import { createIntro } from './intro.js';
 import { createMarks } from './marks.js';
 import { createFaceBugs } from './facebugs.js';
@@ -312,16 +312,22 @@ const voice = (() => {
     el.querySelector('b').textContent = v.label; el.querySelector('span').textContent = v.text; el.querySelector('i').textContent = '';
     el.classList.toggle('me', v.who === '나'); el.classList.add('show');
     if (v.who === '나') sfx.mumble(Math.min(2.2, 0.5 + v.text.length * 0.06));
-    else if (v.kind === 'tape') sfx.tape(Math.max(0.4, v.dur - 0.4));
-    else if (v.kind === 'mimic') sfx.mimic(v.dur, v.at.x, v.at.y, v.at.z, v.at.muffle);
+    else if (v.kind === 'tape') {
+      // his recorded voice if it's in (the line lasts as long as it does); the old murmur if not
+      const d = v.clip && sfx.playTape(v.clip);
+      if (d) v.dur = d + 0.35; else if (v.text[0] === '(') sfx.tapeCut(); else sfx.tape(Math.max(0.4, v.dur - 0.4));
+    } else if (v.kind === 'mimic') {
+      const d = v.clip && sfx.mimicClip(v.clip, v.at.x, v.at.y, v.at.z, v.at.muffle);
+      if (d) v.dur = d + 0.7; else sfx.mimic(v.dur, v.at.x, v.at.y, v.at.z, v.at.muffle);
+    }
     else if (v.kind === 'whisper') sfx.whisper(v.dur);
     else { sfx.squelch(); if (/사각|기어/.test(v.text)) sfx.radioSkitter(v.dur - 0.4); else sfx.chatter(v.dur - 0.6); }
   };
   return {
-    // lines: [[who, text, seconds?]]; kind: 'radio', 'tape' or 'mimic' (a voice from somewhere in the building:
-    // who is where it comes from, at: { x, y, z, muffle })
+    // lines: [[who, text, seconds?, clip?]]; kind: 'radio', 'tape' or 'mimic' (a voice from somewhere in the
+    // building: who is where it comes from, at: { x, y, z, muffle }); clip: a recording of the line (docs/voice)
     say(lines, kind = 'radio', at = null) {
-      for (const [who, text, dur] of lines) q.push({ who, text, kind, at, label: who === '나' ? '나' : kind === 'tape' ? `녹음 · ${who}` : kind === 'mimic' ? who : '무전', dur: dur || Math.min(6, 1.9 + text.length * 0.09) });
+      for (const [who, text, dur, clip] of lines) q.push({ who, text, kind, at, clip, label: who === '나' ? '나' : kind === 'tape' ? `녹음 · ${who}` : kind === 'mimic' ? who : '무전', dur: dur || Math.min(6, 1.9 + text.length * 0.09) });
     },
     update(dt) {
       if (cur) { t += dt; if (t >= cur.dur) { cur = null; show(null); t = -0.35; } }
@@ -557,12 +563,12 @@ function radioCall() {
 
 // pocket recorders left by Lee Jeong-hun of team 2, on the tables
 const TAPES = [
-  { x: 11.25, y: 0.931, z: 20.0, lines: [['이정훈', '방역팀 2조 이정훈. 오후 4시 10분, 하역장으로 들어왔다.'], ['이정훈', '...바닥이 움직이는 줄 알았는데, 전부 바퀴다. 보통 양이 아니야.']] },
-  { x: 13.5, y: 0.921, z: 18.9, lines: [['이정훈', '발전기 시동줄... 몇 번 세게 당겨야 걸린다.'], ['이정훈', '시동 걸리는 소리가 엄청 커. 그 소리에 놈들이 몰려와. 조심해.']] },
-  { x: 20.8, y: 0.931, z: 63.1, lines: [['이정훈', '생산 홀. 천장에 뭔가 붙어 있다. 다리가 사람 팔만 해.'], ['이정훈', '테이블 밑마다 야광봉 놔뒀다. 숨을 땐 불 끄고... 숨도 참아.']] },
-  { x: -16.6, y: 0.931, z: 60.0, lines: [['이정훈', '실험실 기록을 봤다. 여기서 만든 건 살충제가 아니었어.'], ['이정훈', '벽 안에서 뭔가 긴 게 움직인다... 3조가 오면, 셔터로 바로—'], ['이정훈', '(녹음이 뚝 끊긴다)', 2.2]] },
+  { x: 11.25, y: 0.931, z: 20.0, lines: [['이정훈', '방역팀 2조 이정훈. 오후 4시 10분, 하역장으로 들어왔다.', null, 'lee_tape1_1'], ['이정훈', '...바닥이 움직이는 줄 알았는데, 전부 바퀴다. 보통 양이 아니야.', null, 'lee_tape1_2']] },
+  { x: 13.5, y: 0.921, z: 18.9, lines: [['이정훈', '발전기 시동줄... 몇 번 세게 당겨야 걸린다.', null, 'lee_tape2_1'], ['이정훈', '시동 걸리는 소리가 엄청 커. 그 소리에 놈들이 몰려와. 조심해.', null, 'lee_tape2_2']] },
+  { x: 20.8, y: 0.931, z: 63.1, lines: [['이정훈', '생산 홀. 천장에 뭔가 붙어 있다. 다리가 사람 팔만 해.', null, 'lee_tape3_1'], ['이정훈', '테이블 밑마다 야광봉 놔뒀다. 숨을 땐 불 끄고... 숨도 참아.', null, 'lee_tape3_2']] },
+  { x: -16.6, y: 0.931, z: 60.0, lines: [['이정훈', '실험실 기록을 봤다. 여기서 만든 건 살충제가 아니었어.', null, 'lee_tape4_1'], ['이정훈', '벽 안에서 뭔가 긴 게 움직인다... 3조가 오면, 셔터로 바로—', null, 'lee_tape4_2'], ['이정훈', '(녹음이 뚝 끊긴다)', 2.2]] },
   // the last one, by his hand where he lies in the hall's corner
-  { x: LEE.tape.x, y: LEE.tape.y, z: LEE.tape.z, lee: true, lines: [['이정훈', '(거친 숨) ...녹음 되나. 2조 이정훈. 몇 시인지도 모르겠다.'], ['이정훈', '놈이 벽 속을 다닌다. 길고... 다리가 끝이 없어. 발전기 소리를 따라와.'], ['이정훈', '3조, 이거 들으면... 발전기 다 돌리고 셔터로 나가. 뒤돌아보지 말고.'], ['이정훈', '사원증... 우리 집사람한테 좀... (사각사각— 녹음이 끊긴다)', 3.0]] },
+  { x: LEE.tape.x, y: LEE.tape.y, z: LEE.tape.z, lee: true, lines: [['이정훈', '(거친 숨) ...녹음 되나. 2조 이정훈. 몇 시인지도 모르겠다.', null, 'lee_tape5_1'], ['이정훈', '놈이 벽 속을 다닌다. 길고... 다리가 끝이 없어. 발전기 소리를 따라와.', null, 'lee_tape5_2'], ['이정훈', '3조, 이거 들으면... 발전기 다 돌리고 셔터로 나가. 뒤돌아보지 말고.', null, 'lee_tape5_3'], ['이정훈', '사원증... 우리 집사람한테 좀... (사각사각— 녹음이 끊긴다)', 3.0, 'lee_tape5_4']] },
 ];
 const tapes = TAPES.map((r, i) => {
   const g = new THREE.Group();
@@ -2524,6 +2530,7 @@ function beginGame({ fromIntro = false, quiet = false } = {}) {
   sfx.introMode(false); sfx.engine(false);
   if (G.started) return;
   G.started = true; setMask(true);
+  sfx.loadVoices([...TAPES.flatMap((r) => r.lines.map((l) => l[3]).filter(Boolean)), ...DREAD_CLIPS]);   // the recorded voices
   setTimeout(() => faceBugs.prepare(), 1500);       // build the close-up roaches while it's quiet
   G.hp = D().hp; G.spray = D().spray;
   if (fromIntro) sfx.slam();                      // the shutter comes down behind you
@@ -2705,7 +2712,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, duct, DUCT, labDoor, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, faceBugs, dread, tapes, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, duct, DUCT, labDoor, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, faceBugs, dread, tapes, voice, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   FrustumCls: THREE.Frustum, cullRooms, uncull, culled, dynRes, adaptRes, pixelRatio: () => renderer.getPixelRatio(),
   // draw one frame from a set viewpoint without moving anything (to compare culled and unculled)
   renderView(x, y, z, yaw, pitch) {

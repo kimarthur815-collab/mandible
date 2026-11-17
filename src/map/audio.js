@@ -727,6 +727,49 @@ export class Sound {
     p.connect(this.sfx);
     return p;
   }
+  // ---- recorded voices (docs/voice/NAME.mp3): fetched once the game starts; a line whose recording isn't in
+  // (yet, or at all: offline, opened from a file) falls back to the synthesised murmur
+  loadVoices(names) {
+    if (!this.ctx) return;
+    this.clips = this.clips || {};
+    for (const n of names) {
+      if (n in this.clips) continue;
+      this.clips[n] = null;
+      fetch(`voice/${n}.mp3`).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)))
+        .then((b) => new Promise((ok, no) => this.ctx.decodeAudioData(b, ok, no))).then((buf) => { this.clips[n] = buf; })
+        .catch(() => { this.clips[n] = false; });
+    }
+  }
+  clip(n) { return (this.clips && this.clips[n]) || null; }
+  // a line off a tape, played on the recorder in your hand: the button's click, the line, the click at its end
+  playTape(n) {
+    const b = this.clip(n);
+    if (!b || !this.ctx) return 0;
+    const ctx = this.ctx, s = ctx.createBufferSource(), g = ctx.createGain(); s.buffer = b; g.gain.value = 1.1;
+    s.connect(g); g.connect(this.sfx);
+    this.burst({ dur: 0.02, f: 2200, q: 2, gain: 0.2 }); s.start(ctx.currentTime + 0.04);
+    this.burst({ t: b.duration + 0.06, dur: 0.02, f: 1800, q: 2, gain: 0.18 });
+    return b.duration;
+  }
+  // the tape stopping dead
+  tapeCut() { if (this.ctx) { this.burst({ dur: 0.02, f: 1800, q: 2, gain: 0.28 }); this.tone({ f0: 300, f1: 80, dur: 0.12, gain: 0.15 }); } }
+  // his recorded voice, but from in the wall (the centipede has it): ringing in the duct, the last of it
+  // sagging, then the click of mandibles
+  mimicClip(n, x, y, z, muffle = true) {
+    const b = this.clip(n);
+    if (!b || !this.ctx) return 0;
+    const ctx = this.ctx, t0 = ctx.currentTime + 0.05, dur = b.duration;
+    const p = this.panner(x, y, z, 4, 1.0); p.connect(this.sfx);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = muffle ? 1600 : 3200; lp.connect(p);
+    const dl = ctx.createDelay(0.05); dl.delayTime.value = 0.011; const fb = ctx.createGain(); fb.gain.value = 0.45;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1300; bp.Q.value = 0.6;
+    bp.connect(lp); bp.connect(dl); dl.connect(fb); fb.connect(dl); fb.connect(lp);
+    const s = ctx.createBufferSource(), g = ctx.createGain(); s.buffer = b; g.gain.value = 1.8; s.connect(g); g.connect(bp);
+    s.playbackRate.setValueAtTime(1, t0 + dur * 0.65); s.playbackRate.linearRampToValueAtTime(0.88, t0 + dur);
+    s.start(t0);
+    for (let i = 0, t = dur + 0.05; i < 9; i++, t += rnd(0.035, 0.06)) this.burst({ dest: p, t, dur: 0.01, f: rnd(2500, 4200), q: 6, gain: rnd(0.35, 0.5), attack: 0.001 });
+    return dur + 0.5;
+  }
   // a voice that isn't his: the syllables of his tapes, but from somewhere in the building, ringing as if in a
   // duct, now and then sliding down where no voice goes; after it, the click of mandibles
   mimic(dur, x, y, z, muffle = true) {

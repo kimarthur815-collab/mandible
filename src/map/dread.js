@@ -12,12 +12,13 @@ const V3 = THREE.Vector3;
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
-const VOICE_VENT = [['(환풍구 안에서)', '...3조... 여기야... 여기...', 3.0], ['(환풍구 안에서)', '...도와줘... 다리가... 안 움직여...', 3.4]];
+const VOICE_VENT = [['(환풍구 안에서)', '...3조... 여기야... 여기...', 3.0, 'lee_vent_1'], ['(환풍구 안에서)', '...도와줘... 다리가... 안 움직여...', 3.4, 'lee_vent_2']];
 const VOICE_ROAM = [
-  ['(어디선가)', '...3조... 이쪽이야...', 2.8],
-  ['(어디선가)', '...살려 줘... 여기... 여기 있어...', 3.2],
-  ['(어디선가)', '...셔터... 이쪽... 이쪽으로 와...', 3.2],
+  ['(어디선가)', '...3조... 이쪽이야...', 2.8, 'lee_roam_1'],
+  ['(어디선가)', '...살려 줘... 여기... 여기 있어...', 3.2, 'lee_roam_2'],
+  ['(어디선가)', '...셔터... 이쪽... 이쪽으로 와...', 3.2, 'lee_roam_3'],
 ];
+export const DREAD_CLIPS = [...VOICE_VENT, ...VOICE_ROAM].map((l) => l[3]);   // (recordings of his voice, docs/voice)
 
 export function createDread(scene, { sfx, voice, canSee }) {
   // ---- dust sifting down from the ceiling
