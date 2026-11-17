@@ -1,6 +1,6 @@
-// Preview: hard mode's bugs, fused with the people who came in before you (the radiation did it).
-// Two candidates each for the ghost spider, the wolf spider and the centipede. Walk round them (drag),
-// pinch / wheel to zoom, "얼굴 가까이" to go in on the face.
+// Preview: hard mode's bugs, fused with the people who came in before you (the radiation did it):
+// the ghost spider and the centipede. Walk round them (drag), pinch / wheel to zoom, "얼굴 가까이" to
+// go in on the face.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -50,9 +50,9 @@ async function init() {
   const T = { chitin: TX.makeChitinNormal(256), terg: TX.makeTergiteTextures(512), band: TX.makeBandTextures(), bandU: TX.makeBandTexturesU(), eye: TX.makeEyeNormal(), contact: TX.makeContactShadow() };
   T.eye.repeat.set(3, 3);
 
-  // ---- just a face (for working on it): ?face=scream|grin|gasp &eyes=black|human|spider8
+  // ---- just a face (for working on it): ?face=scream|grin &eyes=hollow|human
   if (Q.has('face')) {
-    const f = makeFace({ h: 0.5, mouth: Q.get('face') || 'scream', eyes: Q.get('eyes') || 'black', tears: Q.has('tears') });
+    const f = makeFace({ h: 0.5, mouth: Q.get('face') || 'scream', eyes: Q.get('eyes') || 'hollow', tears: Q.has('tears') });
     f.group.position.set(0, 0.6, 0); scene.add(f.group);
     controls.target.set(0, 0.6, 0); camera.position.set(0.25, 0.7, 1.4);
     let t = 0;
@@ -73,7 +73,7 @@ async function init() {
   // ---- the candidates
   setLoad('벌레 만드는 중'); await nextFrame();
   const built = {};
-  const state = { k: 'ghostA', near: false, walk: true, flash: true };
+  const state = { k: 'ghost', near: false, walk: true, flash: true };
   const desc = $('#desc');
   function pick(k) {
     state.k = k;
@@ -98,7 +98,7 @@ async function init() {
   $('#near').addEventListener('click', () => { state.near = !state.near; $('#near').classList.toggle('on', state.near); frameView(); });
   $('#walk').addEventListener('click', () => { state.walk = !state.walk; $('#walk').classList.toggle('on', state.walk); });
   $('#flash').addEventListener('click', () => { state.flash = !state.flash; $('#flash').classList.toggle('on', state.flash); });
-  pick(Q.get('k') || 'ghostA');
+  pick(Q.get('k') || 'ghost');
   addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 
   const clock = new THREE.Clock();

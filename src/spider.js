@@ -117,7 +117,7 @@ function placeSeg(mesh, p0, p1, up, len) {
 }
 
 export class Spider {
-  constructor(type, T, opt = {}) {
+  constructor(type, T) {
     this.type = type;
     const P = this.P = PRESETS[type];
     const rand = rng(type === 'wolf' ? 17 : 29);
@@ -183,7 +183,7 @@ export class Spider {
     this.body.add(ped);
     if (P.hair) {
       const furCol = new THREE.Color('#6e5a44'), furCol2 = new THREE.Color('#a48c6c');
-      const f1 = shadowed(new THREE.Mesh(furOn(ac, ar, 1400, 0.03, furCol, furCol2, rand, (d) => d.y > -0.3 && !(opt.furHole && d.dot(opt.furHole.d) > opt.furHole.c)), this.mats.body));
+      const f1 = shadowed(new THREE.Mesh(furOn(ac, ar, 1400, 0.03, furCol, furCol2, rand, (d) => d.y > -0.3), this.mats.body));
       const f2 = shadowed(new THREE.Mesh(furOn(pc, pr, 500, 0.02, furCol, furCol2, rand, (d) => d.y > -0.1), this.mats.body));
       this.body.add(f1, f2);
     }

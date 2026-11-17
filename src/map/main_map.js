@@ -21,6 +21,7 @@ import { createMarks } from './marks.js';
 import { createFaceBugs } from './facebugs.js';
 import { createCans } from './cans.js';
 import { createDuct, DUCT, ductInside, ductS } from './duct.js';
+import { fuseGhost, fuseCenti } from '../mutant/fuse.js';
 
 const $ = (s) => document.querySelector(s);
 const touch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -606,6 +607,9 @@ spiders.setColliders(colliders);
 // (made after the spiders took their feet surfaces, so their legs don't reach for these)
 const gate = new PassageGate(scene, silk, BT, colliders);
 const phantom = new Phantom(scene, silk, BT);
+// hard mode: the bugs fused with the people who came in before you (the parts are built the first time)
+const fused = [fuseGhost(spiders.ghost.s), fuseGhost(gate.s), fuseGhost(phantom.s), fuseCenti(centi.c)];
+let fusedT = 0;
 const deadMan = new DeadWorker(scene, silk, colliders);
 const lee = new LeeBody(scene, colliders);
 const indicators = [0, 1, 2].map((i) => {
@@ -1918,6 +1922,8 @@ function frame(dtOverride) {
     onShake: (x, y, z) => sfx.spiderFlinch(x, y, z),
     onTouch: () => tip('거미줄이 너무 두껍다. 지나갈 수 없다') });
   phantom.update({ dt, cam: camera.position, light, onRetract: (x, y, z) => sfx.spiderFlinch(x, y, z) });
+  fusedT += dt;
+  for (const f of fused) f.update(dt, fusedT, camera.position);
   deadMan.update(dt);
   lee.update(dt);
   if (G.started && !G.dead && !G.tipped.leeSeen && Math.hypot(player.pos.x - LEE.x, player.pos.z - LEE.z) < 11 && canSee(lee.pos)) {
@@ -2433,6 +2439,7 @@ function syncSettings() {
 function saveSettings() { try { localStorage.setItem('mandible.settings', JSON.stringify(SET)); } catch (e) { /* private mode */ } }
 function applySettings() {
   sfx.setVolume(SET.vol); HUNT.speed = D().speed; paperMap.setDiff(SET.diff); applyQuality();
+  for (const f of fused) f.set(SET.diff === 'hard');
   document.body.dataset.sub = SET.sub || 'm';
   document.body.classList.toggle('noshake', SET.shake === false);
   $('#vibeRow').style.display = canVibe ? '' : 'none';
