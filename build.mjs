@@ -14,6 +14,7 @@ const PAGES = {
   factory:   ['src/main_factory.js',    'templates/factory.html',   'docs/factory.html'],
   truck:     ['src/main_truck.js',      'templates/truck.html',     'docs/truck.html'],
   facebug:   ['src/main_facebug.js',    'templates/facebug.html',   'docs/facebug.html'],
+  mutants:   ['src/main_mutants.js',    'templates/mutants.html',   'docs/mutants.html'],
 };
 
 async function page(name) {

@@ -117,7 +117,7 @@ function placeSeg(mesh, p0, p1, up, len) {
 }
 
 export class Spider {
-  constructor(type, T) {
+  constructor(type, T, opt = {}) {
     this.type = type;
     const P = this.P = PRESETS[type];
     const rand = rng(type === 'wolf' ? 17 : 29);
@@ -159,6 +159,7 @@ export class Spider {
     const proMesh = shadowed(new THREE.Mesh(pro, this.mats.body));
     proMesh.position.set(pc[0], pc[1], pc[2]);
     this.body.add(proMesh);
+    this.pro = proMesh; this.jaws = [];
 
     // ---- opisthosoma (abdomen)
     const abD = new THREE.Color(wolf ? '#3e2c1c' : '#c4b8a2'), abK = new THREE.Color(wolf ? '#1e140c' : '#8a7e70'), abP = new THREE.Color(wolf ? '#9a8064' : '#ece2d0');
@@ -182,7 +183,7 @@ export class Spider {
     this.body.add(ped);
     if (P.hair) {
       const furCol = new THREE.Color('#6e5a44'), furCol2 = new THREE.Color('#a48c6c');
-      const f1 = shadowed(new THREE.Mesh(furOn(ac, ar, 1400, 0.03, furCol, furCol2, rand, (d) => d.y > -0.3), this.mats.body));
+      const f1 = shadowed(new THREE.Mesh(furOn(ac, ar, 1400, 0.03, furCol, furCol2, rand, (d) => d.y > -0.3 && !(opt.furHole && d.dot(opt.furHole.d) > opt.furHole.c)), this.mats.body));
       const f2 = shadowed(new THREE.Mesh(furOn(pc, pr, 500, 0.02, furCol, furCol2, rand, (d) => d.y > -0.1), this.mats.body));
       this.body.add(f1, f2);
     }
@@ -208,10 +209,10 @@ export class Spider {
     for (const s of [-1, 1]) {
       const ch = shadowed(new THREE.Mesh(colorize(new THREE.SphereGeometry(1, 16, 12).scale(wolf ? 0.022 : 0.008, wolf ? 0.032 : 0.012, wolf ? 0.02 : 0.008), (c) => c.set(wolf ? '#24170e' : '#a89880')), this.mats.body));
       ch.position.set(s * (wolf ? 0.019 : 0.008), pc[1] - (wolf ? 0.025 : 0.012), pc[2] + pr[2] * 0.85);
-      this.body.add(ch);
+      this.body.add(ch); this.jaws.push(ch);
       const fang = shadowed(new THREE.Mesh(colorize(new THREE.ConeGeometry(wolf ? 0.007 : 0.003, wolf ? 0.03 : 0.012, 6).rotateX(Math.PI).rotateZ(-s * 0.6), (c) => c.set('#080506')), this.mats.body));
       fang.position.set(s * (wolf ? 0.016 : 0.007), pc[1] - (wolf ? 0.06 : 0.024), pc[2] + pr[2] * 0.9);
-      this.body.add(fang);
+      this.body.add(fang); this.jaws.push(fang);
     }
 
     // ---- pedipalps (short front "arms")

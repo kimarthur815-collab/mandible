@@ -536,6 +536,12 @@ export class Centipede {
       (1 - s) * (1 - s) * a.z + 2 * (1 - s) * s * c.z + s * s * d.z);
     for (let n = 0; n < legs.length; n++) {
       const l = legs[n];
+      if (l.i < (this.hideLegs || 0)) {                     // (front pairs taken over by something else)
+        M.makeScale(0, 0, 0);
+        for (const im of [this.iCoxa, this.iFem, this.iTib, this.iT1, this.iT2, this.iT3]) im.setMatrixAt(n, M);
+        for (let j = 0; j < 3; j++) this.iJoint.setMatrixAt(n * 3 + j, M);
+        continue;
+      }
       const P = this.rPos[l.i], R = this.right[l.i], U = this.upv[l.i];
       hip.copy(P).addScaledVector(R, l.s * 0.15).addScaledVector(U, -0.02);
       C.copy(hip).addScaledVector(tmp.copy(R).multiplyScalar(l.s * 0.85).addScaledVector(U, -0.35).normalize(), l.Lc);
