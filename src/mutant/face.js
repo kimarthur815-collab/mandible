@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // A human head sculpted from a sphere: skull, brow, sockets, nose, starved cheeks, a mouth that opens.
 // Built at unit height (crown to chin = 1) facing +z; the group is scaled to the size asked for.
@@ -183,27 +184,22 @@ export function makeFace(opt = {}) {
   face.morphTargetInfluences = [0];
   face.castShadow = true; face.receiveShadow = true;
   head.add(face);
-  // ears
-  for (const s of [-1, 1]) {
-    const e = new THREE.SphereGeometry(1, 14, 10); e.scale(0.025, 0.075, 0.05);
-    const p = e.attributes.position; for (let i = 0; i < p.count; i++) if (p.getX(i) * s < 0) p.setX(i, p.getX(i) * 0.3);   // flat against the head
-    e.computeVertexNormals();
-    const em = new THREE.Mesh(e, new THREE.MeshPhysicalMaterial({ color: skin, roughness: 0.55, sheen: 0.4, sheenColor: new THREE.Color('#e8c8c8') }));
-    em.position.set(s * 0.385, -0.02, -0.04); em.rotation.y = s * 0.25; em.castShadow = true; head.add(em);
+  // ears (both in one mesh)
+  {
+    const parts = [-1, 1].map((s) => {
+      const e = new THREE.SphereGeometry(1, 14, 10); e.scale(0.025, 0.075, 0.05);
+      const p = e.attributes.position; for (let i = 0; i < p.count; i++) if (p.getX(i) * s < 0) p.setX(i, p.getX(i) * 0.3);   // flat against the head
+      return e.rotateY(s * 0.25).translate(s * 0.385, -0.02, -0.04);
+    });
+    const g = mergeGeometries(parts); g.computeVertexNormals();
+    const em = new THREE.Mesh(g, new THREE.MeshPhysicalMaterial({ color: skin, roughness: 0.55, sheen: 0.4, sheenColor: new THREE.Color('#e8c8c8') }));
+    em.castShadow = true; head.add(em);
   }
-  // eyes: human ones in their sockets; hollow ones are pits with only black at the bottom
-  // (unlit, so no light ever comes back out of them)
+  // eyes: human ones in their sockets; hollow ones are pits painted black (which the material keeps
+  // from giving back any light)
   const eyeMeshes = [];
   const surfZ = (ex, ey) => Math.sqrt(Math.max(0, 0.45 * 0.45 * (1 - (ex / 0.4) ** 2 - (ey / 0.5) ** 2)));
-  if (hollow) {
-    const black = new THREE.MeshBasicMaterial({ color: 0x000000 });
-    for (const [ex, ey, er, tall = 1] of eyeset) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(er * 0.95, 16, 12), black);
-      m.position.set(ex, ey, surfZ(ex, ey) - 0.085 * (er / 0.052) - 0.075 + er * 0.35);
-      m.scale.set(1 / Math.sqrt(tall), tall, 0.7);
-      head.add(m);
-    }
-  } else {
+  if (!hollow) {
     const eyeMat = new THREE.MeshPhysicalMaterial({ map: eyeTexture(eyeColor), roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.03 });
     for (const [ex, ey, er] of eyeset) {
       const r = er * 0.9;

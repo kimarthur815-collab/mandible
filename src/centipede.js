@@ -3,7 +3,6 @@ import { Tube } from './tube.js';
 import { sstep } from './textures.js';
 import { buildShell, colorize, smoothSeams } from './roach.js';
 import { buildHead } from './heads.js';
-import { handGeometry } from './mutant/limbs.js';
 
 const V3 = THREE.Vector3;
 const lerp = THREE.MathUtils.lerp;
@@ -78,7 +77,7 @@ function segMatrix(out, p0, p1, up, r) {
 // ============================================================ Centipede
 export class Centipede {
   constructor(T, opt = {}) {
-    const lite = this.lite = !!opt.lite;          // in-game: far fewer triangles, thin parts cast no shadow
+    const lite = !!opt.lite;          // in-game: far fewer triangles, thin parts cast no shadow
     this.group = new THREE.Group();
     this.time = 0;
     this.mode = 'idle';
@@ -206,44 +205,6 @@ export class Centipede {
     this.headStyle = style;
     this.headParts = buildHead(style, this.mats, this.T);
     this.head.add(this.headParts.group);
-  }
-  // hard mode: every leg a long human arm, a hand on the end gripping the floor (built the first time)
-  setArms(on) {
-    const legMeshes = [this.iCoxa, this.iFem, this.iTib, this.iT1, this.iT2, this.iT3, this.iJoint];
-    if (on && !this.armParts) {
-      const lite = this.lite, NL = this.legs.length;
-      const inst = (geo, mat, count, shadow) => {
-        const im = new THREE.InstancedMesh(geo, mat, count);
-        im.frustumCulled = false; im.castShadow = shadow; im.receiveShadow = true;
-        im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        this.group.add(im);
-        return im;
-      };
-      const skin = new THREE.MeshStandardMaterial({ color: '#b8aca2', roughness: 0.6 });
-      const handMat = new THREE.MeshStandardMaterial({ color: '#b8aca2', roughness: 0.55, vertexColors: true });
-      const radial = lite ? 6 : 10;
-      // (s = -1 a right hand, s = 1 a left one: either way the thumb points ahead)
-      const hg = [handGeometry({ lo: lite }), handGeometry({ lo: lite, mirror: true })];
-      const A = this.armParts = {
-        up: inst(limbCyl(radial, [1, 1.06, 1.08, 0.98, 0.84, 0.72, 0.7]), skin, NL, true),        // (a little biceps, then down to the elbow)
-        fore: inst(limbCyl(radial, [0.9, 1.0, 0.94, 0.82, 0.7, 0.6, 0.55]), skin, NL, !lite),     // (thick below the elbow, thin at the wrist)
-        knob: inst(new THREE.SphereGeometry(1, lite ? 6 : 12, lite ? 4 : 9), skin, NL * 3, !lite),
-        hands: hg.map((g) => inst(g, handMat, N_SEG, !lite)),
-        rise: -hg[0].boundingBox.min.y,         // wrist above the floor, per metre of hand
-      };
-      // pale, some greyer, some bruised
-      const c = new THREE.Color(), bruise = new THREE.Color('#8a7078');
-      this.legs.forEach((l, n) => {
-        c.setRGB(l.shade, l.shade * 0.96, l.shade * 0.93).lerp(bruise, Math.max(0, l.arch - 0.48) * 2.5);
-        A.up.setColorAt(n, c); A.fore.setColorAt(n, c);
-        for (let j = 0; j < 3; j++) A.knob.setColorAt(n * 3 + j, c);
-        A.hands[l.s > 0 ? 1 : 0].setColorAt(l.i, c);
-      });
-      for (const im of [A.up, A.fore, A.knob, ...A.hands]) im.instanceColor.needsUpdate = true;
-    }
-    this.arms = !!on;
-    for (const im of legMeshes) im.visible = !on;
-    if (this.armParts) for (const im of [this.armParts.up, this.armParts.fore, this.armParts.knob, ...this.armParts.hands]) im.visible = !!on;
   }
   get center() { return this.rPos[12]; }
   get headPos() { return this.rPos[0]; }
@@ -492,11 +453,9 @@ export class Centipede {
       const P = this.rPos[i], R = this.right[i], U = this.upv[i], T = this.tan[i];
       M.makeBasis(q.copy(R).multiplyScalar(w), U, T);
       M.setPosition(P.x + U.x * 0.03, P.y + U.y * 0.03, P.z + U.z * 0.03);
-      if (i === 0 && this.arms) M.makeScale(0, 0, 0);          // (the man's chest is there instead)
       this.terg.setMatrixAt(i, M);
       M.makeBasis(q.copy(R).multiplyScalar(w), U, T);
       M.setPosition(P.x - U.x * 0.035, P.y - U.y * 0.035, P.z - U.z * 0.035);
-      if (i === 0 && this.arms) M.makeScale(0, 0, 0);
       this.stern.setMatrixAt(i, M);
       const hgt = P.y;
       const sc = 1 + hgt * 0.8;
@@ -588,7 +547,6 @@ export class Centipede {
       (1 - s) * (1 - s) * a.x + 2 * (1 - s) * s * c.x + s * s * d.x,
       (1 - s) * (1 - s) * a.y + 2 * (1 - s) * s * c.y + s * s * d.y,
       (1 - s) * (1 - s) * a.z + 2 * (1 - s) * s * c.z + s * s * d.z);
-    if (this.arms) { this.poseArms(); return; }
     if (this.skipLegPose) return;                 // (someone else draws the legs)
     for (let n = 0; n < legs.length; n++) {
       const l = legs[n];
@@ -623,39 +581,6 @@ export class Centipede {
       M.makeScale(0.012 * sc, 0.012 * sc, 0.012 * sc).setPosition(Aa); this.iJoint.setMatrixAt(n * 3 + 2, M);
     }
     for (const im of [this.iCoxa, this.iFem, this.iTib, this.iT1, this.iT2, this.iT3, this.iJoint]) im.instanceMatrix.needsUpdate = true;
-  }
-
-  // the legs as arms: shoulder -> elbow (two-bone IK, the elbow up and out) -> wrist, the hand flat
-  // out past it with its fingers dug into the floor where the foot would be
-  poseArms() {
-    const A = this.armParts, M = this.mtx || (this.mtx = new THREE.Matrix4());
-    const hip = new V3(), C = new V3(), K = new V3(), W = new V3(), h = new V3(), tmp = new V3(), hx = new V3();
-    for (let n = 0; n < this.legs.length; n++) {
-      const l = this.legs[n];
-      const P = this.rPos[l.i], R = this.right[l.i], U = this.upv[l.i], F = l.foot;
-      const sc = 0.85 + 0.25 * l.k;
-      hip.copy(P).addScaledVector(R, l.s * 0.15).addScaledVector(U, -0.02);
-      C.copy(hip).addScaledVector(tmp.copy(R).multiplyScalar(l.s * 0.85).addScaledVector(U, -0.35).normalize(), l.Lc);
-      h.set(F.x - C.x, 0, F.z - C.z);
-      const hl = h.length() || 1; h.divideScalar(hl);
-      const Lh = 0.27 * sc, Lu = l.Lf + l.Lta * 0.3, Lo = l.Lt + l.Lta * 0.3;
-      W.copy(F).addScaledVector(h, -Lh * 0.8); W.y = F.y + A.rise * Lh;
-      const dx = Math.hypot(W.x - C.x, W.z - C.z), dy = W.y - C.y;
-      const D = clamp(Math.hypot(dx, dy), Math.abs(Lu - Lo) + 0.05, (Lu + Lo) * 0.995);
-      const al = Math.atan2(dy, dx);
-      const th = al + Math.acos(clamp((Lu * Lu + D * D - Lo * Lo) / (2 * Lu * D), -1, 1));
-      K.copy(C).addScaledVector(h, Lu * Math.cos(th)); K.y += Lu * Math.sin(th);
-      W.copy(C).addScaledVector(h, D * Math.cos(al)); W.y = C.y + D * Math.sin(al);     // (as far as it reaches)
-      A.up.setMatrixAt(n, segMatrix(M, C, K, UPV, 0.026 * sc));
-      A.fore.setMatrixAt(n, segMatrix(M, K, W, h, 0.022 * sc));
-      M.makeScale(0.034 * sc, 0.034 * sc, 0.034 * sc).setPosition(C); A.knob.setMatrixAt(n * 3, M);
-      M.makeScale(0.025 * sc, 0.025 * sc, 0.025 * sc).setPosition(K); A.knob.setMatrixAt(n * 3 + 1, M);
-      M.makeScale(0.018 * sc, 0.018 * sc, 0.018 * sc).setPosition(W); A.knob.setMatrixAt(n * 3 + 2, M);
-      hx.crossVectors(UPV, h);
-      M.makeBasis(hx.multiplyScalar(Lh), tmp.copy(UPV).multiplyScalar(Lh), h.multiplyScalar(Lh)).setPosition(W);
-      A.hands[l.s > 0 ? 1 : 0].setMatrixAt(l.i, M);
-    }
-    for (const im of [A.up, A.fore, A.knob, ...A.hands]) im.instanceMatrix.needsUpdate = true;
   }
 
   updateAntennae(t) {

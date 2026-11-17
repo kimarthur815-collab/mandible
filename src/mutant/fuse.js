@@ -1,11 +1,10 @@
 import * as THREE from 'three';
-import { makeFace } from './face.js';
-import { skinMaterial } from './limbs.js';
 import { makeGrinFace } from './grinface.js';
 import { skinMat } from './skin.js';
 
 // Hard mode: the radiation fused the bugs with the people who came in before you. Each fuse*(bug)
 // returns { set(on), update(dt, t, cam) }; the human parts are only built the first time they're on.
+// (The centipede's is in flesh.js.)
 const V3 = THREE.Vector3;
 
 // turn a head (in its parent's frame) toward a world point, within limits; k: how far this frame
@@ -62,61 +61,4 @@ function segment(out, a, b, r) {
   _z.set(0, 0, 1).addScaledVector(_y, -_y.z); if (_z.lengthSq() < 1e-8) _z.set(1, 0, 0); _z.normalize();
   _x.crossVectors(_y, _z);
   return out.makeBasis(_x.multiplyScalar(r), _y.multiplyScalar(len), _z.multiplyScalar(r)).setPosition(a);
-}
-
-// the centipede: where its head was, a man's bald head and chest, grinning, his eyes on you; and every
-// one of its legs a long human arm, the hands gripping the floor
-export function fuseCenti(c, { seg = 72 } = {}) {
-  let parts = null, body = null, f = null, on = false;
-  const rest = new THREE.Euler(-0.15, 0, 0), facePos = new V3(0, 0.27, 0.15), away = new V3(), hp = new V3();
-  const build = () => {
-    const skin = skinMaterial('#a89a90');
-    parts = new THREE.Group(); body = new THREE.Group(); parts.add(body);
-    const chest = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), skin);
-    chest.scale.set(0.17, 0.1, 0.17); chest.position.set(0, 0.05, -0.06);
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.065, 0.2, 12), skin);
-    neck.position.set(0, 0.16, 0.06); neck.rotation.x = 0.9;
-    body.add(chest, neck);
-    for (let k = 0; k < 5; k++) {
-      const r = new THREE.Mesh(new THREE.TorusGeometry(0.15 - k * 0.012, 0.008, 5, 16, Math.PI), skin);
-      r.rotation.set(Math.PI / 2, 0, Math.PI); r.position.set(0, 0.03, -0.02 - k * 0.045); r.scale.set(1, 1.1, 0.75);
-      body.add(r);
-    }
-    f = makeFace({ h: 0.25, mouth: 'grin', eyes: 'human', skin: '#a89a90', mottle: '#7a6470', seg });
-    f.group.position.copy(facePos); f.group.rotation.copy(rest);
-    parts.add(f.group);
-    parts.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-    c.head.add(parts);
-  };
-  return {
-    get face() { return f; },
-    set(v) {
-      on = !!v;
-      if (on && !parts) build();
-      if (parts) parts.visible = on;
-      c.headParts.group.visible = !on;
-      for (const a of c.ants) a.tube.mesh.visible = !on;
-      c.setArms(on);
-    },
-    update(dt, t, cam) {
-      if (!on || !c.group.visible) return;
-      // (the grin opens as it lunges, wide when it has you)
-      const wide = c.mode === 'kill' ? 1 : Math.max(c.b.lunge, c.b.curl * 0.6);
-      f.setOpen(0.15 + 0.1 * Math.sin(t * 0.7) + 0.22 * wide + 0.03 * wide * Math.sin(t * 21));
-      // when it has you the chest goes, and the face hangs right over yours, never quite touching
-      const kill = c.mode === 'kill';
-      body.visible = !kill;
-      if (kill) {
-        c.head.getWorldPosition(hp);
-        away.subVectors(hp, cam); const d = away.length() || 1;
-        hp.addScaledVector(away, Math.max(0, 0.34 - d) / d);
-        f.group.position.lerp(c.head.worldToLocal(hp), 1 - Math.exp(-dt * 12));
-        track(f.group, cam, rest, Math.PI, 1.5, 1 - Math.exp(-dt * 10));
-      } else {
-        f.group.position.lerp(facePos, 1 - Math.exp(-dt * 6));
-        track(f.group, cam, rest, 0.8, 0.4, 1 - Math.exp(-dt * 4));
-      }
-      f.lookAt(cam);
-    },
-  };
 }

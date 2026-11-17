@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { SP } from '../centipede.js';
 import { makeFace, noise3 } from './face.js';
 import { handGeometry } from './limbs.js';
@@ -128,6 +129,8 @@ export function fuseCentiFlesh(c, { lite = false } = {}) {
   let built = null, on = false;
   const rest = new THREE.Euler(-0.2, 0, 0), facePos = new V3(0, 0.21, 0.2);
   const legs = c.legs.filter((l) => ARMS.includes(l.i));
+  // where those legs put their feet: the arms reach further (put back when it's a centipede again)
+  const homes = (arms) => { for (const l of legs) { if (!l.home0) l.home0 = { lat: l.lat, fwd: l.fwd }; const h = arms ? l.armHome : l.home0; l.lat = h.lat; l.fwd = h.fwd; } };
   const build = () => {
     const mat = skinMat({ vertexColors: true });
     const body = new Body(c, mat, lite ? { sub: 4, radial: 22 } : {});
@@ -140,14 +143,10 @@ export function fuseCentiFlesh(c, { lite = false } = {}) {
     head.add(f.group);
     const neckMat = skinMat(); neckMat.color.set('#a08e92');
     const neckFrom = new V3(0, 0.06, -0.2), neckTo = new V3(0, 0.13, 0.12), M = new THREE.Matrix4();
-    const neck = new THREE.Mesh(limb(14, [1, 0.86, 0.78, 0.8, 0.9]), neckMat);
-    neck.matrixAutoUpdate = false; neck.matrix.copy(seg(M, neckFrom, neckTo, new V3(0, 0, 1), 0.075)); neck.castShadow = true;
-    head.add(neck);
-    for (const s of [-1, 1]) {                                // the cords down the sides of the neck
-      const cord = new THREE.Mesh(limb(8, [1, 0.8, 0.7, 0.8, 1]), neckMat);
-      cord.matrixAutoUpdate = false; cord.matrix.copy(seg(M, new V3(s * 0.06, 0.07, -0.12), new V3(s * 0.05, 0.14, 0.12), new V3(0, 0, 1), 0.018));
-      head.add(cord);
-    }
+    const neckParts = [limb(14, [1, 0.86, 0.78, 0.8, 0.9]).applyMatrix4(seg(M, neckFrom, neckTo, new V3(0, 0, 1), 0.075))];
+    for (const s of [-1, 1]) neckParts.push(limb(8, [1, 0.8, 0.7, 0.8, 1]).applyMatrix4(seg(M, new V3(s * 0.06, 0.07, -0.12), new V3(s * 0.05, 0.14, 0.12), new V3(0, 0, 1), 0.018)));   // (the cords down its sides)
+    const neck = new THREE.Mesh(mergeGeometries(neckParts), neckMat);
+    neck.castShadow = true; head.add(neck);
     c.head.add(head);
     // arms (one draw each for the upper arms, forearms, knuckled joints and the two hands)
     const armMat = skinMat(); armMat.color.set('#a48c96');
@@ -166,7 +165,7 @@ export function fuseCentiFlesh(c, { lite = false } = {}) {
     legs.forEach((l, i) => {
       const front = l.i === ARMS[0], k = ARMS.indexOf(l.i) / (ARMS.length - 1);
       // where its hands go (for the stepping): the front pair reaching far ahead, the rest out to the sides
-      l.lat = front ? 0.95 : 1.05 - 0.2 * k; l.fwd = front ? 0.85 : 0.3 - 0.75 * k;
+      l.armHome = { lat: front ? 0.95 : 1.05 - 0.2 * k, fwd: front ? 0.85 : 0.3 - 0.75 * k };
       l.arm = { Lu: front ? 0.62 : 0.55 - 0.08 * k, Lo: front ? 0.6 : 0.52 - 0.08 * k, Lh: front ? 0.42 : 0.37 - 0.05 * k };
       cc.set('#ffffff').multiplyScalar(0.88 + 0.12 * l.shade);
       arms.up.setColorAt(i, cc); arms.fore.setColorAt(i, cc); for (let j = 0; j < 3; j++) arms.knob.setColorAt(i * 3 + j, cc);
@@ -177,6 +176,7 @@ export function fuseCentiFlesh(c, { lite = false } = {}) {
   };
   // the arms: shoulder -> elbow (two-bone IK, the elbow up and out) -> wrist, the hand splayed past it
   const S = new V3(), K = new V3(), W = new V3(), h = new V3(), hx = new V3(), up = new V3(0, 1, 0), M = new THREE.Matrix4(), Z = new THREE.Matrix4().makeScale(0, 0, 0);
+  const hp = new V3(), fp = new V3(), away = new V3(), zero = new V3();
   const poseArms = () => {
     const A = built.arms;
     legs.forEach((l, i) => {
@@ -212,15 +212,27 @@ export function fuseCentiFlesh(c, { lite = false } = {}) {
       c.headParts.group.visible = !on;
       for (const a of c.ants) a.tube.mesh.visible = !on;
       c.skipLegPose = on;
+      if (built) homes(on);
     },
     // after the centipede's own update
     update(dt, t, cam) {
       if (!on || !c.group.visible) return;
       built.body.update();
       poseArms();
-      const f = built.f, wide = c.mode === 'kill' ? 1 : Math.max(c.b.lunge, c.b.curl * 0.6);
+      const f = built.f, kill = c.mode === 'kill', wide = kill ? 1 : Math.max(c.b.lunge, c.b.curl * 0.6);
       f.setOpen(0.62 + 0.24 * (0.5 + 0.5 * Math.sin(t * 1.3)) * (1 - wide) + 0.38 * wide + 0.03 * Math.sin(t * 19));
-      track(f.group, cam, rest, 0.8, 0.45, 1 - Math.exp(-dt * 4));
+      // when it has you, the head (neck and all) hangs right over your face, never quite into it
+      const hd = built.head;
+      if (kill) {
+        hd.getWorldPosition(hp); f.group.getWorldPosition(fp);
+        away.subVectors(fp, cam); const d = away.length() || 1;
+        hp.addScaledVector(away, Math.max(0, 0.4 - d) / d);         // (moved by as much as the face must back off)
+        hd.position.lerp(c.head.worldToLocal(hp), 1 - Math.exp(-dt * 12));
+        track(f.group, cam, rest, Math.PI, 1.5, 1 - Math.exp(-dt * 10));
+      } else {
+        hd.position.lerp(zero, 1 - Math.exp(-dt * 6));
+        track(f.group, cam, rest, 0.8, 0.45, 1 - Math.exp(-dt * 4));
+      }
     },
   };
 }

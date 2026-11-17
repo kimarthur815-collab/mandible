@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { noise3 } from './face.js';
 import { skinNormal } from './skin.js';
 
@@ -175,22 +176,10 @@ export function makeGrinFace({ h = 0.24, seg = 192, ears = true } = {}) {
   face.morphTargetInfluences = [0];
   face.castShadow = true; face.receiveShadow = true;
   head.add(face);
-  if (ears) {
-    const earMat = new THREE.MeshPhysicalMaterial({ color: '#c8b8c2', roughness: 0.5, sheen: 0.5, sheenColor: new THREE.Color('#f0d0dc'), side: THREE.DoubleSide });
-    for (const s of [-1, 1]) {
-      const em = new THREE.Mesh(earGeometry(s), earMat);
-      em.position.set(s * 0.375, -0.07, -0.05); em.rotation.set(0, s * 0.42, s * -0.08); em.castShadow = true;
-      head.add(em);
-    }
-  }
-  // the bottoms of the eyes: unlit black, so no light comes back out of them
-  const black = new THREE.MeshBasicMaterial({ color: 0x000000 });
-  for (const s of [-1, 1]) {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), black);
-    m.scale.set(EYE.hw * 0.92, EYE.hh * 1.0, 0.035);
-    m.rotation.z = s * EYE.tilt;
-    m.position.set(s * EYE.x, EYE.y, Math.sqrt(Math.max(0, 0.42 * 0.42 * (1 - (EYE.x / 0.39) ** 2 - (EYE.y / 0.5) ** 2))) - 0.1);
-    head.add(m);
+  if (ears) {                                                       // (both in one mesh)
+    const parts = [-1, 1].map((s) => earGeometry(s).applyMatrix4(new THREE.Matrix4().compose(new V3(s * 0.375, -0.07, -0.05), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, s * 0.42, s * -0.08)), new V3(1, 1, 1))));
+    const em = new THREE.Mesh(mergeGeometries(parts), new THREE.MeshPhysicalMaterial({ color: '#c8b8c2', roughness: 0.5, sheen: 0.5, sheenColor: new THREE.Color('#f0d0dc'), side: THREE.DoubleSide }));
+    em.castShadow = true; head.add(em);
   }
   let open = 0;
   const api = {

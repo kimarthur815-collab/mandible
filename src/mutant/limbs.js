@@ -56,7 +56,3 @@ export function handGeometry({ len = 1, curl = 0.6, mirror = false, lo = false, 
   g.computeBoundingBox();
   return g;
 }
-
-export function skinMaterial(color = '#cfc6bc') {
-  return new THREE.MeshPhysicalMaterial({ color, roughness: 0.55, clearcoat: 0.25, clearcoatRoughness: 0.5, sheen: 0.45, sheenRoughness: 0.5, sheenColor: new THREE.Color('#e6cccc') });
-}
