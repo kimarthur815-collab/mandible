@@ -3,6 +3,8 @@
 // + effects (steps, flashlight switch, roach skitter, wings, generators, lamps, doors).
 
 import { Music } from './music.js';
+import { Baked } from './bake.js';
+import { LoopSet } from './loops.js';
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
@@ -65,6 +67,7 @@ export class Sound {
     this.startTension();
     this.startChase();
     this.music = new Music(this);
+    this.baked = new Baked(this); this.baked.start();        // the heavy music, pre-rendered in the background (bake.js)
   }
   // background music: 'dusk' | 'night' | 'inside' | 'end' | 'off' (see music.js)
   setMusic(mode, o) { if (this.music && this.ctx.state === 'running') this.music.update(mode, o); }
@@ -1327,8 +1330,16 @@ export class Sound {
     this.chDrone.gain.setTargetAtTime(Lc > 0.03 ? 0.5 + Lc * 0.5 : 0, now, 0.3);
     this.chLP.frequency.setTargetAtTime(300 + Lc * 900, now, 0.2);
     // the centipede has its own chase (music.js centiStep: 7/8, the factory's tune in the brass); the spiders this one
-    const kind = s.chaseBy || ch.kind || 'spider';
-    if (Lc > 0.03) {
+    const kind = s.chaseBy || ch.kind || 'spider', bk = this.baked.ready[kind === 'centi' ? 'centi' : 'spider'];
+    ch.loops = ch.loops || {};
+    if (Lc > 0.03 && bk) {
+      // made already (bake.js): this kind's loops, crossfaded by how close it is (the other kind's go quiet)
+      ch.kind = kind; ch.run = false; ch.quietT = 0;
+      const key = kind === 'centi' ? 'centi' : 'spider';
+      if (!ch.loops[key]) ch.loops[key] = new LoopSet(ctx, bk, this.chBus);
+      ch.loops[key].mix(Lc, this.baked.levels[key]);
+      for (const k in ch.loops) if (k !== key) ch.loops[k].mute();
+    } else if (Lc > 0.03) {
       const centi = kind === 'centi', stepDur = centi ? 60 / (148 + Lc * 30) / 4 : 60 / (134 + Lc * 36) / 4, steps = centi ? 14 : 16;
       if (!ch.run || kind !== ch.kind) { ch.run = true; ch.next = now + 0.05; ch.step = 0; ch.bar = 0; ch.kind = kind; }
       // after a stall longer than we schedule ahead: skip the beats that were missed but stay on the beat
@@ -1339,6 +1350,8 @@ export class Sound {
         ch.next += stepDur; if (++ch.step >= steps) { ch.step = 0; ch.bar++; }
       }
     } else ch.run = false;
+    // a while after a chase the loops stop (the next one starts them from the top)
+    if (Lc <= 0.03 && (ch.quietT = (ch.quietT || 0) + s.dt) > 3) for (const k in ch.loops) { ch.loops[k].stop(); delete ch.loops[k]; }
     // hiding: the music drops away and leaves the heartbeat (which also steps aside for the chase drums)
     const hush = s.hush ? 0.2 : 1;
     this.tenGain.gain.setTargetAtTime(Math.pow(I, 1.4) * 0.5 * hush * (1 - Lc * 0.5), now, s.hush ? 0.6 : 0.2);

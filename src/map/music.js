@@ -12,6 +12,7 @@
 // its tune in the brass.
 // The chase music lives in audio.js; while it plays this steps back.
 
+import { LoopSet } from './loops.js';
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -259,7 +260,7 @@ export class Music {
       this.iHum.gain.setTargetAtTime(0.02 + T * 0.03, now, 2);
     }
     while (q.t < until) {
-      const e = 60 / (92 + 18 * T) / 2, t = q.t, bar = q.bar % 8, cyc = Math.floor(q.bar / 8);
+      const e = this.fixE || 60 / (92 + 18 * T) / 2, t = q.t, bar = q.bar % 8, cyc = Math.floor(q.bar / 8);
       // the pistons: heavy on 1, lighter on the 2s
       this.hit(t, P, 72, 36, 0.45, 0.32 + 0.12 * T);
       this.noise(t, P, { dur: 0.14, f: 180, q: 0.8, type: 'lowpass', gain: 0.22, buf: this.s.brown });
@@ -369,7 +370,12 @@ export class Music {
       // a new phase: what was playing fades out under it
       const at = now + 0.02, b = this.ctx.createGain(); b.connect(this.bus.escape);
       for (const o of q.bus) { o.gain.cancelScheduledValues(at); o.gain.setTargetAtTime(0, at, ph === 'drop' ? 0.8 : 0.1); }
+      if (q.loop) { q.loop.stop(2); q.loop = null; }
       q.bus = [b]; q.b = b; q.ph = ph; q.at = at; q.t = at; q.bar = 0;
+      // made already (bake.js)? then the duct and the run play from their loops
+      const B = this.s.baked && this.s.baked.ready;
+      if (ph === 'duct' && B && B.duct) q.loop = new LoopSet(this.ctx, B.duct, b);
+      if (ph === 'run' && B && B.run) { q.loop = new LoopSet(this.ctx, B.run, b, { loopStart: this.s.baked.runLoop }); q.loop.mix(0, [0]); }
       if (ph === 'drop') { this.roll(at, 1.75, 38, b, 0.05, 0.45); this.riser(at, 1.75, b, 0.7); }
       if (ph === 'run') { this.impact(at, b, 0.9); this.choir(at, [50, 57, 62, 65, 69], 2.2, b, { gain: 0.018, attack: 0.05, rel: 1 }); }
       if (ph === 'out') {
@@ -380,6 +386,7 @@ export class Music {
       }
     }
     const b = q.b;
+    if (q.loop) { if (ph === 'duct') q.loop.mix(k, this.s.baked.levels.duct, 1); return; }
     if (ph === 'duct') while (q.t < until) {
       // two bars at a time: low tremolo strings, a hummed choir, timpani swelling, a cello alone with the factory's tune
       const t = q.t, i = q.bar;
@@ -439,6 +446,7 @@ export class Music {
     const eq = this.eq;
     if (mode !== 'escape' && eq.ph && (eq.ph !== 'out' || now - eq.at > 8)) {
       if (eq.ph !== 'out') for (const g of eq.bus) { g.gain.cancelScheduledValues(now); g.gain.setTargetAtTime(0, now, 0.4); }
+      if (eq.loop) { eq.loop.stop(2); eq.loop = null; }
       eq.ph = null;
     }
     this.tension += ((o.tension ?? this.tension) - this.tension) * 0.02;
@@ -462,7 +470,15 @@ export class Music {
     const until = now + 1.0;          // a second ahead: a frame that stalls (a heavy moment on a phone) doesn't leave a hole
     if (want.dusk > 0 || this.lvl.dusk > 0.01) this.duskTo(until, this.bus.dusk, mode === 'end');
     if (want.night > 0 || this.lvl.night > 0.01) this.nightTo(until, this.bus.night);
-    if (want.inside > 0 || this.lvl.inside > 0.01) this.insideTo(until);
+    if (want.inside > 0 || this.lvl.inside > 0.01) {
+      const B = this.s.baked && this.s.baked.ready;
+      if (B && B.inside) {
+        // made already (bake.js): the loops, crossfaded by the tension; the hum as before
+        if (!this.iLoop) this.iLoop = new LoopSet(ctx, B.inside, this.iDest);
+        this.iLoop.mix(this.tension, this.s.baked.levels.inside, 1.5);
+        if (Math.abs(this.tension - this.iq.T) > 0.01) { this.iq.T = this.tension; this.iHum.gain.setTargetAtTime(0.02 + this.tension * 0.03, now, 2); }
+      } else this.insideTo(until);
+    }
     if (mode === 'escape' && o.phase) this.escapeTo(until, o.phase, o.k ?? 0.5);
   }
 }
