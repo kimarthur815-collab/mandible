@@ -1314,7 +1314,7 @@ function onAttach(r) {
   G.attachCd = ATTACH_CD;
   G.attached.push({ r, age: 0, shake: 0, rev: 0, lastSign: 0, taps: 0 });
   sfx.attach(); buzz(45); shudJolt = 1.8; shudNext = 0.6;
-  tip(touch ? '떼어내야 해! (화면 좌우로 흔들기 · 마우스 흔들기)' : '떼어내야 해! (마우스를 흔들거나 클릭 연타)', 'attach');
+  msg(touch ? '얼굴에 붙었다! 화면을 좌우로 흔들어 떼어내!' : '얼굴에 붙었다! 마우스를 흔들어 떼어내!');
   return true;
 }
 // caught by the centipede: your head is turned to it as it rears up, jaws working, then it strikes
@@ -2225,10 +2225,11 @@ function frame(dtOverride) {
   player.slowMul = Math.max(0.3, Math.max(0.4, 1 - 0.22 * G.attached.length) * (1 - G.lingSlow) * (G.webSlowT > 0 ? 0.5 : 1)) * (showMap ? 0.8 : journal.open ? 0.55 : 1);
   if (G.attached.length) {
     const a = G.attached[0];
+    if (a.age > (a.nag || 4)) { a.nag = a.age + 5; msg(touch ? '빨리! 화면을 마구 흔들어!' : '빨리! 마우스를 마구 흔들어!'); }   // still on you: say it again
     if (lookSign && lookSign !== a.lastSign) { a.rev++; a.lastSign = lookSign; }
     a.shake += lookMag;
     if (touch) { const ms = Math.abs(inp.mx) > 0.45 ? Math.sign(inp.mx) : 0; if (ms && ms !== a.lastMx) { a.rev++; a.lastMx = ms; a.shake += 0.3; } }
-    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); G.attachCd = ATTACH_CD; swarms.throwDead(a.r, player.pos, player.yaw); msg('떼어냈다!'); sfx.shakeOff(); sfx.roachDie(1); buzz(25); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; } }
+    if ((a.shake > 0.9 && a.rev >= 3) || a.taps >= 4) { G.attached.shift(); G.attachCd = ATTACH_CD; swarms.throwDead(a.r, player.pos, player.yaw); msg('떼어냈다!'); sfx.shakeOff(); sfx.roachDie(1); buzz(25); if (G.attached[0]) { G.attached[0].shake = 0; G.attached[0].rev = 0; G.attached[0].taps = 0; G.attached[0].nag = G.attached[0].age + 3; } }
   }
   // ...drawn up close on their own canvas; the world behind goes out of focus and shivers a little
   const faceN = faceBugs.update(dt, { list: G.attached, face: swarms.flyer.state === 'face', light: G.blackT > 0 ? 0.05 : G.flashOn ? Math.min(1, fl) : 0.12, bright: SET.bright });
