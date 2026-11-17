@@ -133,6 +133,9 @@ export function createFaceBugs(parent, { touch = false } = {}) {
       if (Math.hypot(q.x - p.x, q.z - p.z) < 3.0) { [c.tx, c.tz] = spot(c); c.state = 'move'; c.speed = Math.max(c.speed, 3.5); break; }
     }
     if (c.state === 'flee' && (Math.abs(p.x) > w + 4.5 || Math.abs(p.z) > h + 4.5)) { c.state = 'off'; show(c, false); return; }
+    // on your face it shivers all over, worst when it stops
+    const shiver = c.state === 'pause' ? 1 : c.state === 'move' ? 0.55 : 0.2;
+    r.shiver += (shiver - r.shiver) * Math.min(1, dt * 5);
     r.update(dt, null);
   }
   const free = () => R.crawlers.find((c) => !c.owner && c.state === 'off') || R.crawlers.find((c) => !c.owner);

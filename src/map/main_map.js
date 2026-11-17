@@ -259,6 +259,23 @@ for (const [room, p] of Object.entries(SPOTS.redLights)) {
   scene.add(light);
   reds[room] = { fixture, light, on: false };
 }
+// the production hall: a little cold light from the high windows all over it, and over each place the
+// wolf spider waits, a broken fluorescent fixture hanging off one chain. Once you come in, the one nearest
+// the spider sputters on
+const hallFill = [[3, 58], [15, 58]].map(([x, z]) => { const L = new THREE.PointLight(0x93a8d6, 0, 15, 1); L.position.set(x, 7.2, z); scene.add(L); return L; });
+const hallTubes = [[22.5, 56.2, Math.PI / 2], [4.3, 68.5, 0], [-4.5, 52.3, Math.PI / 2], [22.5, 65.2, Math.PI / 2]].map(([x, z, ry], i) => {
+  const g = new THREE.Group(); g.position.set(x, 4.6, z); g.rotation.y = ry;
+  const hang = new THREE.Group(); hang.position.x = 0.62; hang.rotation.z = 0.32 + 0.1 * i; g.add(hang);       // (dropped at one end)
+  const body = new THREE.Group(); body.position.x = -0.62; hang.add(body);
+  const metal = dress.metalMaterial(0xcfd2cf);
+  body.add(new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.07, 0.18), metal));
+  const glow = new THREE.MeshStandardMaterial({ color: 0x9a9c9a, emissive: new THREE.Color(0xe8f0ff), emissiveIntensity: 0, roughness: 0.3 });
+  for (const s of [-1, 1]) { const tb = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 1.18, 8), glow); tb.rotation.z = Math.PI / 2; tb.position.set(0, -0.05, s * 0.045); body.add(tb); }
+  const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 3.0, 4), metal); chain.position.set(0.62, 1.5, 0); g.add(chain);
+  const light = new THREE.PointLight(0xe4ecff, 0, 11, 1.5); light.position.set(0, -0.45, 0); body.add(light);
+  scene.add(g);
+  return { g, glow, light, x, z, k: 0, mode: 'off', timer: 0, lit: false };
+});
 
 // the notes: crumpled, torn-out notebook pages written in pen (the handwriting font loads in the page)
 const HAND = '"Nanum Pen Script", "Comic Sans MS", cursive';
@@ -551,6 +568,7 @@ function radioCall() {
   if (G.calls <= 0) { tip('무전기 배터리가 바닥났다... 더는 못 부른다'); return; }
   if (voice.busy) { tip('무전이 아직 이어지고 있다'); return; }
   G.calls--; G.stats.radio++; updateRadioBtn();
+  G.stuckT = 0; $('#bRadio').classList.remove('nudge');
   G.events.push({ x: player.pos.x, z: player.pos.z, r: 13 });          // the squelch carries
   const lines = [['나', '본부, 3조. ...어디로 가야 합니까?'], ['본부', `치익— ${radioHint()}`]];
   const extra = radioSituation(); if (extra) lines.push(['본부', extra]);
@@ -635,7 +653,7 @@ function resetGame() {
     tipped: {}, lampSeen: false, calls: 3, hp: D().hp, dead: false, kill: null, attached: [], attachCd: 0, chasing: false, chaseLen: 0, stingAt: -99, scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
-    cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false, lostT: 0, lostHints: 0, seenRooms: new Set(), glance: null, glanceAt: -99,
+    cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false, lostT: 0, lostHints: 0, stuckT: 0, stuckHints: 0, hallLit: false, seenRooms: new Set(), glance: null, glanceAt: -99,
     stats: { hits: 0, deaths: 0, spray: 0, thrown: 0, photos: 0, radio: 0, work: false },
     drop: null, dk: freshDuct(), ductJolt: 0, cine: null, readQ: [], reading: false,
   });
@@ -1131,7 +1149,7 @@ function endBlackout() {
   if (swarms.ambushNear(player.pos, player.yaw)) tip('...언제 이렇게 가까이 왔지');
 }
 function genOn(g) {
-  g.on = true; G.lostT = 0;
+  g.on = true; G.lostT = 0; G.stuckT = 0;
   G.gens++;
   G.events.push({ x: g.x, z: g.z, r: 30 });
   g.led.material.emissive.set(0x30ff60);
@@ -2060,6 +2078,13 @@ function frame(dtOverride) {
     if (showMap) G.lostT = Math.min(G.lostT, 0);
     else if (G.started && !G.dead && !G.won && !G.chasing && !G.hidden && !G.grab && !G.kill && !G.dk.in && !G.drop) G.lostT += dt;
     if (G.lostT > 55 && G.lostHints < 3) { G.lostHints++; G.lostT = -35; tip(`길을 못 찾겠다... 패드로 지도를 보자 (${KEY.map})`); }
+    // stuck: a long while since the last generator, still wandering: ask the base (the button pulses)
+    if (G.started && !G.dead && !G.won && !G.chasing && !G.grab && !G.kill && !G.dk.in && !G.drop) G.stuckT += dt;
+    if (G.stuckT > 150 && G.lostT > 20 && G.calls > 0 && G.stuckHints < 3 && !voice.busy) {
+      G.stuckHints++; G.stuckT = 60;
+      tip(`너무 헤매고 있다... 무전으로 본부에 길을 물어보자 (${KEY.radio}) · ${G.calls}번 남음`);
+      const b = $('#bRadio'); b.classList.add('nudge'); setTimeout(() => b.classList.remove('nudge'), 9000);
+    }
   }
   // who's after you: a spider or the centipede chasing drives the chase music, something searching keeps a low pulse
   let chaseD = 99;
@@ -2157,6 +2182,30 @@ function frame(dtOverride) {
     w.led.material.emissive.set(w.on ? 0x30ff60 : 0xff3010);
     if (w.on) sfx.lampLevel(w.x, w.z, k);
     if (!w.seen && !w.on && G.started && !G.dead && Math.hypot(player.pos.x - w.x, player.pos.z - w.z) < 4) { w.seen = true; tip('2조가 두고 간 작업등이다. 켜면 밝겠지만... 소리가 클 것 같다', 'work'); }
+  }
+  // ---- the hall: window light; the broken tube by the wolf spider sputtering away (dead in a blackout)
+  {
+    if (!G.hallLit && G.started && roomAt(player.pos.x, player.pos.z) === 'hall') G.hallLit = true;
+    for (const L of hallFill) L.intensity = G.started ? 4.5 : 0;
+    const w = spiders.wolf && spiders.wolf.s.root.position;
+    let live = null;
+    if (G.hallLit && w) for (const h of hallTubes) if (!live || Math.hypot(h.x - w.x, h.z - w.z) < Math.hypot(live.x - w.x, live.z - w.z)) live = h;
+    for (const h of hallTubes) {
+      let on = false;
+      if (h === live && G.blackT <= 0) {
+        // a tube on its way out: lit for a while, then a stutter of quick blinks, now and then dark a moment
+        h.timer -= dt;
+        if (h.timer <= 0) {
+          if (h.mode === 'on') { h.mode = Math.random() < 0.25 ? 'off' : 'stutter'; h.timer = h.mode === 'off' ? 0.4 + Math.random() * 1.4 : 0.3 + Math.random() * 0.9; }
+          else { h.mode = 'on'; h.timer = 0.6 + Math.random() * 3; }
+        }
+        on = h.mode === 'on' || (h.mode === 'stutter' && Math.random() < 0.45);
+      } else h.mode = 'off';
+      if (on && !h.lit) sfx.fluoroTick(h.x, 4.4, h.z);
+      h.lit = on;
+      h.k += ((on ? 1 : 0) - h.k) * Math.min(1, dt * (on ? 40 : 18));
+      h.light.intensity = 14 * h.k; h.glow.emissiveIntensity = 2.6 * h.k;
+    }
   }
   // ---- red emergency lights
   for (const [room, r] of Object.entries(reds)) {

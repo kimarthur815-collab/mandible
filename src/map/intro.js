@@ -12,7 +12,9 @@ const V3 = THREE.Vector3;
 const LANE_X = -2.0, SPEED = 9;
 const LOOP_FROM = -340;              // the drive loops over one period of the roadside forest, far from the yard
 const PARK = new V3(-1.6, 0, -12);   // where the truck stands at night, facing the dock
-const DOOR_OUT = new V3(1.45, 1.62, 1.45);   // standing beside the driver's door (truck frame)
+// getting out of the driver's door (truck frame): down onto the step in the open door, then back from it
+// far enough for it to swing shut (it is 1.1 m wide, hinged at x 0.85, z 2.2)
+const DOOR_STEP = new V3(1.2, 1.56, 1.5), DOOR_OUT = new V3(1.55, 1.62, 0.72);
 const SHUTTER_FRONT = new V3(0, 1.62, -3.4), INSIDE = new V3(0, 1.62, 1.0);
 const WALK = 1.45;                   // m/s
 const LINES = [
@@ -170,17 +172,19 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
         fadeK = 1 - ease((st - 0.3) / 1.4);
         if (st >= 2.6) { sfx.truckDoor(true); from = toWorld(truck.eye); to = toWorld(DOOR_OUT); go('exit'); }
       } else if (state === 'exit') {
-        // turn to the door, climb out, then face the dock
+        // turn to the door as it swings open, climb down onto the step, back off, shove it shut, face the dock
+        truck.setDoor(Math.min(ease(st / 0.8), 1 - ease((st - 2.6) / 0.4)));
         if (st < 0.9) { want.yaw = 1.1 * ease(st / 0.9); want.pitch = -0.05; }
         else {
           if (seated) { seated = false; stand.pos.copy(from); stand.yaw = head.yaw; stand.pitch = head.pitch; yaw0 = stand.yaw; }
-          const k = ease((st - 0.9) / 1.5);
-          stand.pos.lerpVectors(from, to, k); stand.pos.y = lerp(from.y, to.y, k) - Math.sin(k * Math.PI) * 0.18;
+          const a = ease((st - 0.9) / 1.1), b = ease((st - 1.9) / 0.8), step = toWorld(DOOR_STEP);
+          stand.pos.lerpVectors(from, step, a).lerp(to, b);
+          stand.pos.y = lerp(lerp(from.y, step.y, a), to.y, b) - Math.sin(a * Math.PI) * 0.18;
           const face = Math.atan2(SHUTTER_FRONT.x - to.x, SHUTTER_FRONT.z - to.z);
-          stand.yaw = yaw0 + wrap(face - yaw0) * ease((st - 1.6) / 1.2); stand.pitch = lerp(-0.05, -0.02, k);
-          if (st > 2.5 && !api._shut) { api._shut = true; sfx.truckDoor(false); }
+          stand.yaw = yaw0 + wrap(face - yaw0) * ease((st - 2.7) / 1.0); stand.pitch = lerp(-0.05, -0.02, a);
+          if (st > 2.95 && !api._shut) { api._shut = true; sfx.truckDoor(false); }
         }
-        if (st >= 2.9) { from = stand.pos.clone(); go('walk'); }
+        if (st >= 3.7) { from = stand.pos.clone(); go('walk'); }
       } else if (state === 'walk') {
         const d = from.distanceTo(SHUTTER_FRONT), k = Math.min(1, (st * WALK) / d);
         stand.pos.lerpVectors(from, SHUTTER_FRONT, k);
@@ -216,14 +220,15 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
         stand.pos.y = stepSound(dt, 1.15);
         if (pathI >= path.length) { sfx.truckDoor(true); from = stand.pos.clone(); to = toWorld(truck.eye); yaw0 = stand.yaw; go('outIn'); }
       } else if (state === 'outIn') {
-        // turn to the open door, climb in, settle facing the road
+        // turn to the door, pull it open, up onto the step, climb in, pull it shut, settle facing the road
+        truck.setDoor(Math.min(ease(st / 0.7), 1 - ease((st - 2.3) / 0.4)));
         if (!seated) {
           stand.yaw = yaw0 + wrap(-Math.PI / 2 - yaw0) * ease(st / 0.6);
-          const k = ease((st - 0.5) / 1.4);
-          stand.pos.lerpVectors(from, to, k); stand.pos.y = lerp(from.y, to.y, k) + Math.sin(k * Math.PI) * 0.12;
-          if (st >= 1.9) { seated = true; head.yaw = stand.yaw; head.pitch = stand.pitch; want.yaw = 0; want.pitch = -0.08; }
+          const a = ease((st - 0.6) / 0.6), b = ease((st - 1.1) / 1.0), step = toWorld(DOOR_STEP);
+          stand.pos.lerpVectors(from, step, a).lerp(to, b); stand.pos.y = lerp(lerp(from.y, step.y, a), to.y, b) + Math.sin(b * Math.PI) * 0.12;
+          if (st >= 2.1) { seated = true; head.yaw = stand.yaw; head.pitch = stand.pitch; want.yaw = 0; want.pitch = -0.08; }
         }
-        if (st >= 2.4 && !api._shut) { api._shut = true; sfx.truckDoor(false); }
+        if (st >= 2.65 && !api._shut) { api._shut = true; sfx.truckDoor(false); }
         if (st >= 3.4) { sfx.engine(true); go('outTalk'); showLine(0); }
       } else if (state === 'outTalk') {
         lineT += dt;

@@ -438,6 +438,7 @@ export class Roach {
     this.speed = 0; this.yawRate = 0; this.wing = 0; this.wingTarget = 0;
     this.flight = null; this.flapPhase = 0; this.flapAmp = 0; this.airborne = 0;
     this.walking = false; this.alarm = 0;
+    this.shiver = 0;          // 0..1: trembling all over (set from outside: a roach on your face)
     this.time = 0;
 
     // materials
@@ -796,7 +797,9 @@ export class Roach {
     const w = this.wing;
     const wl = sstep(0, 0.6, w), wh = sstep(0.35, 1, w);
     this.flapPhase += dt * Math.PI * 2 * 13;
-    const fa = this.flapAmp, fs = Math.sin(this.flapPhase), fs2 = Math.sin(this.flapPhase - 0.7);
+    // shivering: every so often the wings buzz half open in a burst
+    const sh = this.shiver, burst = sh * sstep(0.55, 0.8, Math.sin(t * 2.3) * Math.sin(t * 0.9 + 1.3) + 0.35);
+    const fa = this.flapAmp + 0.22 * burst, fs = Math.sin(this.flapPhase), fs2 = Math.sin(this.flapPhase - 0.7);
     for (const tg of this.tegmina) {
       const s = tg.side;
       // lift, splay, then beat about the body's long axis
@@ -821,9 +824,24 @@ export class Roach {
     this.contact.material.opacity = 0.75 * (1 - 0.75 * k);
     this.body.rotation.z = clamp(-this.yawRate * 0.015, -0.07, 0.07);
     this.abdomen.scale.set(1, 1 + 0.03 * Math.sin(t * 2.4), 1);
+    if (sh > 0) {
+      // the whole body buzzes on its legs (a beat of two fast wobbles, so it never settles into a rhythm),
+      // the belly pumps, and harder in the bursts
+      const k = sh * (0.7 + 0.6 * burst);
+      this.body.position.x = 0.09 * k * Math.sin(t * 61) * Math.sin(t * 17 + 0.6);
+      this.body.position.z = 0.1 * k * Math.sin(t * 53 + 1.1) * Math.sin(t * 13);
+      this.body.position.y += 0.04 * k * Math.sin(t * 73 + 2.0);
+      this.body.rotation.y = 0.12 * k * Math.sin(t * 47) * Math.sin(t * 11 + 2.1);
+      this.body.rotation.z += 0.14 * k * Math.sin(t * 67 + 0.3);
+      this.body.rotation.x += 0.07 * k * Math.sin(t * 43 + 1.7);
+      // and the claws scrabble where they grip
+      this.legs.forEach((l, i) => { if (!l.stepping) { l.foot.x += 0.04 * sh * 31 * Math.cos(t * 31 + i * 2.1) * dt; l.foot.z += 0.04 * sh * 27 * Math.cos(t * 27 + i * 1.3) * dt; } });
+      const pump = Math.sin(t * 9.5);
+      this.abdomen.scale.set(1 + 0.05 * sh * pump, 1 + 0.03 * Math.sin(t * 2.4) + 0.12 * sh * pump, 1 - 0.04 * sh * pump);
+    } else { this.body.position.x = 0; this.body.position.z = 0; this.body.rotation.y = 0; }
     this.head.rotation.set(0.35 - 0.12 * this.alarm + 0.04 * Math.sin(t * 0.7), clamp(this.yawRate * 0.04, -0.25, 0.25) + 0.06 * Math.sin(t * 0.45), 0);
     const chew = Math.max(0, Math.sin(t * 0.6)) > 0.7 ? 1 : 0;
-    for (const md of this.mandibles) md.m.rotation.set(0.15, -md.side * (0.08 + 0.2 * chew * Math.max(0, Math.sin(t * 9))), 0);
+    for (const md of this.mandibles) md.m.rotation.set(0.15, -md.side * (0.08 + 0.2 * Math.max(chew, sh) * Math.max(0, Math.sin(t * (9 + 7 * sh)))), 0);
 
     this.root.updateMatrix();
     this.root.updateMatrixWorld(true);
@@ -958,7 +976,7 @@ export class Roach {
       for (let i = 1; i < a.n; i++) {
         const k = i / (a.n - 1);
         const bp = (0.04 * Math.pow(k, 0.7) + 0.03 * Math.sin(t * 1.9 - k * 5 + a.ph) * k) * (1 - 0.55 * al) * (1 - 0.75 * this.airborne);
-        const by = a.side * 0.01 + 0.032 * Math.sin(t * 2.6 - k * 6.5 + a.ph * 2) * k + 0.03 * Math.sin(t * 7 + k * 9) * k * al;
+        const by = a.side * 0.01 + 0.032 * Math.sin(t * 2.6 - k * 6.5 + a.ph * 2) * k + 0.03 * Math.sin(t * 7 + k * 9) * k * al + 0.05 * this.shiver * Math.sin(t * 29 + k * 11 + a.ph) * k;
         q.multiply(qt.setFromEuler(e.set(bp, by, 0)));
         dir.set(0, 0, 1).applyQuaternion(q);
         a.P[i].copy(a.P[i - 1]).addScaledVector(dir, seg);

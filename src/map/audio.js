@@ -738,6 +738,13 @@ export class Sound {
     l.g.gain.setTargetAtTime(0.55, this.ctx.currentTime + 0.5, 0.15);
     this.lampSrc.set(`${x},${z}`, { ...l, p });
   }
+  // a broken fluorescent tube catching: the starter's tick and a short buzz
+  fluoroTick(x, y, z) {
+    if (!this.ctx) return;
+    const p = this.panner(x, y, z, 2, 1.1); p.connect(this.sfx);
+    this.burst({ dest: p, dur: 0.015, f: 3800, q: 2, gain: 0.22, attack: 0.001 });
+    this.tone({ dest: p, f0: 120, f1: 118, dur: 0.08 + Math.random() * 0.12, gain: 0.1, type: 'sawtooth', attack: 0.004 });
+  }
   lampLevel(x, z, k) {
     const l = this.lampSrc.get(`${x},${z}`);
     if (l) l.g.gain.setTargetAtTime(0.35 * k, this.ctx.currentTime, 0.01);

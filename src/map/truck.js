@@ -211,6 +211,9 @@ export function buildTruck() {
   const B = new P.Batch();
   const group = new THREE.Group(); group.name = 'truck';
   const add = (mat, g, col = 0xffffff) => B.add(mat, 'truck', g, col instanceof THREE.Color ? col : C(col));
+  // the driver's door (+x) is built apart, to swing open on its front hinge
+  const addDoor = (mat, g, col = 0xffffff) => B.add(mat, 'door', g, col instanceof THREE.Color ? col : C(col));
+  const onSide = (s) => (s > 0 ? addDoor : add);
   const box = (mat, w, h, d, x, y, z, col = 0xffffff, rx = 0, ry = 0, rz = 0) => { const g = P.box(w, h, d); if (rz) g.rotateZ(rz); if (rx) g.rotateX(rx); if (ry) g.rotateY(ry); g.translate(x, y, z); add(mat, g, col); };
   const both = (fn) => { fn(1); fn(-1); };
   // a textured panel facing back toward the seats (-z); rx leans its top away, ry turns it toward +x when negative
@@ -226,6 +229,8 @@ export function buildTruck() {
   const wsN = new THREE.Vector2(0.66, 0.32).normalize();   // outward normal of the windshield (z, y)
   const wsAt = (t, x, off = 0.036) => { const p = ws0.clone().lerp(ws1, t).addScaledVector(wsN, off); return [x, p.y, p.x]; };
   const winPts = [[1.14, 1.30], [2.14, 1.30], [1.90, 1.81], [1.14, 1.81]];
+  // the driver's door in (z, y): from the seam behind it to the one in front, up the pillar (clear of the wheel arch)
+  const doorPts = [[1.08, 0.78], [2.2, 0.78], [2.2, 1.26], [1.93, 1.84], [1.86, 1.91], [1.08, 1.91]];
   // the shell is solid, so from outside it painted over the windows: cut them open. Its flat sides are
   // replaced by panels with the side-window holes, and the stretch of the slope where the windshield is
   // by a frame round the glass (from inside the shell is culled, so this only changes the outside)
@@ -242,15 +247,23 @@ export function buildTruck() {
       for (let k = i; k < i + 3; k++) { P3.push(pos.getX(k), pos.getY(k), pos.getZ(k)); N3.push(nor.getX(k), nor.getY(k), nor.getZ(k)); U2.push(uvA.getX(k), uvA.getY(k)); }
     }
     const append = (g) => { g = g.index ? g.toNonIndexed() : g; g.computeVertexNormals(); const a = g.attributes.position, nn = g.attributes.normal, u = g.attributes.uv; for (let k = 0; k < a.count; k++) { P3.push(a.getX(k), a.getY(k), a.getZ(k)); N3.push(nn.getX(k), nn.getY(k), nn.getZ(k)); U2.push(u.getX(k), u.getY(k)); } };
-    // the flat sides with the window holes (outline in (z, y); one side built mirrored so both face out)
-    for (const sgn of [1, -1]) {
-      const sh = new THREE.Shape(prof.map(([z, y]) => new THREE.Vector2(sgn * z, y)));
-      sh.holes.push(new THREE.Path(winPts.map(([z, y]) => new THREE.Vector2(sgn * z, y))));
+    // the flat sides with the window holes (outline in (z, y); one side built mirrored so both face out);
+    // on the driver's side (sgn -1, +x) the hole is the whole door, which is a panel of its own
+    const sidePanel = (sgn, outline, hole) => {
+      const sh = new THREE.Shape(outline.map(([z, y]) => new THREE.Vector2(sgn * z, y)));
+      sh.holes.push(new THREE.Path(hole.map(([z, y]) => new THREE.Vector2(sgn * z, y))));
       const g = new THREE.ShapeGeometry(sh);
       if (sgn < 0) g.rotateY(Math.PI);
       g.translate(0, 0, sgn * 0.85); g.rotateY(-Math.PI / 2);
-      append(g);
-    }
+      return g;
+    };
+    append(sidePanel(1, prof, winPts));
+    append(sidePanel(-1, prof, doorPts));
+    const door = sidePanel(-1, doorPts, winPts).toNonIndexed(); door.computeVertexNormals();
+    { const p = door.attributes.position, col = new Float32Array(p.count * 3), lo = C('#8f897d'), hi = C('#ffffff'), c = new THREE.Color();
+      for (let i = 0; i < p.count; i++) { c.copy(lo).lerp(hi, THREE.MathUtils.smoothstep(p.getY(i), 0.6, 1.1)); col.set([c.r, c.g, c.b], i * 3); }
+      door.setAttribute('color', new THREE.BufferAttribute(col, 3)); }
+    addDoor('paint', door);
     // the windshield frame: the old panel's outline less the glass (x +-0.74 at the bottom, +-0.72 at the top)
     if (t1 > t0) {
       const L = wsLen, sh = new THREE.Shape([[-0.81, t0 * L], [0.81, t0 * L], [0.81, t1 * L], [-0.81, t1 * L]].map(([u, v]) => new THREE.Vector2(u, v)));
@@ -274,9 +287,9 @@ export function buildTruck() {
 
   // ---- glass: windshield on the slope, door windows on both sides
   add('glass', quad4(wsAt(0.06, -0.74), wsAt(0.06, 0.74), wsAt(0.95, 0.72), wsAt(0.95, -0.72)));
-  both((s) => add('glass', sidePoly(winPts, s * (SX + 0.008))));
+  both((s) => onSide(s)('glass', sidePoly(winPts, s * (SX + 0.008))));
   // a dark rubber surround so the glass edge reads from outside
-  both((s) => { for (const [a, b] of [[0, 1], [1, 2], [2, 3], [3, 0]]) { const [za, ya] = winPts[a], [zb, yb] = winPts[b]; add('plastic', between(new V3(s * (SX + 0.006), ya, za), new V3(s * (SX + 0.006), yb, zb), 0.018, 4), C('#1b1c1c')); } });
+  both((s) => { for (const [a, b] of [[0, 1], [1, 2], [2, 3], [3, 0]]) { const [za, ya] = winPts[a], [zb, yb] = winPts[b]; onSide(s)('plastic', between(new V3(s * (SX + 0.006), ya, za), new V3(s * (SX + 0.006), yb, zb), 0.018, 4), C('#1b1c1c')); } });
   for (const [ta, xa, tb, xb] of [[0.06, -0.75, 0.06, 0.75], [0.95, -0.73, 0.95, 0.73], [0.06, 0.75, 0.95, 0.73], [0.06, -0.75, 0.95, -0.73]]) add('plastic', between(new V3(...wsAt(ta, xa, 0.03)), new V3(...wsAt(tb, xb, 0.03)), 0.02, 4), C('#1b1c1c'));
 
   // ---- cab front: grille, lamps, bumper, wipers, beacon, mirrors, door seams and handles
@@ -303,9 +316,11 @@ export function buildTruck() {
     box('plastic', 0.07, 0.27, 0.15, s * 1.04, 1.43, 2.14, C('#1d1e1e'));
     box('mirror', 0.06, 0.24, 0.005, s * 1.04, 1.43, 2.064);
     // door: seams, handle, step
-    box('plastic', 0.006, 1.2, 0.008, s * (SX + 0.004), 1.32, 1.08, C('#4a4844'));
-    box('plastic', 0.006, 0.55, 0.008, s * (SX + 0.004), 0.98, 2.2, C('#4a4844'));
-    box('plastic', 0.02, 0.035, 0.13, s * (SX + 0.01), 1.16, 1.3, C('#1e1f1f'));
+    const side = onSide(s);
+    const sbox = (w, h, d, x, y, z, col) => { const g = P.box(w, h, d); g.translate(x, y, z); side('plastic', g, col); };
+    sbox(0.006, 1.2, 0.008, s * (SX + 0.004), 1.32, 1.08, C('#4a4844'));
+    sbox(0.006, 0.55, 0.008, s * (SX + 0.004), 0.98, 2.2, C('#4a4844'));
+    sbox(0.02, 0.035, 0.13, s * (SX + 0.01), 1.16, 1.3, C('#1e1f1f'));
     box('plastic', 0.2, 0.03, 0.34, s * 0.78, 0.55, 1.0, C('#2a2b2b'));
   });
 
@@ -378,7 +393,7 @@ export function buildTruck() {
   };
   // door/side trim with the window cut out (a 3 cm frame shows round the glass)
   const inset = (pts, d) => { const cz = pts.reduce((a, q) => a + q[0], 0) / pts.length, cy = pts.reduce((a, q) => a + q[1], 0) / pts.length; return pts.map(([z, y]) => [z + Math.sign(cz - z) * d, y + Math.sign(cy - y) * d]); };
-  both((s) => add('trim', flat([[0.97, 0.8], [2.3, 0.8], [2.3, 1.22], [1.98, 1.88], [1.9, 1.92], [0.97, 1.92]], [winPts.map(([z, y]) => [z, y])], (z, y) => [s * 0.8, y, z]), trim));
+  both((s) => onSide(s)('trim', flat([[0.97, 0.8], [2.3, 0.8], [2.3, 1.22], [1.98, 1.88], [1.9, 1.92], [0.97, 1.92]], [winPts.map(([z, y]) => [z, y])], (z, y) => [s * 0.8, y, z]), trim));
   // windshield frame: the inside of the slope with the glass area cut out
   {
     const L = ws0.distanceTo(ws1), dir = ws1.clone().sub(ws0).normalize();
@@ -389,7 +404,7 @@ export function buildTruck() {
   { const g = new THREE.PlaneGeometry(1.62, 1.12); g.translate(0, 1.36, 0.975); add('trim', g, trim); }  // back wall
   box('trim', 1.62, 0.02, 1.4, 0, 0.8, 1.6, C('#18191a'));                                             // floor
   both((s) => {
-    box('trim', 0.06, 0.06, 0.34, s * 0.77, 1.1, 1.45, dark);                                          // arm rest
+    { const g = P.box(0.06, 0.06, 0.34); g.translate(s * 0.77, 1.1, 1.45); onSide(s)('trim', g, dark); }               // arm rest
     box('trim', 0.42, 0.02, 0.18, s * 0.4, 1.89, 1.87, C('#45464a'), 0.3);                             // sun visor
   });
   add('trim', between(new V3(0.72, 1.52, 2.06), new V3(0.71, 1.7, 1.99), 0.012, 5), C('#2a2b2c'));    // grab handle on the pillar
@@ -486,6 +501,9 @@ export function buildTruck() {
   for (const k of ['gauges', 'climate', 'nav', 'lcd']) materials[k].emissiveMap = materials[k].map;
   const meshes = B.build(materials, group, new Set(['paint', 'alu', 'plastic', 'bumper', 'boxSide', 'boxBack', 'trim', 'fabric', 'wheel']));
   for (const m of meshes) if (m.userData.dressMat === 'glass') { m.renderOrder = 3; m.castShadow = false; }
+  // the driver's door on its hinge (the front edge, at the side of the cab)
+  const doorPivot = new THREE.Group(); doorPivot.position.set(SX, 0, 2.2); group.add(doorPivot);
+  for (const m of meshes) if (m.userData.room === 'door') { doorPivot.add(m); m.position.set(-SX, 0, -2.2); }
 
   // wheels as their own meshes so they can turn
   const wheels = wheelParts.map((w) => {
@@ -525,6 +543,8 @@ export function buildTruck() {
       for (const h of heads) h.intensity = night ? 120 : 60;
     },
     setRinging(on) { ringing = on; },
+    // the driver's door: 0 shut .. 1 open wide (it swings out, its back edge away from the cab)
+    setDoor(k) { doorPivot.rotation.y = -1.3 * k; },
     // dt in s, speed in m/s: turn wheels, spin the beacon, blink the radio while it rings
     update(dt, speed = 0) {
       t += dt;
