@@ -1,8 +1,8 @@
 // Background music, synthesised like the rest of the sound (no audio files).
 //  dusk   — the title drive at sunset: warm, a little lonely; a shadow at the end of every turn round
 //  night  — parked in the dark yard: crickets, wind, a low drone and glassy swells
-//  inside — the factory: a low bowed drone, a slow chromatic line creeping down, stray piano notes and
-//           bowed metal; tightens as the night goes on (ticking, a distant pulse)
+//  inside — the factory: a machine somewhere in the building beating in 7/8 (3+2+2) over a low hum, a cold
+//           vibraphone tune on top; as the night goes on it comes closer (clanks, steam, ticking, a low braam)
 //  end    — the drive home: the dusk tune again, slower and darker
 // The chase music lives in audio.js; while it plays this steps back.
 
@@ -32,9 +32,11 @@ const TUNE = [
   [6, 0, 64, 2], [6, 2, 62, 2], [6, 4, 60, 4],
   [7, 0, 71, 4], [7, 4, 68, 4],
 ];
-// inside: the line that creeps down over the drone (D), and the notes the piano strays onto
-const CREEP = [53, 52, 51, 50, 49, 50, 46, 45];
-const STRAY = [50, 51, 53, 57, 58, 61, 62, 63, 65];
+// inside: the vibraphone tune, in eighths, locked to the machine's 3+2+2: [bar of 8, eighth, note, length]
+const MOTIF = [
+  [0, 0, 74, 3], [0, 3, 69, 2], [0, 5, 70, 2], [1, 0, 73, 7],
+  [4, 0, 77, 3], [4, 3, 76, 2], [4, 5, 74, 2], [5, 0, 69, 7],
+];
 
 export class Music {
   constructor(snd) {
@@ -52,7 +54,7 @@ export class Music {
     this.mode = 'off';
     this.dq = { next: 0, i: 0, pass: 0 };
     this.nq = { next: 0, crick: [0, 0, 0], glass: 0 };
-    this.iq = { next: 0, creep: 0, stray: 0, metal: 0, pulse: 0, tick: 0 };
+    this.iq = { t: 0, bar: 0, T: -1 };
     this.tension = 0.2;
     this.built = {};
   }
@@ -185,49 +187,87 @@ export class Music {
   }
 
   // ------------------------------------------------------------ inside the factory
-  buildInside() {
-    const ctx = this.ctx, dest = this.bus.inside;
-    // low bowed drone on D, breathing
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 360; lp.Q.value = 0.9;
-    const dg = ctx.createGain(); dg.gain.value = 0.07; lp.connect(dg); dg.connect(dest);
-    for (const [f, d] of [[36.71, -6], [36.71, 7], [55.0, 3], [73.42, -4]]) {
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = d;
-      const g = ctx.createGain(); g.gain.value = f > 60 ? 0.25 : 0.5; o.connect(g); g.connect(lp); o.start();
+  // vibraphone: a sine with its 4th partial, a motor tremolo
+  vib(when, m, dur, dest, { vel = 1, pan = 0, trem = 0.5 } = {}) {
+    const ctx = this.ctx, f = mtof(m);
+    const am = ctx.createGain(); am.gain.value = 1 - trem / 2; this.pan(am, pan, dest);
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 4.6; const lg = ctx.createGain(); lg.gain.value = trem / 2;
+    lfo.connect(lg); lg.connect(am.gain); lfo.start(when); lfo.stop(when + dur + 0.1);
+    for (const [r, g, dk] of [[1, 0.075, dur], [4.0, 0.02, 0.3], [1.003, 0.02, dur * 0.8]]) {
+      const o = ctx.createOscillator(); o.frequency.value = f * r;
+      const e = ctx.createGain(); e.gain.setValueAtTime(0, when); e.gain.linearRampToValueAtTime(g * vel, when + 0.004); e.gain.exponentialRampToValueAtTime(0.0001, when + 0.004 + dk);
+      o.connect(e); e.connect(am); o.start(when); o.stop(when + dk + 0.05);
     }
-    const br = ctx.createOscillator(); br.frequency.value = 0.09; const bg = ctx.createGain(); bg.gain.value = 0.03;
-    br.connect(bg); bg.connect(dg.gain); br.start();
-    const sw = ctx.createOscillator(); sw.frequency.value = 0.05; const sg = ctx.createGain(); sg.gain.value = 120;
-    sw.connect(sg); sg.connect(lp.frequency); sw.start();
+    this.noise(when, am, { dur: 0.012, f: 2200, q: 2, gain: 0.012 * vel });
   }
-  insideTo(until, dest) {
-    const q = this.iq, T = this.tension;
-    // the creeping line: one long bowed note after another, a step down each time
-    while (q.creep < until) {
-      const m = CREEP[q.cI = ((q.cI || 0) + 1) % CREEP.length];
-      this.bow(q.creep, m, 7.5, dest, { gain: 0.022 + T * 0.02, cut: 600 + T * 500, pan: rnd(-0.3, 0.3) });
-      if (T > 0.55) this.bow(q.creep + 0.4, m + 13, 7, dest, { gain: 0.008 + (T - 0.55) * 0.02, cut: 1400, pan: rnd(-0.6, 0.6) });   // a minor ninth above, later on
-      q.creep += 8;
+  // a short plucked string: two saws through a filter that closes after the bite
+  pluck(when, m, dur, dest, { gain = 0.03, cut = 600, pan = 0, res = 1 } = {}) {
+    const ctx = this.ctx, f = mtof(m);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = res;
+    lp.frequency.setValueAtTime(cut * 3, when); lp.frequency.exponentialRampToValueAtTime(cut, when + 0.15);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(gain, when + 0.008);
+    g.gain.setTargetAtTime(gain * 0.45, when + 0.01, Math.max(0.03, dur * 0.4)); g.gain.setTargetAtTime(0, when + dur, 0.05);
+    lp.connect(g); this.pan(g, pan, dest);
+    for (const d of [-6, 6]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = d;
+      o.connect(lp); o.start(when); o.stop(when + dur + 0.4);
     }
-    // a stray piano note now and then (sometimes two, a half step apart)
-    while (q.stray < until) {
-      const t = q.stray, m = pick(STRAY), p = rnd(-0.7, 0.7);
-      this.ep(t, m, 2.5, dest, { vel: rnd(0.5, 0.8), pan: p, ratio: 3.5, bite: 0.9, decay: 1.6 });
-      if (Math.random() < 0.25) this.ep(t + rnd(0.15, 0.6), m + 1, 2.5, dest, { vel: 0.4, pan: -p, ratio: 3.5, bite: 0.8, decay: 1.6 });
-      q.stray += rnd(5, 11) * (1 - T * 0.4);
+  }
+  // struck metal: a few inharmonic partials ringing out, the knock of the hit
+  clank(when, dest, { f = 380, gain = 0.03, pan = 0 } = {}) {
+    const ctx = this.ctx, out = ctx.createGain(); out.gain.value = gain; this.pan(out, pan, dest);
+    for (const [r, g, dk] of [[1, 1, 0.7], [2.76, 0.6, 0.4], [5.4, 0.4, 0.25], [8.93, 0.25, 0.14]]) {
+      const o = ctx.createOscillator(); o.frequency.value = f * r * rnd(0.995, 1.005);
+      const e = ctx.createGain(); e.gain.setValueAtTime(0, when); e.gain.linearRampToValueAtTime(g, when + 0.002); e.gain.exponentialRampToValueAtTime(0.0001, when + 0.002 + dk);
+      o.connect(e); e.connect(out); o.start(when); o.stop(when + dk + 0.05);
     }
-    // bowed metal somewhere in the dark
-    while (q.metal < until) {
-      this.metal(q.metal, pick([196, 207.7, 277.2, 311.1]), dest, { gain: 0.016 + T * 0.012, up: rnd(1.2, 2.5), down: rnd(3, 5), pan: rnd(-0.9, 0.9) });
-      q.metal += rnd(11, 20);
+    this.noise(when, out, { dur: 0.03, f: 2400, q: 1.5, gain: 0.8 });
+  }
+  buildInside() {
+    const ctx = this.ctx;
+    this.iDest = ctx.createGain(); this.iDest.gain.value = 0.85; this.iDest.connect(this.bus.inside);
+    // everything the machine does goes through this: far away (muffled) early on, right here later
+    const dist = this.iDist = ctx.createBiquadFilter(); dist.type = 'lowpass'; dist.frequency.value = 280; dist.Q.value = 0.7; dist.connect(this.iDest);
+    // its hum, on D
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 150;
+    const hum = this.iHum = ctx.createGain(); hum.gain.value = 0.02; lp.connect(hum); hum.connect(this.iDest);
+    for (const [f, type, a] of [[36.71, 'sawtooth', 0.6], [73.42, 'sine', 0.5]]) {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = f;
+      const og = ctx.createGain(); og.gain.value = a; o.connect(og); og.connect(lp); o.start();
     }
-    // later on: a far pulse, like a machine's heart, then a clock ticking over it
-    while (q.pulse < until) {
-      if (T > 0.3) { this.hit(q.pulse, dest, 58, 34, 0.7, 0.16 + (T - 0.3) * 0.25); this.hit(q.pulse + 0.32, dest, 52, 32, 0.6, 0.1 + (T - 0.3) * 0.18); }
-      q.pulse += 2.2 - T * 0.6;
+  }
+  insideTo(until) {
+    const q = this.iq, T = this.tension, now = this.ctx.currentTime, dest = this.iDest, P = this.iDist;
+    if (Math.abs(T - q.T) > 0.01) {
+      q.T = T;
+      P.frequency.setTargetAtTime(260 + Math.pow(T, 1.6) * 5200, now, 1.5);
+      this.iHum.gain.setTargetAtTime(0.02 + T * 0.03, now, 2);
     }
-    while (q.tick < until) {
-      if (T > 0.5) this.noise(q.tick, dest, { dur: 0.018, f: q.tk = !q.tk ? 2600 : 2100, q: 6, gain: 0.035 + (T - 0.5) * 0.08, attack: 0.001 });
-      q.tick += 0.5;
+    while (q.t < until) {
+      const e = 60 / (92 + 18 * T) / 2, t = q.t, bar = q.bar % 8, cyc = Math.floor(q.bar / 8);
+      // the pistons: heavy on 1, lighter on the 2s
+      this.hit(t, P, 72, 36, 0.45, 0.32 + 0.12 * T);
+      this.noise(t, P, { dur: 0.14, f: 180, q: 0.8, type: 'lowpass', gain: 0.22, buf: this.s.brown });
+      this.hit(t + 3 * e, P, 64, 36, 0.3, 0.2 + 0.08 * T);
+      this.hit(t + 5 * e, P, 64, 36, 0.3, 0.17 + 0.08 * T);
+      if (T > 0.25) this.clank(t + (bar % 2 ? 4 : 2) * e, P, { f: bar % 2 ? 410 : 340, gain: 0.03 + (T - 0.25) * 0.06, pan: bar % 2 ? 0.4 : -0.4 });
+      if (T > 0.45) this.noise(t + 6 * e, P, { dur: 0.22, f: 4500, q: 0.7, type: 'highpass', gain: 0.03 + (T - 0.45) * 0.08, attack: 0.06 });
+      if (T > 0.65) { const n = T > 0.82 ? 14 : 7; for (let i = 0; i < n; i++) this.noise(t + i * (7 * e / n), P, { dur: 0.008, f: 6500, q: 5, gain: (i % (n / 7 * 3) === 0 ? 0.03 : 0.015) * (T - 0.4), attack: 0.001, pan: 0.3 }); }
+      // the bass under it: D D Eb, and every fourth bar D C C# back home
+      const BS = bar % 4 === 3 ? [[0, 38, 3], [3, 36, 2], [5, 37, 2]] : [[0, 38, 3], [3, 38, 2], [5, 39, 2]];
+      for (const [k, m, len] of BS) this.pluck(t + k * e, m, len * e * 0.85, dest, { gain: 0.04 + T * 0.035, cut: 150 + T * 450, res: 2 });
+      // the tune, every other time round early on, every time later; an octave above it, then a wrong ghost of it
+      if (cyc % 2 === 0 || T > 0.45) {
+        for (const [bb, k, m, len] of MOTIF) if (bb === bar) {
+          this.vib(t + k * e, m, Math.max(1.6, len * e * 1.6), dest, { vel: 0.9, pan: -0.15 });
+          if (T > 0.6) this.vib(t + k * e + 0.01, m + 12, len * e * 1.4, dest, { vel: 0.35 + (T - 0.6), pan: 0.3, trem: 0.7 });
+          if (T > 0.8) this.vib(t + k * e + e, m + 13, len * e, dest, { vel: 0.3, pan: 0.6 });
+        }
+      }
+      // a low braam at the top of the cycle, late on
+      if (bar === 0 && T > 0.7) this.pad(t, [26, 38, 45], 7 * e * 1.6, dest, { cut: 650, gain: 0.03 + (T - 0.7) * 0.08, attack: 0.5, rel: 2.5 });
+      q.t += 7 * e; q.bar++;
     }
   }
 
@@ -241,7 +281,7 @@ export class Music {
       if (mode === 'night' && !this.built.night) { this.built.night = true; this.buildNight(); }
       if (mode === 'night') { this.nq.crick = [now + 0.5, now + 1.3, now + 2.4]; this.nq.glass = now + 2; }
       if (mode === 'inside' && !this.built.inside) { this.built.inside = true; this.buildInside(); }
-      if (mode === 'inside' && from !== 'inside') { const q = this.iq; q.creep = now + 1; q.stray = now + 4; q.metal = now + 9; q.pulse = now + 3; q.tick = now + 3; }
+      if (mode === 'inside' && from !== 'inside') this.iq.t = now + 0.4;
     }
     this.tension += ((o.tension ?? this.tension) - this.tension) * 0.02;
     const duck = o.duck ?? 1;
@@ -255,11 +295,11 @@ export class Music {
     // after a stall (a hidden tab) skip what was missed rather than play it all at once
     const late = now - 0.3, q = this.iq, nq = this.nq;
     if (this.dq.next < late) this.dq.next = now;
-    for (const k of ['creep', 'stray', 'metal', 'pulse', 'tick']) if (q[k] < late) q[k] = now + rnd(0, 1);
+    if (q.t < late) q.t = now + 0.1;
     nq.crick = nq.crick.map((v) => (v < late ? now + rnd(0, 0.5) : v)); if (nq.glass < late) nq.glass = now + 1;
     const until = now + 0.35;
     if (want.dusk > 0 || this.lvl.dusk > 0.01) this.duskTo(until, this.bus.dusk, mode === 'end');
     if (want.night > 0 || this.lvl.night > 0.01) this.nightTo(until, this.bus.night);
-    if (want.inside > 0 || this.lvl.inside > 0.01) this.insideTo(until, this.bus.inside);
+    if (want.inside > 0 || this.lvl.inside > 0.01) this.insideTo(until);
   }
 }
