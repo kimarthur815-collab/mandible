@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { buildExterior, ROAD_PERIOD } from './exterior.js';
 import { buildTruck } from './truck.js';
+import { hqClips } from './hqvox.js';
 
 const V3 = THREE.Vector3;
 const LANE_X = -2.0, SPEED = 9;
@@ -132,12 +133,22 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
   let from = null, to = null, yaw0 = 0, yaw1 = 0;
   let lines = LINES, finish = () => onDone(true), path = null, pathI = 0;
   const go = (s) => { state = s; st = 0; };
+  // the base's voice: its recording, or (not in, and not on its way) the garble; false while it's still coming
+  // in (the recordings are fetched at the first tap, which may be the one that answers the call)
+  let radioWait = 0;
+  const radioVoice = (text, dur, late) => {
+    const c = hqClips(text);
+    if (c && sfx.playRadio(c.names, c.gaps)) return true;
+    if (c && !late && sfx.clipsPending(c.names)) return false;
+    if (/사각|기어/.test(text)) sfx.radioSkitter(dur); else sfx.chatter(dur - 0.6);
+    return true;
+  };
   const showLine = (i) => {
-    line = i; lineT = 0;
+    line = i; lineT = 0; radioWait = 0; sfx.radioStop();       // (a tap cuts the base off mid-sentence)
     if (i >= lines.length) { ui.subtitle(null); return; }
     const [who, text, dur] = lines[i];
     ui.subtitle(who, text);
-    if (who === '본부') { sfx.squelch(); if (/사각|기어/.test(text)) sfx.radioSkitter(dur); else sfx.chatter(dur - 0.6); }
+    if (who === '본부') { sfx.squelch(); if (!radioVoice(text, dur, false)) radioWait = 2; }
     else if (!/^[('"]/.test(text)) sfx.mumble(Math.min(2.2, 0.5 + text.length * 0.06));   // (not for what you read or what happens)
   };
   // a footstep each half stride while walking
@@ -230,6 +241,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     },
     update(dt) {
       time += dt; st0 = st; st += dt;
+      if (radioWait > 0 && line >= 0 && line < lines.length) { radioWait -= dt; if (radioVoice(lines[line][1], lines[line][2], radioWait <= 0)) radioWait = 0; }
       // ---- the truck
       if (state === 'title' || state === 'call' || state === 'fadeout') {
         g.position.z += speed * dt;

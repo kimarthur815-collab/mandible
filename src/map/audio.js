@@ -735,12 +735,22 @@ export class Sound {
     for (const n of names) {
       if (n in this.clips) continue;
       this.clips[n] = null;
-      fetch(`voice/${n}.mp3`).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)))
-        .then((b) => new Promise((ok, no) => this.ctx.decodeAudioData(b, ok, no))).then((buf) => { this.clips[n] = buf; })
+      this.prefetch([n]);
+      this.raw[n].then((b) => new Promise((ok, no) => this.ctx.decodeAudioData(b, ok, no))).then((buf) => { this.clips[n] = buf; })
         .catch(() => { this.clips[n] = false; });
     }
   }
+  // fetched ahead, before there's sound to decode them with (the opening call's first words)
+  prefetch(names) {
+    this.raw = this.raw || {};
+    for (const n of names) {
+      if (this.raw[n]) continue;
+      this.raw[n] = fetch(`voice/${n}.mp3`).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)));
+      this.raw[n].catch(() => {});
+    }
+  }
   clip(n) { return (this.clips && this.clips[n]) || null; }
+  clipsPending(names) { return !!this.clips && names.some((n) => this.clips[n] === null); }
   // a line off a tape, played on the recorder in your hand: the button's click, the line, the click at its end
   playTape(n) {
     const b = this.clip(n);
@@ -750,6 +760,29 @@ export class Sound {
     this.burst({ dur: 0.02, f: 2200, q: 2, gain: 0.2 }); s.start(ctx.currentTime + 0.04);
     this.burst({ t: b.duration + 0.06, dur: 0.02, f: 1800, q: 2, gain: 0.18 });
     return b.duration;
+  }
+  // the base on the radio: its recorded pieces one after another under a little hiss, after the squelch, and the
+  // click of the key let go; a new call (or radioStop) cuts the last one off. 0 if a piece isn't in
+  playRadio(names, gaps = []) {
+    const bufs = names.map((n) => this.clip(n));
+    if (!this.ctx || !bufs.length || !bufs.every(Boolean)) return 0;
+    this.radioStop();
+    const ctx = this.ctx, t0 = ctx.currentTime, g = ctx.createGain(); g.gain.value = 1.8; g.connect(this.sfx);
+    let t = 0.28;
+    const src = bufs.map((b, i) => {
+      const s = ctx.createBufferSource(); s.buffer = b; s.connect(g); s.start(t0 + t);
+      t += b.duration + (i < bufs.length - 1 ? gaps[i] || 0.15 : 0); return s;
+    });
+    this.burst({ dest: g, t: 0.2, dur: t - 0.1, f: 2200, q: 0.4, gain: 0.014, attack: 0.05 });
+    this.burst({ dest: g, t: t + 0.02, dur: 0.1, f: 1800, q: 0.7, gain: 0.06 });
+    this._radio = { g, src };
+    return t + 0.12;
+  }
+  radioStop() {
+    const r = this._radio; this._radio = null;
+    if (!r) return;
+    const now = this.ctx.currentTime; r.g.gain.setTargetAtTime(0, now, 0.03);
+    for (const s of r.src) { try { s.stop(now + 0.15); } catch (e) { /* already done */ } }
   }
   // the tape stopping dead
   tapeCut() { if (this.ctx) { this.burst({ dur: 0.02, f: 1800, q: 2, gain: 0.28 }); this.tone({ f0: 300, f1: 80, dur: 0.12, gain: 0.15 }); } }

@@ -18,6 +18,7 @@ import { PassageGate, Phantom, DeadWorker, GATE, BODY, LeeBody, LEE } from './sc
 import { createVisions } from './visions.js';
 import { createDread, DREAD_CLIPS } from './dread.js';
 import { createIntro } from './intro.js';
+import { HQ_VOX, hqClips } from './hqvox.js';
 import { createMarks } from './marks.js';
 import { createFaceBugs } from './facebugs.js';
 import { createCans } from './cans.js';
@@ -321,7 +322,12 @@ const voice = (() => {
       if (d) v.dur = d + 0.7; else sfx.mimic(v.dur, v.at.x, v.at.y, v.at.z, v.at.muffle);
     }
     else if (v.kind === 'whisper') sfx.whisper(v.dur);
-    else { sfx.squelch(); if (/사각|기어/.test(v.text)) sfx.radioSkitter(v.dur - 0.4); else sfx.chatter(v.dur - 0.6); }
+    else {
+      // the base's recorded voice if its pieces are in (the line lasts as long as they do); the garble if not
+      sfx.squelch();
+      const c = hqClips(v.text), d = c && sfx.playRadio(c.names, c.gaps);
+      if (d) v.dur = d + 0.45; else if (/사각|기어/.test(v.text)) sfx.radioSkitter(v.dur - 0.4); else sfx.chatter(v.dur - 0.6);
+    }
   };
   return {
     // lines: [[who, text, seconds?, clip?]]; kind: 'radio', 'tape' or 'mimic' (a voice from somewhere in the
@@ -334,7 +340,7 @@ const voice = (() => {
       else if (t < 0) t += dt;
       else if (q.length) { cur = q.shift(); t = 0; show(cur); }
     },
-    clear() { q.length = 0; cur = null; t = 0; show(null); },
+    clear() { q.length = 0; cur = null; t = 0; show(null); sfx.radioStop(); },
     get busy() { return !!cur || q.length > 0; },
   };
 })();
@@ -2482,7 +2488,8 @@ function syncFs() {
 document.addEventListener('fullscreenchange', syncFs);
 // sound needs a first tap or key press before the browser lets it play
 // (on the main screen the factory's own sounds stay off until you are inside)
-const firstSound = () => { sfx.start(); if (intro && intro.active) sfx.introMode(true); };
+sfx.prefetch(Object.values(HQ_VOX).filter((n) => n.startsWith('hq_i')));
+const firstSound = () => { sfx.start(); sfx.loadVoices(Object.values(HQ_VOX)); if (intro && intro.active) sfx.introMode(true); };
 addEventListener('pointerdown', firstSound, { once: true, capture: true });
 addEventListener('keydown', firstSound, { once: true, capture: true });
 // the main screen wants the whole screen; browsers only allow that from a tap, so the first tap on it asks
@@ -2530,7 +2537,7 @@ function beginGame({ fromIntro = false, quiet = false } = {}) {
   sfx.introMode(false); sfx.engine(false);
   if (G.started) return;
   G.started = true; setMask(true);
-  sfx.loadVoices([...TAPES.flatMap((r) => r.lines.map((l) => l[3]).filter(Boolean)), ...DREAD_CLIPS]);   // the recorded voices
+  sfx.loadVoices([...TAPES.flatMap((r) => r.lines.map((l) => l[3]).filter(Boolean)), ...DREAD_CLIPS, ...Object.values(HQ_VOX)]);   // the recorded voices
   setTimeout(() => faceBugs.prepare(), 1500);       // build the close-up roaches while it's quiet
   G.hp = D().hp; G.spray = D().spray;
   if (fromIntro) sfx.slam();                      // the shutter comes down behind you
