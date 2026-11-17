@@ -21,8 +21,9 @@ const CT = { x0: 16.8, x1: 17.6, z0: 38.6, z1: 40.4 };   // the table against th
 
 // The wolf spider lives on the walls of the production hall. It waits there, head down; light it or
 // come within 6 m and it comes down and runs you down across the floor, now and then taking to a wall
-// alongside you. Put the beam on it while it hunts and it bolts for the nearest wall, climbs out of
-// reach for a few seconds, then comes back. Leave the hall (or get far away) and it goes back to a wall.
+// alongside you. It isn't fast, but it doesn't let go: the beam only makes it flinch and slow (keep it on
+// it for a few seconds and it does go up a wall, briefly); out of the hall it waits ten seconds for you
+// to come back, and on its way home it turns round if you come near.
 const HALL = { x0: -5.7, x1: 23.7, z0: 46.3, z1: 69.7, h: 8 };
 const WR = 0.42;  // the wolf's body distance from an edge when it rolls between floor and wall
 // the hall's walls: origin at floor level, T along the wall, N into the room; door gaps to stay off
@@ -410,7 +411,7 @@ export class MapSpiders {
   perchWolf(sp, [wi, u, h]) {
     const w = HALL_WALLS[wi], s = sp.s;
     sp.grabbed = false; s.caught = false; s.state = 'chase'; s.speed = 0;
-    sp.g = { phase: 'perch', surf: wi, u, h, hT: h, t: 0, pos: new V3(), yaw: 0, q: null, holdT: 0, graceT: 0, chaseT: 0, outT: 0, burst: 0, go: true, wallRun: 0, cn: null, seed: Math.random() * 10, perch: [wi, u, h] };
+    sp.g = { phase: 'perch', surf: wi, u, h, hT: h, t: 0, pos: new V3(), yaw: 0, q: null, holdT: 0, graceT: 0, chaseT: 0, outT: 0, burst: 0, go: true, wallRun: 0, cn: null, seed: Math.random() * 10, perch: [wi, u, h], litT: 0, flinch: 0, flinchCd: 0 };
     this.poseWolf(sp, 0);
   }
   // put the body where the state says, facing fwd (world), then run the leg rig
@@ -531,18 +532,22 @@ export class MapSpiders {
     if (g.phase === 'chase') {
       g.chaseT += dt;
       g.outT = playerIn ? 0 : g.outT + dt;
-      if (!ctx.alive || g.outT > 3 || dP > 18 || ctx.safe) g.phase = 'home';
+      if (!ctx.alive || g.outT > 10 || dP > 30 || ctx.safe) g.phase = 'home';
       else if (lit && g.graceT <= 0) {
-        // the beam: bolt for the nearest wall and get up out of reach
-        g.phase = 'bolt'; g.holdT = 2.5 + Math.random() * 1.5;
-        this.onWolfLit && this.onWolfLit(sp);
+        // the beam: a flinch (not more than every 4 s), slower while it's lit; only held on it a good while
+        // does it bolt for the nearest wall, and not for long
+        g.litT += dt;
+        if (g.flinchCd <= 0) { g.flinch = 0.45; g.flinchCd = 4; this.onWolfLit && this.onWolfLit(sp); }
+        if (g.litT > 3.5) { g.phase = 'bolt'; g.holdT = 1.5 + Math.random(); g.litT = 0; }
       }
     }
+    if (!lit) g.litT = Math.max(0, (g.litT || 0) - dt * 0.5);
+    g.flinch = (g.flinch || 0) - dt; g.flinchCd = (g.flinchCd || 0) - dt;
     // you hid: it lost you, and searches round the spot where you went
     if (g.phase === 'chase' && ctx.hidden) this.wolfSearch(g, nav, P);
     // after a grab it gives up for a while and goes back to its wall; otherwise it comes back for you
     if (g.phase === 'hold' && g.holdT <= 0) {
-      if (g.afterGrab) { g.phase = 'home'; g.afterGrab = false; g.wakeCd = 6; }
+      if (g.afterGrab) { g.phase = 'home'; g.afterGrab = false; g.wakeCd = 3; }
       else if (ctx.hidden) this.wolfSearch(g, nav, P);
       else { g.phase = 'chase'; g.graceT = 1.6; g.want = 'floor'; g.hT = WR; }
     }
@@ -552,11 +557,14 @@ export class MapSpiders {
       if (!ctx.hidden && ctx.alive && playerIn && !ctx.safe && (dP < 6 || lit)) { g.phase = 'chase'; g.graceT = Math.min(g.graceT, 0.8); g.chaseT = 0; this.onWolfWake && this.onWolfWake(sp); }   // there you are
       else if (g.searchT <= 0 || !ctx.alive || g.outT > 3) { g.phase = 'home'; g.wakeCd = 4; }
     }
+    // on its way home it turns round if you come near
+    if (g.phase === 'home' && ctx.alive && playerIn && !ctx.safe && !ctx.hidden && g.wakeCd <= 0 && dP < 7) { g.phase = 'chase'; g.graceT = Math.min(g.graceT, 0.8); g.chaseT = 0; g.want = 'floor'; g.hT = WR; }
     g.wakeCd = (g.wakeCd || 0) - dt;
     // jerky rhythm
     g.burst -= dt;
-    if (g.burst <= 0) { const srch = g.phase === 'search'; g.go = Math.random() < (srch ? 0.55 : 0.82); g.burst = g.go ? 0.5 + Math.random() * 0.9 : srch ? 0.5 + Math.random() * 1.2 : 0.12 + Math.random() * 0.3; }
-    let speed = g.phase === 'perch' || g.phase === 'hold' ? 0 : g.phase === 'bolt' ? 5.2 : g.phase === 'home' ? 2.6 : g.phase === 'search' ? (g.go ? 1.9 : 0) : g.go ? 4.6 * catchUp(dP) : 0.4;
+    if (g.burst <= 0) { const srch = g.phase === 'search'; g.go = Math.random() < (srch ? 0.55 : 0.93); g.burst = g.go ? 0.5 + Math.random() * 0.9 : srch ? 0.5 + Math.random() * 1.2 : 0.1 + Math.random() * 0.15; }
+    let speed = g.phase === 'perch' || g.phase === 'hold' ? 0 : g.phase === 'bolt' ? 5.2 : g.phase === 'home' ? 2.6 : g.phase === 'search' ? (g.go ? 1.9 : 0) : g.go ? 3.8 * catchUp(dP) : 0.4;
+    if (g.phase === 'chase') speed *= g.flinch > 0 ? 0 : lit ? 0.6 : 1;      // the beam: it stops short, then comes on slower
 
     if (g.surf === 'floor') {
       if (g.phase === 'chase') {
@@ -644,7 +652,7 @@ export class MapSpiders {
   }
   wolfSearch(g, nav, P) {
     const k = nav.nearestFree(P.x, P.z, 16);
-    g.phase = 'search'; g.searchT = 7 + Math.random() * 3; g.seek = null; g.seekT = 0; g.outT = 0;
+    g.phase = 'search'; g.searchT = 14 + Math.random() * 4; g.seek = null; g.seekT = 0; g.outT = 0;
     g.spt = new V3(k >= 0 ? nav.cx(k) : P.x, 0, k >= 0 ? nav.cz(k) : P.z);
     g.want = 'floor'; g.hT = WR; g.wallRun = 0;
   }

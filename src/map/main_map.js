@@ -153,57 +153,6 @@ const lamps = SPOTS.lamps.map((s, i) => {
   return { ...s, idx: i, bulb, light, leverPivot, on: false, burnt: false, t: 0 };
 });
 
-// ------------------------------------------------------------------ team 2's work light in the hall
-// A battery floodlight on a tripod by the hall's door. On, it lights up the whole hall, but the switch and
-// its hum carry: the wolf spider comes down off its wall. It goes out with everything else in a blackout.
-const workLight = (() => {
-  const W = { x: 13.3, z: 47.5 }, aim = new THREE.Vector3(16, 1.2, 60);
-  const g = new THREE.Group(); g.position.set(W.x, 0, W.z);
-  const steel = dress.metalMaterial(0x2c2e31), yellow = dress.metalMaterial(0xc99a1e), rubber = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.9 });
-  const hub = new THREE.Vector3(0, 1.0, 0);
-  for (let k = 0; k < 3; k++) {
-    const a = (k / 3) * Math.PI * 2 + 0.4, foot = new THREE.Vector3(Math.sin(a) * 0.55, 0.02, Math.cos(a) * 0.55);
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.018, foot.distanceTo(hub), 8), steel);
-    leg.position.copy(foot).add(hub).multiplyScalar(0.5);
-    leg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), hub.clone().sub(foot).normalize());
-    const shoe = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.036, 0.04, 10), rubber); shoe.position.set(foot.x, 0.02, foot.z);
-    g.add(leg, shoe);
-  }
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.12, 12), steel); collar.position.y = 1.0;
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.024, 1.2, 10), steel); mast.position.y = 1.6;
-  g.add(collar, mast);
-  // the head: a yoke and a box lamp, turned to the hall and tipped down a little
-  const head = new THREE.Group(); head.position.y = 2.22;
-  const yaw = Math.atan2(aim.x - W.x, aim.z - W.z);
-  head.rotation.set(0, yaw, 0, 'YXZ');
-  const tilt = new THREE.Group(); tilt.rotation.x = 0.1; head.add(tilt);
-  const housing = new THREE.Mesh(boxGeom(0.48, 0.34, 0.13, 0, 0, 0), yellow);
-  const glassMat = new THREE.MeshStandardMaterial({ color: 0x9a9a92, roughness: 0.25, emissive: new THREE.Color(0xfff6e8), emissiveIntensity: 0 });
-  const glass = new THREE.Mesh(boxGeom(0.42, 0.28, 0.01, 0, 0, 0.066), glassMat);
-  tilt.add(housing, glass);
-  for (let k = 0; k < 7; k++) tilt.add(new THREE.Mesh(boxGeom(0.012, 0.3, 0.05, -0.21 + k * 0.07, 0, -0.088), steel));    // cooling fins
-  for (const sx of [-1, 1]) head.add(new THREE.Mesh(boxGeom(0.02, 0.2, 0.05, sx * 0.265, -0.06, 0), steel));         // the yoke
-  head.add(new THREE.Mesh(boxGeom(0.55, 0.02, 0.05, 0, -0.16, 0), steel));
-  g.add(head);
-  // its battery on the floor, a cable up the mast, and a green '2조' daub on the case
-  const batt = new THREE.Mesh(boxGeom(0.34, 0.24, 0.22, 0.42, 0.12, 0.25), yellow);
-  const led = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), new THREE.MeshStandardMaterial({ color: 0x220000, emissive: new THREE.Color(0xff3010), emissiveIntensity: 1.4 }));
-  led.position.set(0.42, 0.245, 0.37);
-  const cable = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(0.36, 0.2, 0.2), new THREE.Vector3(0.2, 0.02, 0.12), new THREE.Vector3(0.05, 0.03, 0.04), new THREE.Vector3(0.03, 0.6, 0.02), new THREE.Vector3(0.03, 2.1, 0.02)]), 24, 0.008, 6), rubber);
-  g.add(batt, led, cable);
-  for (const m of [housing, batt]) { m.castShadow = true; m.receiveShadow = true; }
-  scene.add(g);
-  // the light: a wide flood from the head, and the light it throws back off the floor and walls
-  const spot = new THREE.SpotLight(0xf4f0e8, 0, 40, 0.92, 0.6, 1.3);
-  head.updateWorldMatrix(true, true);
-  spot.position.copy(glass.getWorldPosition(new THREE.Vector3()));
-  spot.target.position.copy(aim);
-  const fill = new THREE.PointLight(0xc9d4e2, 0, 26, 1.2); fill.position.set(10, 5.5, 58);
-  scene.add(spot, spot.target, fill);
-  colliders.push({ x0: W.x - 0.35, x1: W.x + 0.35, z0: W.z - 0.35, z1: W.z + 0.35 });
-  return { ...W, spot, fill, glassMat, led, on: false, t: 0, k: 0 };
-})();
-
 // ------------------------------------------------------------------ one zone at a time
 // Until a room's generator runs, the way on is taped off: the machine room's generator opens the corridor,
 // the hall's opens the lab. Walk up to the tape and you say so.
@@ -258,11 +207,11 @@ for (const [room, p] of Object.entries(SPOTS.redLights)) {
   scene.add(light);
   reds[room] = { fixture, light, on: false };
 }
-// the production hall: a little cold light from the high windows all over it, and over each place the
-// wolf spider waits, a broken fluorescent fixture hanging off one chain. Once you come in, the one nearest
-// the spider sputters on
-const hallFill = [[3, 58], [15, 58]].map(([x, z]) => { const L = new THREE.PointLight(0x93a8d6, 0, 15, 1); L.position.set(x, 7.2, z); scene.add(L); return L; });
-const hallTubes = [[22.5, 56.2, Math.PI / 2], [4.3, 68.5, 0], [-4.5, 52.3, Math.PI / 2], [22.5, 65.2, Math.PI / 2]].map(([x, z, ry], i) => {
+// the production hall: cold light from the high windows all over it, and broken fluorescent fixtures
+// hanging off one chain (one over each place the wolf spider waits, three over the floor). Once you come
+// in, the one nearest the spider sputters on, and now and then one of the others catches for a while
+const hallFill = [[3, 58], [15, 58]].map(([x, z]) => { const L = new THREE.PointLight(0x93a8d6, 0, 18, 1); L.position.set(x, 7.2, z); scene.add(L); return L; });
+const hallTubes = [[22.5, 56.2, Math.PI / 2], [4.3, 68.5, 0], [-4.5, 52.3, Math.PI / 2], [22.5, 65.2, Math.PI / 2], [3, 57, 0.3], [13, 52.5, 0], [11, 64, Math.PI / 2]].map(([x, z, ry], i) => {
   const g = new THREE.Group(); g.position.set(x, 4.6, z); g.rotation.y = ry;
   const hang = new THREE.Group(); hang.position.x = 0.62; hang.rotation.z = 0.32 + 0.1 * i; g.add(hang);       // (dropped at one end)
   const body = new THREE.Group(); body.position.x = -0.62; hang.add(body);
@@ -273,7 +222,7 @@ const hallTubes = [[22.5, 56.2, Math.PI / 2], [4.3, 68.5, 0], [-4.5, 52.3, Math.
   const chain = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 3.0, 4), metal); chain.position.set(0.62, 1.5, 0); g.add(chain);
   const light = new THREE.PointLight(0xe4ecff, 0, 11, 1.5); light.position.set(0, -0.45, 0); body.add(light);
   scene.add(g);
-  return { g, glow, light, x, z, k: 0, mode: 'off', timer: 0, lit: false };
+  return { g, glow, light, x, z, k: 0, mode: 'off', timer: 1 + i * 1.7, lit: false };
 });
 
 // the notes: crumpled, torn-out notebook pages written in pen (the handwriting font loads in the page)
@@ -554,7 +503,8 @@ function radioHint() {
 function radioSituation() {
   if (centi.state === 'poke') return '머리를 들이밀면 손전등을 비춰라. 빛을 받으면 물러난다.';
   if (centi.active && centi.state === 'chase') return G.gens >= 3 && !G.dk.landed ? '긴 놈이 따라오면 환기구로 기어 들어가! 그 덩치로는 못 들어온다.' : '긴 놈이 따라오면 불 켜진 전등 밑으로 가라. 그 빛 안으로는 못 들어온다.';
-  if (spiders.chasers().length) return '거미가 쫓아오면 손전등을 똑바로 비춰라. 빛을 싫어한다.';
+  if (spiders.chasers().length) return spiders.wolf && spiders.wolf.g && spiders.wolf.g.phase === 'chase'
+    ? '홀의 큰 거미는 빛으로는 잠깐 움찔할 뿐이다. 느리니까 뛰어서 따돌리거나 숨어라.' : '거미가 쫓아오면 손전등을 똑바로 비춰라. 빛을 싫어한다.';
   if (G.attached.length) return '몸에 붙은 건 당장 털어내라!';
   if (G.drained || G.battery < 0.3) return '손전등이 뜨거우면 잠깐 꺼서 식혀라.';
   if (G.spray === 0 && !refill.taken) return '스프레이가 떨어졌으면, 연결 복도에 2조가 두고 간 리필이 있을 거다.';
@@ -675,7 +625,7 @@ function resetGame() {
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
     cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false, lostT: 0, lostHints: 0, stuckT: 0, stuckHints: 0, hallLit: false, lookSeq: null, seenRooms: new Set(), glance: null, glanceAt: -99,
-    stats: { hits: 0, deaths: 0, spray: 0, thrown: 0, photos: 0, radio: 0, work: false },
+    stats: { hits: 0, deaths: 0, spray: 0, thrown: 0, photos: 0, radio: 0 },
     drop: null, dk: freshDuct(), ductJolt: 0, cine: null, readQ: [], reading: false,
   });
   swarms.reset(); swarms.sealed = new Set([3]); gate.setOpen(false); phantom.hide(); setCrouch(false);
@@ -691,7 +641,6 @@ function resetGame() {
   for (const r of Object.values(reds)) { r.on = false; r.light.intensity = 0; r.fixture.material.emissiveIntensity = 0; }
   for (const n of noteMeshes) { n.read = false; n.m.visible = true; }
   marks.reset();
-  workLight.on = false; workLight.t = 0; workLight.seen = false; sfx.stopLampHum(workLight.x, workLight.z);
   faceBugs.clear();
   refill.taken = false; refill.m.visible = true;
   cans.reset(); camItem.taken = false; camItem.g.visible = true; updateItems();
@@ -1083,7 +1032,6 @@ const ACH = [
   ['escape', '탈출', '처음으로 공장을 빠져나왔다', () => true],
   ['nodeath', '무사히', '한 번도 쓰러지지 않고 탈출', (r) => r.deaths === 0],
   ['nospray', '맨손', '스프레이를 한 번도 쓰지 않고 탈출', (r) => r.spray === 0],
-  ['dark', '어둠 속으로', '홀의 작업등을 켜지 않고 탈출', (r) => !r.work],
   ['silent', '무전 침묵', '본부에 길을 한 번도 묻지 않고 탈출', (r) => r.radio === 0],
   ['can', '딴 데 봐', '빈 캔을 던져 벌레를 꾀어내고 탈출', (r) => r.thrown > 0],
   ['photo', '찰칵', '벌레 세 종류를 카메라로 찍고 탈출', (r) => r.kinds >= 3],
@@ -1095,7 +1043,7 @@ const ACH = [
 const GRADE_ORDER = ['C', 'B', 'A', 'S'];
 function showResults() {
   const st = G.stats, r = {
-    time: G.time, hits: st.hits, deaths: st.deaths, spray: st.spray, thrown: st.thrown, radio: st.radio, work: st.work, diff: SET.diff,
+    time: G.time, hits: st.hits, deaths: st.deaths, spray: st.spray, thrown: st.thrown, radio: st.radio, diff: SET.diff,
     pages: journal.count, tapes: tapes.filter((x) => x.played).length, lee: !!G.leeId, kinds: Object.keys(G.photos).length, photos: st.photos,
   };
   // the grade: a clean, quick, thorough run scores highest
@@ -1123,7 +1071,7 @@ function showResults() {
   const fresh = ACH.filter(([id, , , ok]) => !got.includes(id) && ok(r)).map(([id]) => id);
   got = got.concat(fresh);
   try { localStorage.setItem('mandible.ach', JSON.stringify(got)); } catch (e) { /* */ }
-  $('#achN').textContent = `${got.length} / ${ACH.length}`;
+  $('#achN').textContent = `${ACH.filter(([id]) => got.includes(id)).length} / ${ACH.length}`;   // (not counting ones since taken out)
   $('#achList').innerHTML = ACH.map(([id, name, desc]) => `<li class="${fresh.includes(id) ? 'new' : got.includes(id) ? 'got' : ''}">${name}<small>${desc}</small></li>`).join('');
 }
 
@@ -1212,17 +1160,6 @@ function genOn(g) {
 
 // interaction target in front of the player
 const fwd = new THREE.Vector3();
-// the work light: on, it floods the hall, and its switch and hum wake the wolf spider
-function switchWork(on) {
-  const w = workLight;
-  w.on = on; w.t = 0;
-  sfx.workLight(w.x, w.z, on);
-  if (!on) return;
-  buzz(60); G.stats.work = true;
-  G.events.push({ x: w.x, z: w.z, r: 26 });
-  msg('작업등이 켜졌다. 홀이 다 보인다');
-  setTimeout(() => { if (G.started && !G.dead && !G.won && spiders.wolf && !dev.freeze) spiders.wakeWolf(spiders.wolf); }, 900);   // it heard that
-}
 function findTarget() {
   player.forward(fwd);
   const fl = Math.hypot(fwd.x, fwd.z) || 1;
@@ -1238,7 +1175,6 @@ function findTarget() {
   };
   for (const g of genMeshes) consider('gen', g, g.x, g.z, 2.4);
   for (const l of lamps) consider('lamp', l, l.x, l.z, 1.9);
-  consider('work', workLight, workLight.x, workLight.z, 2.0);
   { const c = cans.nearest(player.pos, 1.5); if (c) consider('can', c, c.pos.x, c.pos.z, 1.5); }
   // notes and recorders only from inside the same room (not through a wall)
   const pr = roomAt(player.pos.x, player.pos.z), same = (x, z) => !pr || roomAt(x, z) === pr;
@@ -2027,7 +1963,7 @@ function frame(dtOverride) {
   spiders.update({
     dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god || G.grabSafeT > 0, hidden: G.hidden,
     nav: swarms.nav, field: swarms.fPlayer,
-    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽에서 거미가 내려온다! 빛을 비추면 물러나려나', 'wolfwake'); discover('wolf'); },
+    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽에서 거미가 내려온다! 느리지만... 끝까지 쫓아올 것 같다', 'wolfwake'); discover('wolf'); },
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드렸다... 뭔가 깨어났다', 'tripwake'); },
     onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추니 움츠러든다', 'ghostlit'); },
@@ -2285,23 +2221,11 @@ function frame(dtOverride) {
   hideEl.classList.toggle('show', !!hideTxt); hideEl.classList.toggle('on', G.hidden);
   if (hideTxt && hideEl.dataset.t !== hideTxt) { hideEl.dataset.t = hideTxt; hideEl.querySelector('span').textContent = hideTxt; }
 
-  // ---- the work light: flickers up when switched on, out in a blackout like everything else
-  {
-    const w = workLight;
-    if (w.on) w.t += dt;
-    const up = w.on ? (w.t < 0.9 ? (Math.random() < 0.55 ? 1 : 0.1) * Math.min(1, w.t / 0.5) : 1) : 0;
-    const k = G.blackT > 0 ? 0 : G.backT > 0 ? (Math.random() < 0.5 ? up : 0) : up;
-    w.k = k;
-    w.spot.intensity = 60 * k; w.fill.intensity = 5.5 * k;
-    w.glassMat.emissiveIntensity = 3.2 * k;
-    w.led.material.emissive.set(w.on ? 0x30ff60 : 0xff3010);
-    if (w.on) sfx.lampLevel(w.x, w.z, k);
-    if (!w.seen && !w.on && G.started && !G.dead && Math.hypot(player.pos.x - w.x, player.pos.z - w.z) < 4) { w.seen = true; tip('2조가 두고 간 작업등이다. 켜면 밝겠지만... 소리가 클 것 같다', 'work'); }
-  }
-  // ---- the hall: window light; the broken tube by the wolf spider sputtering away (dead in a blackout)
+  // ---- the hall: window light; the broken tube by the wolf spider sputtering away, the others catching now
+  // and then (all dead in a blackout)
   {
     if (!G.hallLit && G.started && roomAt(player.pos.x, player.pos.z) === 'hall') G.hallLit = true;
-    for (const L of hallFill) L.intensity = G.started ? 4.5 : 0;
+    for (const L of hallFill) L.intensity = G.started ? 6.5 : 0;
     const w = spiders.wolf && spiders.wolf.s.root.position;
     let live = null;
     if (G.hallLit && w) for (const h of hallTubes) if (!live || Math.hypot(h.x - w.x, h.z - w.z) < Math.hypot(live.x - w.x, live.z - w.z)) live = h;
@@ -2315,6 +2239,15 @@ function frame(dtOverride) {
           else { h.mode = 'on'; h.timer = 0.6 + Math.random() * 3; }
         }
         on = h.mode === 'on' || (h.mode === 'stutter' && Math.random() < 0.45);
+      } else if (G.hallLit && G.blackT <= 0) {
+        // the others: dark a while, then one catches (a few blinks), burns a few seconds, and dies again
+        h.timer -= dt;
+        if (h.timer <= 0) {
+          if (h.mode === 'off') { h.mode = 'catch'; h.timer = 0.4 + Math.random() * 0.8; }
+          else if (h.mode === 'catch') { h.mode = 'on'; h.timer = 3 + Math.random() * 6; }
+          else { h.mode = 'off'; h.timer = 2 + Math.random() * 7; }
+        }
+        on = h.mode === 'on' ? Math.random() > 0.01 : h.mode === 'catch' && Math.random() < 0.35;
       } else h.mode = 'off';
       if (on && !h.lit) sfx.fluoroTick(h.x, 4.4, h.z);
       h.lit = on;
@@ -2417,9 +2350,6 @@ function frame(dtOverride) {
         camItem.taken = true; camItem.g.visible = false; G.hasCam = true; G.shots = 3; sfx.paper(); updateItems();
         tip(`2조 카메라다. 플래시로 벌레를 잠깐 멈추게 할 수 있겠다. 찍은 건 수첩에 붙여 두자 (${KEY.cam})`);
       }
-    } else if (target.kind === 'work') {
-      prompt = o.on ? `${useLabel()} · 작업등 끄기` : `${useLabel()} · 작업등 켜기 (소리가 크다)`;
-      if (pressed) switchWork(!o.on);
     } else if (target.kind === 'lamp') {
       // as often as you like: pulling it again while it's on starts the 20 s over
       prompt = o.on ? `${useLabel()} · 레버 다시 당기기 (${Math.ceil(20 - o.t)}초 남음)` : `${useLabel()} · 전등 레버 당기기`;
@@ -2731,7 +2661,7 @@ devPanel.querySelectorAll('[data-do]').forEach((b) => b.addEventListener('click'
 
 window.__M = {
   player, G, camera, lamps, genMeshes, colliders, swarms, dev, devSet, hurt, nests, spiders, eggs, brood, centi, useSpray, mashGrab, resetGame, toggleBright,
-  arms, sfx, scene, flashLight: flash, tip, duct, DUCT, labDoor, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, workLight, faceBugs, switchWork, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
+  arms, sfx, scene, flashLight: flash, tip, duct, DUCT, labDoor, centiKill: startCentiKill, discover, journal, gate, phantom, deadMan, lee, visions, genOn, marks, faceBugs, throwCan, snapPhoto, glanceAt, cansList: () => cans.list, setAdapt(v) { adapt = v; }, get adapt() { return adapt; },
   FrustumCls: THREE.Frustum, cullRooms, uncull, culled, dynRes, adaptRes, pixelRatio: () => renderer.getPixelRatio(),
   // draw one frame from a set viewpoint without moving anything (to compare culled and unculled)
   renderView(x, y, z, yaw, pitch) {
