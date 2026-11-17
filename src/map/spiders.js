@@ -508,9 +508,9 @@ export class MapSpiders {
   wolfToWall(g, wi, hT) {
     const w = HALL_WALLS[wi];
     const rx = g.pos.x - w.O.x, rz = g.pos.z - w.O.z;
-    const u = rx * w.T.x + rz * w.T.z;
-    if (this.wallU(w, u) !== THREE.MathUtils.clamp(u, 0.6, w.len - 0.6)) return false;     // that's a doorway
-    g.cn = { wi, u: THREE.MathUtils.clamp(u, 0.6, w.len - 0.6), th: 0, dir: 1 };
+    const u = THREE.MathUtils.clamp(rx * w.T.x + rz * w.T.z, 0.6, w.len - 0.6), uT = this.wallU(w, u);
+    if (Math.abs(uT - u) > 1.2) return false;     // that's a doorway
+    g.cn = { wi, u, uT, th: 0, dir: 1 };          // (at the edge of one: it sidles off it as it goes up)
     g.surf = 'corner'; g.hT = hT;
     return true;
   }
@@ -562,7 +562,7 @@ export class MapSpiders {
       if (g.phase === 'chase') {
         // sometimes run along a wall beside you
         const nw = this.nearestWall(g.pos.x, g.pos.z), pw = this.nearestWall(P.x, P.z);
-        if (g.wallRun <= 0 && nw.d < 1.2 && pw.wi === nw.wi && pw.d < 3 && dP > 3.5 && Math.random() < dt * 0.8) { this.wolfToWall(g, nw.wi, 1.1 + Math.random() * 0.8); g.wallRun = 1; }
+        if (g.wallRun <= 0 && nw.d < 1.2 && pw.wi === nw.wi && pw.d < 3 && dP > 3.5 && Math.random() < dt * 0.8 && this.wolfToWall(g, nw.wi, 1.1 + Math.random() * 0.8)) g.wallRun = 1;
         else this.wolfFloorStep(g, nav, ctx.field, P, speed, dt);
       } else if (g.phase === 'bolt' || g.phase === 'home') {
         const nw = g.phase === 'bolt' ? this.nearestWall(g.pos.x, g.pos.z) : null;
@@ -573,7 +573,15 @@ export class MapSpiders {
         let up = false;
         if (g.phase === 'bolt' && (nw.d < 1.0 || (left < 0.6 && nw.d < 1.8))) up = this.wolfToWall(g, nw.wi, 2.4 + Math.random() * 0.6);
         else if (g.phase === 'home' && (home.d < 1.0 || (left < 0.6 && home.d < 1.8))) { up = this.wolfToWall(g, home.pr[0], home.pr[2]); if (up) g.perch = home.pr; }
-        if (!up) this.wolfFloorStep(g, nav, F, null, speed, dt);
+        if (!up) {
+          const x0 = g.pos.x, z0 = g.pos.z;
+          this.wolfFloorStep(g, nav, F, null, speed, dt);
+          // nothing to follow (in a doorway, or at the bottom of the field off to one side of the wall): head straight for the wall's foot
+          if (g.pos.x === x0 && g.pos.z === z0 && speed > 0) {
+            const [wi, u] = g.phase === 'bolt' ? [nw.wi, nw.u] : home.pr, w = HALL_WALLS[wi];
+            this.wolfFloorStep(g, nav, null, this.wallPoint(w, u, 0).addScaledVector(w.N, WR + 0.15), speed, dt);
+          }
+        }
       } else if (g.phase === 'search') {
         // feeling about: short runs between spots near where you went
         g.seekT -= dt;
@@ -590,7 +598,8 @@ export class MapSpiders {
     } else if (g.surf === 'corner') {
       const c = g.cn;
       c.th = THREE.MathUtils.clamp(c.th + c.dir * Math.max(2.2, speed) * 0.8 * dt / WR, 0, Math.PI / 2);
-      if (c.dir > 0 && c.th >= Math.PI / 2) { g.surf = c.wi; g.u = c.u; g.h = WR; g.yaw = 0; }
+      if (c.uT != null) c.u += (c.uT - c.u) * Math.min(1, dt * 8);
+      if (c.dir > 0 && c.th >= Math.PI / 2) { g.surf = c.wi; g.u = c.uT ?? c.u; g.h = WR; g.yaw = 0; }
       else if (c.dir < 0 && c.th <= 0) {
         const w = HALL_WALLS[c.wi], p = this.wallPoint(w, c.u, 0).addScaledVector(w.N, WR);
         g.surf = 'floor'; g.pos.set(p.x, 0, p.z); g.yaw = Math.atan2(w.N.x, w.N.z);

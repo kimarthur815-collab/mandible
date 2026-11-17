@@ -30,13 +30,16 @@ export class Sound {
     if (!AC) return;
     if (this.ctx) { if (this.ctx.state !== 'running') this.ctx.resume(); return; }
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* iOS 17+: play even with the silent switch on */ }
-    const ctx = this.ctx = new AC();
+    // phones: a bigger audio buffer, plain left/right panning (HRTF runs a convolution for every positioned
+    // sound, and with twenty of them going a phone can't keep up: the sound breaks up) and a shorter reverb
+    this.lite = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+    const ctx = this.ctx = this.lite ? new AC({ latencyHint: 'playback' }) : new AC();
     this.master = ctx.createGain(); this.master.gain.value = this.muted ? 0 : 0.9 * this.vol;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.25;
     this.master.connect(comp); comp.connect(ctx.destination);
     // one big concrete hall reverb shared by everything
-    this.rev = ctx.createConvolver(); this.rev.buffer = this.makeIR(2.8);
+    this.rev = ctx.createConvolver(); this.rev.buffer = this.makeIR(2.8, this.lite ? 1.8 : 2.8);
     this.revIn = ctx.createGain(); this.revIn.gain.value = 0.5;
     this.revIn.connect(this.rev); this.rev.connect(this.master);
     this.sfx = this.bus(1.0, 0.35);
@@ -94,8 +97,8 @@ export class Sound {
     return b;
   }
 
-  makeIR(sec) {
-    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(sec * sr), b = ctx.createBuffer(2, n, sr);
+  makeIR(sec, len = sec) {    // (len < sec: the same reverb with its last, quietest part (below -40 dB) cut off)
+    const ctx = this.ctx, sr = ctx.sampleRate, n = Math.floor(len * sr), b = ctx.createBuffer(2, n, sr);
     for (let c = 0; c < 2; c++) {
       const d = b.getChannelData(c);
       for (let i = 0; i < n; i++) {
@@ -239,7 +242,7 @@ export class Sound {
   // ------------------------------------------------------------ helpers
   panner(x, y, z, ref = 1.2, roll = 1.3) {
     const p = this.ctx.createPanner();
-    p.panningModel = 'HRTF'; p.distanceModel = 'inverse';
+    p.panningModel = this.lite ? 'equalpower' : 'HRTF'; p.distanceModel = 'inverse';
     p.refDistance = ref; p.rolloffFactor = roll; p.maxDistance = 60;
     this.setPos(p, x, y, z);
     return p;
