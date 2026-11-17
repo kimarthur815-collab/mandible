@@ -149,6 +149,15 @@
   .overlay button { margin-top: 26px; font: inherit; font-size: 15px; color: #1a1612; background: var(--amber); border: 0; border-radius: 12px; padding: 13px 34px; }
   #iosHint { display: none; color: var(--amber); } #iosHint.show { display: block; }
   .only-touch { display: none; } body.touch .only-touch { display: block; } body.touch .only-desk { display: none; }
+  .only-touch-i { display: none; } body.touch .only-touch-i { display: inline; } body.touch .only-desk-i { display: none; }
+  /* the start screen: earphones first, then the controls as a short key list */
+  .overlay .help.ear, body.intro #start .help.ear { display: flex; align-items: center; gap: 8px; color: var(--amber); }
+  .overlay .help.ear svg { width: 18px; height: 18px; flex: none; }
+  .overlay .help.ear b { font-weight: 600; }
+  .keys { display: grid; grid-template-columns: repeat(3, auto); gap: 3px 16px; justify-content: start; }
+  .keys.two { grid-template-columns: repeat(2, auto); }
+  .keys span { white-space: nowrap; }
+  .keys kbd { display: inline-block; min-width: 1.5em; margin-right: 6px; padding: 0 5px; border: 1px solid rgba(236,230,220,.35); border-radius: 4px; background: rgba(0,0,0,.35); font: inherit; font-size: .92em; line-height: 1.5; color: #f1ebe2; text-align: center; }
   #win { opacity: 0; pointer-events: none; }
   #win.show { opacity: 1; pointer-events: auto; }
   #win { place-content: start center; overflow-y: auto; }
@@ -355,11 +364,12 @@
   <div class="t">MANDIBLE</div>
   <div class="s">D-7 산업시설 · 해충 방역 작업</div>
   <div class="helpBox">
-  <div class="help only-desk">WASD 이동 · 마우스(좌클릭) 화면 전환 · 우클릭(또는 F) 손전등 · T 스프레이<br>Shift 달리기 · Ctrl 앉기(한 번 누르면 앉고 다시 누르면 일어남) · E 상호작용 (발전기: E 꾹 누르기) · R 무전(본부에 길 묻기, 3번)<br>앉아서(Ctrl) 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히) · G 빈 캔 던지기(소리로 유인) · V 카메라(플래시)<br>M 지도 · J 수첩(벌레 기록) · Esc 마우스 풀기 · 오른쪽 위 설정(난이도·감도·소리·밝기·화질)<br>오른쪽 위 전체화면 버튼 또는 F11로 전체화면</div>
-  <div class="help only-touch">왼쪽 화면을 끌어 이동, 오른쪽 화면을 끌어 둘러보기<br>손 버튼: 상호작용 (발전기: 손 버튼 꾹 누르기 · PC는 E) · 무전 버튼: 본부에 길 묻기(3번) · 스프레이 버튼: 앞쪽 3m에 뿌리기<br>빈 캔·카메라를 주우면 던지기·카메라 버튼이 생겨요 (PC는 G·V)<br>앉기(Ctrl)를 켜고 테이블·컨베이어 밑으로 들어가면 숨을 수 있어요 (불 끄고 가만히)<br>위 버튼: 설정(난이도·감도·소리·밝기·화질) · 소리 · 전체화면 · 지도 · 수첩(벌레 기록)</div>
+  <div class="help ear"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15v-3a8 8 0 0 1 16 0v3" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="14" width="5" height="7" rx="1.5" fill="currentColor"/><rect x="16" y="14" width="5" height="7" rx="1.5" fill="currentColor"/></svg><span><b>이어폰을 끼고 하세요</b> · 벌레가 어느 쪽에 있는지 소리로 들려요</span></div>
+  <div class="help only-desk"><div class="keys"><span><kbd>WASD</kbd>이동</span><span><kbd>마우스</kbd>둘러보기</span><span><kbd>Shift</kbd>달리기</span><span><kbd>Ctrl</kbd>앉기</span><span><kbd>우클릭</kbd>손전등</span><span><kbd>T</kbd>스프레이</span><span><kbd>E</kbd>상호작용</span><span><kbd>R</kbd>무전</span><span><kbd>G</kbd>캔 던지기</span><span><kbd>V</kbd>카메라</span><span><kbd>M</kbd>지도</span><span><kbd>J</kbd>수첩</span></div></div>
+  <div class="help only-touch"><div class="keys two"><span><kbd>왼쪽 끌기</kbd>이동</span><span><kbd>오른쪽 끌기</kbd>둘러보기</span><span><kbd>손</kbd>상호작용</span><span><kbd>무전</kbd>본부에 길 묻기</span><span><kbd>스프레이</kbd>앞에 뿌리기</span><span><kbd>앉기</kbd>숨을 때</span></div></div>
+  <div class="help">발전기 3개를 켜고 들어온 셔터로 탈출 · 발전기는 <span class="only-desk-i">E</span><span class="only-touch-i">손 버튼</span> 꾹<br>숨기: 앉아서 테이블·컨베이어 밑으로, 불 끄고 가만히</div>
   <div class="help" id="iosHint">아이폰에서 전체화면으로 하려면<br>Safari로 열고 공유 버튼 → 홈 화면에 추가 → 홈 화면의 MANDIBLE 아이콘으로 실행하세요.</div>
   <div class="help" id="diffNote">난이도 <b>보통</b> · 오른쪽 위 설정에서 바꿀 수 있어요</div>
-  <div class="help">발전기 3개를 켜고 처음 들어온 셔터로 탈출하세요.<br>이어폰을 끼면 벌레 소리가 어느 쪽에서 나는지 들려요.</div>
   </div>
   <div><button id="startBtn">무전 받기</button></div>
 </div>

@@ -1147,6 +1147,7 @@ function startBlackout() {
     const rm = ROOMS[roomAt(player.pos.x, player.pos.z)] || ROOMS.machine;
     const sp = Phantom.spot(camera.position, player.yaw, rm);
     G.cine = { t: 0, rm, spot: sp, at: new THREE.Vector3(sp.x, Math.max(1.0, camera.position.y + 0.15) - 0.1, sp.z), endT: -1 };
+    G.attached.forEach((a) => swarms.drop(a.r, player.pos, player.pos)); G.attached.length = 0;     // (they drop off in the dark: nothing over the view)
     if (G.drained) { G.drained = false; G.battery = Math.max(G.battery, 0.5); }
     if (!G.flashOn) { G.flashOn = true; $('#bFlash').classList.add('on'); }
     if (showMap) toggleMap(); if (journal.open) journal.toggle(false);
@@ -1287,7 +1288,7 @@ function die(deathTip) {
 // after one climbs on or is shaken off, no other can climb on for a few seconds
 const ATTACH_CD = 3.5;
 function onAttach(r) {
-  if (dev.god || G.dead || G.attached.length >= 3 || G.attachCd > 0) return false;
+  if (dev.god || G.dead || G.attached.length >= 3 || G.attachCd > 0 || G.cine || G.lookSeq) return false;   // (not while the view is held on something)
   G.attachCd = ATTACH_CD;
   G.attached.push({ r, age: 0, shake: 0, rev: 0, lastSign: 0, taps: 0 });
   sfx.attach(); buzz(45); shudJolt = 1.8; shudNext = 0.6;
@@ -1610,6 +1611,7 @@ function updateDuct(dt) {
     K.cornerDone = true; K.F = null;
     const bx = DUCT.mouth.x, bz = DUCT.z0;
     sfx.ductBang(bx, 0.45, bz - 0.3); duct.dent(0.08); shakeScreen(); buzz([80, 40, 160]); G.ductJolt = 0.05;
+    lookToward(new THREE.Vector3(bx, 0.45, bz), 1.6);                  // (the view turned to the metal caving in)
     setTimeout(() => { if (G.dead || G.won) return; sfx.ductBang(bx + 0.2, 0.35, bz - 0.3); sfx.centiScreech(bx, bz - 0.6, 0.05); duct.dent(0.17); G.ductJolt = 0.07; buzz(200); }, 650);
     setTimeout(() => { if (G.dk.in) tip('...벽 너머에 있다. 오른쪽으로, 계속 가자'); }, 1900);
   }
@@ -1624,7 +1626,7 @@ function updateDuct(dt) {
   if (centi.state === 'poke' && centi.poke) {
     const pk = centi.poke, h = centi.head;
     if (!K.popped && (h.z - g.z) < 0.05) {
-      K.popped = true; duct.popSide();
+      K.popped = true; duct.popSide(); lookToward(new THREE.Vector3(g.x, 0.4, g.z + 0.2), 1.4);   // (and to its head coming through)
       sfx.ductBang(g.x, 0.5, g.z); sfx.centiScreech(g.x, g.z - 0.3, 0.05); shakeScreen(); buzz([60, 30, 200]); G.ductJolt = 0.05;
     }
     if (pk.out && !pk.back) {
@@ -1837,6 +1839,7 @@ function poolLights() {
   }
 }
 
+const fleeV = new THREE.Vector3(), fleeF = new THREE.Vector3();
 const wolfHelp = { t: 5, n: 0 };     // (the wolf spider's hiding hints, see the frame)
 function frame(dtOverride) {
   const dt = dtOverride != null ? dtOverride : Math.min(clock.getDelta(), 1 / 20);
@@ -1876,8 +1879,12 @@ function frame(dtOverride) {
   if (G.timing) G.time += dt;
 
   // ---- flashlight + battery
-  // G.battery is how much the flashlight has left before it overheats (1 = cool)
-  if (G.drained) {
+  // G.battery is how much the flashlight has left before it overheats (1 = cool). In the duct (and the drop
+  // out of it) the fans' air keeps it cool: it never heats up or cuts out in there
+  const ductCool = G.dk.in || !!G.drop;
+  if (ductCool && G.drained) { G.drained = false; G.battery = Math.max(G.battery, 0.6); if (!G.flashOn) toggleFlash(); }
+  if (ductCool) G.battery += dt * 0.1;
+  else if (G.drained) {
     // overheated: it cut out, and won't come on until it has cooled right down, 5 s
     G.battery = Math.min(1, G.battery + dt / 5);
     G.tickT = (G.tickT || 0) - dt;
@@ -1891,7 +1898,7 @@ function frame(dtOverride) {
     if (G.flashOn) toggleFlash();
     sfx.overheat(); tip('손전등이 과열되었다');
   }
-  if (G.flashOn && G.battery < 0.3) tip(`손전등이 뜨거워진다... 잠깐 꺼 둬야겠다 (${KEY.flash})`, 'battery');
+  if (G.flashOn && G.battery < 0.3 && !ductCool) tip(`손전등이 뜨거워진다... 잠깐 꺼 둬야겠다 (${KEY.flash})`, 'battery');
   flickT -= dt;
   if (flickT < 0) {
     // it stutters more often as the battery runs down
@@ -1988,6 +1995,14 @@ function frame(dtOverride) {
   G.hidden = G.stillT > 0.6;          // a moment of keeping still first
   G.hiddenT = G.hidden ? G.hiddenT + dt : 0;
   if (hideIn && G.started) tip(`불을 끄고 가만히 있자 (${KEY.flash}). 그럼 못 찾을 거야`, 'hide');
+  // the last generator on and the centipede seen (after any held look is over): run for the vent
+  if (G.gens >= 3 && duct.open && !G.fleeSaid && G.started && !G.dead && !G.won && !G.dk.in && !G.dk.landed && !G.drop) {
+    if (!G.centiSeen && centi.active && centi.state !== 'dormant' && centi.state !== 'gone') {
+      const h = fleeV.set(centi.head.x, Math.max(0.4, centi.head.y), centi.head.z), c = camera.position, d = h.distanceTo(c);
+      if (d < 18 && fleeF.set(0, 0, -1).applyQuaternion(camera.quaternion).dot(h.clone().sub(c)) / d > 0.6 && canSee(h)) G.centiSeen = true;
+    }
+    if (G.centiSeen && !G.lookSeq && !G.cine) { G.fleeSaid = true; msg('지네다...! 환풍기로 도망가자!'); tip('환풍기 쪽 환기구로 기어 들어가자. 저 덩치로는 못 따라온다'); }
+  }
   // the wolf spider on you in the hall: what to do, spelled out (5 s into the chase, then every 12 s; four times in all)
   if (G.started && !G.dead && !G.hidden && wolfHelp.n < 4 && spiders.wolf && spiders.wolf.g && spiders.wolf.g.phase === 'chase' && roomAt(player.pos.x, player.pos.z) === 'hall' && (wolfHelp.t -= dt) <= 0) {
     wolfHelp.t = 12; wolfHelp.n++;
@@ -2100,12 +2115,12 @@ function frame(dtOverride) {
     dt, player: { pos: player.pos, noise, alive: G.started && !G.dead && !G.won && !dev.god, hidden: G.hidden }, cam: camera.position.clone(),
     fence: labDoor.broken ? null : { inside: roomAt(player.pos.x, player.pos.z) === 'lab', open: labDoor.k > 0.08, x: -6, zc: LAB.zc, smash: labDoor.smash >= 0 },
     light, nav: swarms.nav, field: swarms.fPlayer, events: G.events, safe: safeLamp, frozen,
-    onBurst: (V) => { sfx.ventBurst(V.x, V.z); if (V === DUCT.dockVent) duct.burstDock(); shakeScreen(); buzz([60, 30, 140]); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
+    onBurst: (V) => { sfx.ventBurst(V.x, V.z); if (V === DUCT.dockVent) { duct.burstDock(); glanceAt(V); } shakeScreen(); buzz([60, 30, 140]); const h = $('#hit'); h.classList.remove('on'); void h.offsetWidth; h.classList.add('on'); },
     onRam: () => {
       const m = DUCT.mouth;
       sfx.ductBang(m.x, 0.5, m.z - 0.3); sfx.centiScreech(m.x, m.z + 0.4, 0.08); shakeScreen(); buzz([90, 40, 160]); G.ductJolt = 0.06;
       setTimeout(() => { if (!G.dead && !G.won && centi.state === 'ram') { sfx.ductScrape(m.x, 0.5, m.z - 0.4, 1.0); sfx.centiHiss(m.x, m.z + 0.4); } }, 700);
-      if (G.dk.in) tip('못 들어온다... 덩치가 너무 크다');
+      if (G.dk.in) { tip('못 들어온다... 덩치가 너무 크다'); lookToward(new THREE.Vector3(m.x, 0.5, m.z), 1.2); }
     },
     onPokeLit: () => { sfx.centiHiss(centi.head.x, centi.head.z); tip('빛을 받으니 물러난다', 'pokelit'); },
     onLunge: () => sfx.centiScreech(centi.head.x, centi.head.z),
@@ -2219,7 +2234,7 @@ function frame(dtOverride) {
     centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.state === 'poke' ? 1.2 : centi.speed } : G.dk.F && G.dk.F.on && G.dk.in ? { x: G.dk.F.x, z: G.dk.F.z, speed: G.dk.F.v } : null, lings: lingInfo, ghost: spiders.ghostInfo(),
     brood: broodInfo, hush: G.hidden,
     emit: G.started ? ai.emit.concat(lingInfo.emit || [], broodInfo.emit, spiders.emitters(player.pos)) : [] });
-  if (G.started && !G.scared && !dev.freeze && Math.hypot(player.pos.x - nests[0].x, player.pos.z - nests[0].z) < 7.5) { G.scared = true; swarms.jumpScare(camera, 0); }
+  if (G.started && !G.scared && !dev.freeze && !G.cine && !G.lookSeq && Math.hypot(player.pos.x - nests[0].x, player.pos.z - nests[0].z) < 7.5) { G.scared = true; swarms.jumpScare(camera, 0); }
   for (const a of G.attached) a.age += dt;
   G.attachCd = Math.max(0, G.attachCd - dt);
   // roaches on you: no damage, but they slow you down and crawl over your face until shaken off
