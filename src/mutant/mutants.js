@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Spider } from '../spider.js';
 import { Centipede } from '../centipede.js';
 import { fuseGhost, fuseCenti } from './fuse.js';
+import { fuseCentiFlesh } from './flesh.js';
 
 // The preview's hard-mode bugs (the same fused parts the game puts on them; see fuse.js). Each make(T)
 // returns { group, update(dt, t, ctx), focus(near) -> world point to look at, view(near) -> camera offset }.
@@ -48,9 +49,9 @@ function ghost(T) {
   };
 }
 
-function centi(T) {
+function centi(T, flesh = false) {
   const c = new Centipede(T, { lite: false });
-  const fu = fuseCenti(c, { seg: 96 }); fu.set(true);
+  const fu = flesh ? fuseCentiFlesh(c) : fuseCenti(c, { seg: 96 }); fu.set(true);
   c.reset(2.2, 0, Math.PI / 2);
   const group = new THREE.Group(); group.add(c.group);
   return {
@@ -69,6 +70,7 @@ function centi(T) {
 }
 
 export const MUTANTS = {
-  ghost: { make: ghost, desc: '<b>유령거미 · 머리가 사람 얼굴</b><br>몸 앞쪽이 창백한 사람 머리. 눈은 크게 파인 검은 구멍, 검은 눈물 자국, 입을 길게 찢어지게 벌렸다 닫았다 하며 비명. 고개가 당신 쪽으로 돌아감' },
+  ghost: { make: ghost, desc: '<b>유령거미 · 머리가 사람 얼굴</b><br>머리 자리에 가는 목이 솟아 창백한 대머리가 달림. 위로 길쭉한 달걀 모양 두개골, 뾰족한 턱, 비스듬히 찢어진 커다란 검은 눈구멍, 양쪽 광대 밑까지 올라가는 너무 넓은 미소. 웃던 입이 천천히 검은 초승달처럼 쩍 벌어졌다 닫힘. 고개가 당신 쪽으로 돌아감' },
+  flesh: { make: (T) => centi(T, true), desc: '<b>지네 · 사진</b><br>껍데기 없이 전부 살로 된 긴 몸(힘줄이 꼬여 있고 마디 사이가 검붉게 패임). 머리 자리엔 대머리 남자 머리, 눈은 크고 길쭉한 검은 구멍, 입은 턱 끝까지 찢어지게 벌어져 가늘고 긴 이빨이 줄지어 있음. 양옆으로 길고 마른 사람 팔 9쌍이 팔꿈치를 세우고 손가락을 쫙 벌려 바닥을 짚으며 기어 옴' },
   centi: { make: centi, desc: '<b>지네 · 사람 팔 다리</b><br>머리 자리에 사람 가슴과 대머리가 붙어 웃고 있고, 다리 80개가 전부 길고 마른 사람 팔. 손가락으로 바닥을 움켜쥐며 기어 옴. 눈이 당신을 따라옴' },
 };

@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import * as TX from './textures.js';
 import { makeFace } from './mutant/face.js';
+import { makeGrinFace } from './mutant/grinface.js';
 import { MUTANTS } from './mutant/mutants.js';
 
 const $ = (s) => document.querySelector(s);
@@ -50,17 +51,18 @@ async function init() {
   const T = { chitin: TX.makeChitinNormal(256), terg: TX.makeTergiteTextures(512), band: TX.makeBandTextures(), bandU: TX.makeBandTexturesU(), eye: TX.makeEyeNormal(), contact: TX.makeContactShadow() };
   T.eye.repeat.set(3, 3);
 
-  // ---- just a face (for working on it): ?face=scream|grin &eyes=hollow|human
+  // ---- just a face (for working on it): ?face=scream|grin|howl &eyes=hollow|void|human, or ?face=smile (the ghost's)
   if (Q.has('face')) {
-    const f = makeFace({ h: 0.5, mouth: Q.get('face') || 'scream', eyes: Q.get('eyes') || 'hollow', tears: Q.has('tears') });
+    const f = Q.get('face') === 'smile' ? makeGrinFace({ h: 0.5 }) : makeFace({ h: 0.5, mouth: Q.get('face') || 'scream', eyes: Q.get('eyes') || 'hollow', tears: Q.has('tears') });
     f.group.position.set(0, 0.6, 0); scene.add(f.group);
+    flash.intensity = 1.6;
     controls.target.set(0, 0.6, 0); camera.position.set(0.25, 0.7, 1.4);
     let t = 0;
-    window.__face = f;
+    window.__face = f; window.__cam = camera; window.__ctl = controls;
     const loop = () => {
       t += 1 / 60;
       if (!Q.has('open')) f.setOpen(0.5 + 0.5 * Math.sin(t * 1.3)); else f.setOpen(+Q.get('open'));
-      f.lookAt(camera.position);
+      if (f.lookAt) f.lookAt(camera.position);
       flash.position.copy(camera.position).add(new THREE.Vector3(0.15, -0.1, 0));
       flash.target.position.copy(controls.target);
       controls.update(); renderer.render(scene, camera);

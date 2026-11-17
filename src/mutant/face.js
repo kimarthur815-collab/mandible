@@ -2,15 +2,16 @@ import * as THREE from 'three';
 
 // A human head sculpted from a sphere: skull, brow, sockets, nose, starved cheeks, a mouth that opens.
 // Built at unit height (crown to chin = 1) facing +z; the group is scaled to the size asked for.
-// mouth: 'scream' (stretched long, the jaw hanging), 'grin' (wide, corners up, teeth showing)
-// eyes:  'hollow' (big sockets dug deep, nothing in them but black), 'human' (bloodshot, they turn to
-//        follow you)
+// mouth: 'scream' (stretched long, the jaw hanging), 'grin' (wide, corners up, teeth showing),
+//        'howl' (gaping: wide and dropped almost to the chin, rows of long thin teeth)
+// eyes:  'hollow' (big sockets dug deep, nothing in them but black), 'void' (the same, bigger, tall
+//        ovals), 'human' (bloodshot, they turn to follow you)
 // The jaw is a morph target: setOpen(0..1).
 const V3 = THREE.Vector3;
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const g2 = (x, y, cx, cy, rx, ry) => Math.exp(-(((x - cx) / rx) ** 2) - (((y - cy) / ry) ** 2));
 const hash = (x, y, z) => { const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return s - Math.floor(s); };
-function noise3(x, y, z) {
+export function noise3(x, y, z) {
   // cheap value noise, smooth enough for skin mottling
   const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), xf = x - xi, yf = y - yi, zf = z - zi;
   const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
@@ -22,12 +23,14 @@ function noise3(x, y, z) {
 const EYESETS = {
   human: [[-0.155, 0.055, 0.052], [0.155, 0.055, 0.052]],
   hollow: [[-0.15, 0.045, 0.09], [0.15, 0.045, 0.09]],
+  void: [[-0.148, 0.03, 0.104, 1.45], [0.148, 0.03, 0.104, 1.45]],      // (4th: how much taller than wide)
 };
 // the mouth, laid out open: hu / hl how far the lips part up / down, h the gap left when shut,
 // drop how far the jaw hangs at full stretch, smile how far the corners pull up
 const MOUTH = {
   scream: { cy: -0.27, w: 0.075, h: 0.01, hu: 0.035, hl: 0.17, drop: 0.07, smile: 0, depth: 0.2 },
   grin:   { cy: -0.25, w: 0.14, h: 0.012, hu: 0.024, hl: 0.05, drop: 0.015, smile: 0.06, depth: 0.1 },
+  howl:   { cy: -0.26, w: 0.12, h: 0.012, hu: 0.055, hl: 0.22, drop: 0.11, smile: -0.01, depth: 0.28 },
 };
 
 // skull + face surface with the mouth open k (0..1). The inside of the mouth is real surface: laid
@@ -55,12 +58,12 @@ function sculpt(base, eyeset, hollow, M, k, skin, mottle, tears) {
     d += 0.022 * g2(x, y, 0, -0.45, 0.07, 0.05) * front;
     // sockets
     let sock = 0, pit = 0;
-    for (const [ex, ey, er] of eyeset) {
-      const sk = g2(x, y, ex, ey, er * 1.7, er * 1.25);
+    for (const [ex, ey, er, tall = 1] of eyeset) {
+      const sk = g2(x, y, ex, ey, er * 1.7, er * 1.25 * tall);
       sock = Math.max(sock, sk);
       d -= 0.085 * (er / 0.052) * sk * front;
       // (hollow: a pit with steep sides in the middle of the socket)
-      if (hollow) { const p = ss(1.0, 0.55, Math.hypot((x - ex) / (er * 1.2), (y - ey) / er)); pit = Math.max(pit, p); d -= 0.075 * p * front; }
+      if (hollow) { const p = ss(1.0, 0.55, Math.hypot((x - ex) / (er * 1.2 / Math.sqrt(tall)), (y - ey) / (er * tall))); pit = Math.max(pit, p); d -= 0.075 * p * front; }
     }
     // nose: bridge between the eyes down to a tip, wings, nostrils
     const tip = ss(0.07, -0.105, y) * ss(-0.15, -0.115, y);
@@ -155,7 +158,7 @@ function frontUV(geo) {
 
 export function makeFace(opt = {}) {
   const { h = 0.24, skin = '#d8d2ca', mottle = '#9a8a96', eyes = 'hollow', mouth = 'scream', seg = 96, teeth = true, eyeColor = 'grey', tears = false } = opt;
-  const M = MOUTH[mouth], hollow = eyes === 'hollow', eyeset = EYESETS[hollow ? 'hollow' : 'human'];
+  const M = MOUTH[mouth], hollow = eyes === 'hollow' || eyes === 'void', eyeset = EYESETS[eyes] || EYESETS.human;
   const group = new THREE.Group(), head = new THREE.Group();
   head.scale.setScalar(h); group.add(head);
   const sphere = new THREE.SphereGeometry(1, seg, Math.round(seg * 0.75));
@@ -174,6 +177,8 @@ export function makeFace(opt = {}) {
   geo.morphTargetsRelative = true;
   gB.dispose();
   const skinMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.52, clearcoat: 0.35, clearcoatRoughness: 0.45, sheen: 0.5, sheenRoughness: 0.5, sheenColor: new THREE.Color('#e8d0d0') });
+  // (where the skin is painted black - the bottoms of hollow eyes, deep in the mouth - not even a glint)
+  skinMat.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', 'outgoingLight *= smoothstep(0.015, 0.12, dot(vColor.rgb, vec3(0.3333)));\n#include <opaque_fragment>'); };
   const face = new THREE.Mesh(geo, skinMat);
   face.morphTargetInfluences = [0];
   face.castShadow = true; face.receiveShadow = true;
@@ -192,10 +197,10 @@ export function makeFace(opt = {}) {
   const surfZ = (ex, ey) => Math.sqrt(Math.max(0, 0.45 * 0.45 * (1 - (ex / 0.4) ** 2 - (ey / 0.5) ** 2)));
   if (hollow) {
     const black = new THREE.MeshBasicMaterial({ color: 0x000000 });
-    for (const [ex, ey, er] of eyeset) {
+    for (const [ex, ey, er, tall = 1] of eyeset) {
       const m = new THREE.Mesh(new THREE.SphereGeometry(er * 0.95, 16, 12), black);
       m.position.set(ex, ey, surfZ(ex, ey) - 0.085 * (er / 0.052) - 0.075 + er * 0.35);
-      m.scale.z = 0.7;
+      m.scale.set(1 / Math.sqrt(tall), tall, 0.7);
       head.add(m);
     }
   } else {
@@ -213,12 +218,13 @@ export function makeFace(opt = {}) {
   let teethMesh = null;
   if (teeth) {
     const tMat = new THREE.MeshPhysicalMaterial({ color: '#d8ccb0', roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.2 });
-    const tGeo = new THREE.CylinderGeometry(0.0055, 0.009, 0.034, 6, 1); tGeo.translate(0, -0.017, 0);
-    const N = mouth === 'grin' ? 14 : 10;
+    const howl = mouth === 'howl';
+    const tGeo = new THREE.CylinderGeometry(howl ? 0.0035 : 0.0055, howl ? 0.0075 : 0.009, 0.034, 6, 1); tGeo.translate(0, -0.017, 0);
+    const N = mouth === 'grin' ? 14 : howl ? 15 : 10;
     for (const sgn of [1, -1]) for (let k = 0; k < N; k++) {
       const u = (k + 0.5) / N * 2 - 1;                                         // -1..1 across the mouth
       const x = u * M.w * 0.9;
-      const len = (mouth === 'scream' ? 1.3 : 1) * (0.75 + 0.5 * Math.random()) * (1 - 0.35 * Math.abs(u));
+      const len = (mouth === 'scream' ? 1.3 : howl ? 1.9 : 1) * (0.75 + 0.5 * Math.random()) * (1 - 0.35 * Math.abs(u));
       toothList.push({
         x, u, sgn, len, z: Math.sqrt(Math.max(0, 0.45 * 0.45 * (1 - (x / 0.385) ** 2) - (M.cy / 0.52) ** 2 * 0.45 * 0.45)) - 0.035,
         q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -u * 0.6, sgn < 0 ? Math.PI : 0, 'YXZ')),     // the lower ones point up

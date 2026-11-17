@@ -10,7 +10,7 @@ const lerp = THREE.MathUtils.lerp;
 const clamp = THREE.MathUtils.clamp;
 const UPV = new V3(0, 1, 0);
 export const N_SEG = 40;
-const SP = 0.12;           // spacing between trunk segments (m)
+export const SP = 0.12;    // spacing between trunk segments (m)
 const BODY_Y = 0.36;       // trunk height above the floor (m)
 
 // ------------------------------------------------------------ geometry
@@ -589,6 +589,7 @@ export class Centipede {
       (1 - s) * (1 - s) * a.y + 2 * (1 - s) * s * c.y + s * s * d.y,
       (1 - s) * (1 - s) * a.z + 2 * (1 - s) * s * c.z + s * s * d.z);
     if (this.arms) { this.poseArms(); return; }
+    if (this.skipLegPose) return;                 // (someone else draws the legs)
     for (let n = 0; n < legs.length; n++) {
       const l = legs[n];
       const P = this.rPos[l.i], R = this.right[l.i], U = this.upv[l.i];

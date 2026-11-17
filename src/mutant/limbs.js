@@ -7,8 +7,9 @@ const V3 = THREE.Vector3;
 // One hand as a single geometry (vertex coloured: skin white, nails dark - tint it with the material
 // or per instance). Wrist at the origin, fingers along +z, palm down (-y), thumb toward +x (a right
 // hand; mirror for a left one). len: wrist to fingertip. curl 0..1: the fingers bent in and down,
-// gripping the floor. lo: fewer triangles (for dozens of them in the game).
-export function handGeometry({ len = 1, curl = 0.6, mirror = false, lo = false } = {}) {
+// gripping the floor. lo: fewer triangles (for dozens of them in the game). spread: how far the fingers
+// fan out; long: how long they are (both 1 for an ordinary hand).
+export function handGeometry({ len = 1, curl = 0.6, mirror = false, lo = false, spread = 1, long = 1 } = {}) {
   const parts = [];
   const skin = new THREE.Color(1, 1, 1), nail = new THREE.Color('#3a2c24');
   const add = (g, m, col) => {
@@ -43,8 +44,8 @@ export function handGeometry({ len = 1, curl = 0.6, mirror = false, lo = false }
     c.rotateX(Math.PI / 2 + 0.35); c.translate(0, -fw * 0.3, fw * 1.2);
     add(c, W, nail);
   };
-  for (const [x, l, spl] of F) finger(new V3(x * len, 0, palmL * 0.95 - Math.abs(x) * len * 0.15), l, spl, false);
-  finger(new V3(0.2 * len, -0.01 * len, palmL * 0.25), 0.42, 0.75, true);
+  for (const [x, l, spl] of F) finger(new V3(x * len, 0, palmL * 0.95 - Math.abs(x) * len * 0.15), l * long, spl * spread, false);
+  finger(new V3(0.2 * len, -0.01 * len, palmL * 0.25), 0.42 * long, 0.75 + 0.2 * (spread - 1), true);
   const g = mergeGeometries(parts);
   if (mirror) {
     g.scale(-1, 1, 1);

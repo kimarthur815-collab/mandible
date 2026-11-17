@@ -626,7 +626,7 @@ spiders.setColliders(colliders);
 const gate = new PassageGate(scene, silk, BT, colliders);
 const phantom = new Phantom(scene, silk, BT);
 // hard mode: the bugs fused with the people who came in before you (the parts are built the first time)
-const fused = [fuseGhost(spiders.ghost.s), fuseGhost(gate.s), fuseGhost(phantom.s), fuseCenti(centi.c)];
+const fused = [fuseGhost(spiders.ghost.s, { seg: 112 }), fuseGhost(gate.s, { seg: 112 }), fuseGhost(phantom.s, { seg: 112 }), fuseCenti(centi.c)];
 let fusedT = 0;
 const deadMan = new DeadWorker(scene, silk, colliders);
 const lee = new LeeBody(scene, colliders);
