@@ -298,7 +298,15 @@ export function buildExterior(scene, renderer) {
     const into = h.dock ? DB : B;
     const g = corrugated(h.w, h.h, 0.11, 0.035, true); g.translate(h.x + h.w / 2, h.h / 2, -0.17); into.add('shutter', RM, g, C('#ffffff'), m);
     const bar = P.box(h.w, 0.12, 0.08); bar.translate(h.x + h.w / 2, 0.06, -0.12); into.add('metal', RM, bar, C('#3a3b3a'), m);   // bottom bar
-    if (h.dock) { const dark = new THREE.PlaneGeometry(h.w + 0.4, h.h + 0.4); dark.translate(h.x + h.w / 2, h.h / 2, -1.2); add('black', dark, 0x000000, m); }   // the dark inside
+    if (h.dock) {
+      // the dark inside: a black box behind the opening (back, sides, ceiling and floor), so nothing of the yard's
+      // wet ground (it runs on under the building) shimmers in there
+      const cx = h.x + h.w / 2, D = 0.92, zc = -T - D / 2;
+      const back = new THREE.PlaneGeometry(h.w + 0.4, h.h + 0.4); back.translate(cx, h.h / 2, -T - D); add('black', back, 0x000000, m);
+      for (const x of [h.x - 0.2, h.x + h.w + 0.2]) { const s = new THREE.PlaneGeometry(D, h.h + 0.4); s.rotateY(Math.PI / 2); s.translate(x, h.h / 2, zc); add('black', s, 0x000000, m); }
+      const top = new THREE.PlaneGeometry(h.w + 0.4, D); top.rotateX(Math.PI / 2); top.translate(cx, h.h + 0.1, zc); add('black', top, 0x000000, m);
+      const flr = new THREE.PlaneGeometry(h.w + 0.4, D); flr.rotateX(-Math.PI / 2); flr.translate(cx, 0.004, zc); add('black', flr, 0x000000, m);
+    }
     for (const x of [h.x + 0.06, h.x + h.w - 0.06]) boxAt('metal', 0.14, h.h + 0.1, 0.16, x, (h.h + 0.1) / 2, -0.06, C('#4a4c4b'), m);   // guide rails
     boxAt('metal', h.w + 0.3, 0.32, 0.22, h.x + h.w / 2, h.h + 0.16, -0.04, C('#3f4241'), m);   // header
   };
@@ -531,7 +539,7 @@ export function buildExterior(scene, renderer) {
     drum: std({ map: PT.drums(), roughness: 0.45, metalness: 0.12 }),
     rubber: std({ roughness: 0.85 }),
     glass: std({ color: 0x6a7074, roughness: 0.12, metalness: 0.7, envMapIntensity: 1.6 }),
-    black: new THREE.MeshBasicMaterial({ color: 0x000000 }),
+    black: new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide }),
     bulb: std({ color: 0xffffff, emissive: 0xffd49a, emissiveIntensity: 3 }),
     chain: std({ map: chainLink(), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.6 }),
     stencil: std({ map: stencil('D-7'), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, roughness: 0.9 }),
@@ -597,7 +605,7 @@ export function buildExterior(scene, renderer) {
       light = new THREE.SpotLight(0xffc888, l.kind === 'canopy' ? 150 : 200, l.kind === 'canopy' ? 16 : 24, l.kind === 'canopy' ? 1.0 : 0.85, 0.7, 1.6);
       light.position.copy(l.pos); light.target.position.copy(l.pos).add(l.dir.clone().multiplyScalar(4));
       group.add(light.target);
-      if (l.kind === 'canopy') { light.castShadow = true; light.shadow.mapSize.set(1024, 1024); light.shadow.bias = -0.0008; }
+      if (l.kind === 'canopy') { light.castShadow = true; light.shadow.mapSize.set(1024, 1024); light.shadow.bias = -0.0008; light.shadow.normalBias = 0.03; }   // (normalBias: no blotchy acne on the shutter's jambs)
     } else light = new THREE.PointLight(0xffc27a, 12, 8, 1.8), light.position.copy(l.pos);
     group.add(light); lampLights.push(light);
   }
