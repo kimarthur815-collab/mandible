@@ -143,6 +143,19 @@ export class MapCentipede {
     this.state = 'chase'; this.lostT = 0;
   }
 
+  // the last generator: wherever it was, it's at the lab door when the power comes back (moved while it's
+  // dark; not if it's already near it, or in the lab, or somewhere it can't be taken from)
+  toDoor(x, z) {
+    if (!this.active || this.state === 'emerge' || this.state === 'gone' || this.state === 'ram' || this.state === 'poke') return;
+    const H = this.c.headXZ;
+    if (H.x < x) return;
+    this.pushT = 5.5;                                       // (and its head in at the doorway, wanting in)
+    if (Math.hypot(H.x - x, H.y - z) < 8) return;
+    this.c.reset(x + 1.0, z, -Math.PI / 2);
+    this.c.mode = 'drive'; this.c.driveSpeed = 0;
+    this.state = 'chase'; this.lostT = 0; this.pField = null; this.prowlP = null;
+  }
+
   // it has you: the kill (see Centipede applyPose); cam is where your head is
   kill(cam) { this.c.mode = 'kill'; this.c.kill = { t: 0, cam: cam.clone() }; }
 
@@ -272,6 +285,7 @@ export class MapCentipede {
           target = nav.descend(this.pField, H.x, H.y, D) ? new THREE.Vector2(H.x + D.x * 1.6, H.y + D.z * 1.6) : front;
           speed = 3.4;
         } else if (F.smash) { target = new THREE.Vector2(F.x + 0.3, F.zc); speed = 3.0; }
+        else if (this.pushT > 0) { this.pushT -= dt; target = new THREE.Vector2(F.x + (F.open ? -0.4 : 0.75), F.zc + 0.4 * Math.sin(c.time * 3)); speed = 2.6; }     // (its head in at the doorway, wanting in)
         else if (!F.open) { target = new THREE.Vector2(F.x + 0.9, F.zc + 1.0 * Math.sin(c.time * 0.6)); speed = 0.9; }
         else {
           // to and fro outside the doorway, stopping to look in, never over the threshold
@@ -291,7 +305,7 @@ export class MapCentipede {
             ctx.onLunge && ctx.onLunge();
           }
         }
-        if (target && !F.smash) target.x = Math.max(target.x, F.x + 0.8);
+        if (target && !F.smash && !(this.pushT > 0)) target.x = Math.max(target.x, F.x + 0.8);
       } else if (this.state === 'chase' && ctx.safe) {
         // you are in a lamp's light: circle its edge and wait
         this.orbitA += dt * 0.35;

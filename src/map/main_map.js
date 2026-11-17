@@ -469,7 +469,7 @@ function discover(id) {
 function readQueued() {
   const q = G.readQ[0];
   if (!q || t < q.at || !journal.has(q.id)) { if (q && !journal.has(q.id)) G.readQ.shift(); return; }
-  if (!G.started || G.dead || G.won || G.grab || G.kill || G.drop || G.cine || focus || G.glance || G.chasing || G.attached.length || journal.open || (intro && intro.active)) return;
+  if (!G.started || G.dead || G.won || G.grab || G.kill || G.drop || G.cine || G.lookSeq || focus || G.glance || G.chasing || G.attached.length || journal.open || (intro && intro.active)) return;
   G.readQ.shift();
   if (TEST && !window.__READ) { journal.toast(); return; }      // (automated runs: no one to close it)
   if (showMap) toggleMap();
@@ -637,7 +637,13 @@ const labDoor = (() => {
   const rail = new THREE.Mesh(boxGeom(0.1, 0.08, 6.6, 0, 3.02, 0), dark); rail.position.set(LAB.x - 0.02, 0, LAB.zc + 1.6); scene.add(rail);
   const col = { x0: LAB.x - 0.08, x1: LAB.x + 0.12, z0: LAB.z0, z1: LAB.z1, off: true };
   colliders.push(col);
-  return { g, panel, plate, col, W, shut, open, k: 1, want: 1, broken: false, fall: 0, closedT: 0, angry: false, smash: -1, scratchT: 0 };
+  // a caged bulb over it on the lab side, dead till the last generator's power comes through
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), new THREE.MeshStandardMaterial({ color: 0x999080, emissive: new THREE.Color(0xfff0c8), emissiveIntensity: 0 }));
+  bulb.position.set(LAB.x - 0.16, 3.25, LAB.zc); scene.add(bulb);
+  const cage = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.16, 8, 1, true), new THREE.MeshStandardMaterial({ color: 0x222420, wireframe: true }));
+  cage.position.copy(bulb.position); scene.add(cage);
+  const light = new THREE.PointLight(0xfff0c8, 0, 8, 1.6); light.position.set(LAB.x - 0.5, 3.0, LAB.zc); scene.add(light);
+  return { g, panel, plate, col, W, shut, open, k: 1, want: 1, broken: false, fall: 0, closedT: 0, angry: false, smash: -1, scratchT: 0, bulb, light };
 })();
 spiders.setColliders(colliders);
 // (made after the spiders took their feet surfaces, so their legs don't reach for these)
@@ -668,7 +674,7 @@ function resetGame() {
     tipped: {}, lampSeen: false, calls: 3, hp: D().hp, dead: false, kill: null, attached: [], attachCd: 0, chasing: false, chaseLen: 0, stingAt: -99, scared: false, events: [],
     grab: null, sprayCd: 0, webSlowT: 0, lingSlow: 0, lingT: 9, eggTip: false, checkpoint: null,
     hidden: false, revealT: 0, hiddenT: 0, stillT: 0, drained: false, blackT: 0, backT: 0, blackDone: false, blackPhantom: false,
-    cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false, lostT: 0, lostHints: 0, stuckT: 0, stuckHints: 0, hallLit: false, ventLoose: false, seenRooms: new Set(), glance: null, glanceAt: -99,
+    cans: 0, hasCam: false, shots: 0, camCd: 0, photos: {}, leeId: false, lostT: 0, lostHints: 0, stuckT: 0, stuckHints: 0, hallLit: false, lookSeq: null, seenRooms: new Set(), glance: null, glanceAt: -99,
     stats: { hits: 0, deaths: 0, spray: 0, thrown: 0, photos: 0, radio: 0, work: false },
     drop: null, dk: freshDuct(), ductJolt: 0, cine: null, readQ: [], reading: false,
   });
@@ -1181,16 +1187,24 @@ function genOn(g) {
   tip('발전기 소리에 벌레들이 몰려오겠다...', 'gen');
   if (g.room === 'hall' && !centi.active) { sfx.silence(1.4); setTimeout(() => { if (!G.dead) centi.wake(); }, 1300); }
   if (g.room === 'lab') {
-    // the duct's fans start with it and shake its grille loose: it has to be torn off (the emergency door stays jammed)
+    // in the dark, the centipede comes for you: by the time the power's back it's at the lab door
+    setTimeout(() => { if (!G.dead && eggs.burst()) sfx.eggBurst(-7.6, 4, 62.6); centi.enrage(player.pos); centi.toDoor(LAB.x, LAB.zc); }, 600);
+    // the power back, the duct's fans start and blow the grille off its mouth (the emergency door stays
+    // jammed). The view is held on the centipede trying to get in at the door, then turned to the vent
     setTimeout(() => {
-      G.ventLoose = true; sfx.ductBang(DUCT.mouth.x, 0.5, DUCT.wallZ);
-      msg('환풍기가 돌기 시작했다... 환기구 덮개가 덜컹거린다'); lookToward(new THREE.Vector3(DUCT.mouth.x, 0.45, DUCT.wallZ), 0.9);
-    }, 1500);
-    setTimeout(() => { if (!G.dead && eggs.burst()) sfx.eggBurst(-7.6, 4, 62.6); centi.enrage(player.pos); }, 600);
+      if (G.dead || G.won) return;
+      duct.openVent(); sfx.ductBang(DUCT.mouth.x, 0.5, DUCT.wallZ); sfx.canClank(DUCT.mouth.x, 0.2, DUCT.wallZ + 1.6, 1);
+      msg('환풍기가 돌기 시작했다... 환기구 덮개가 떨어져 나갔다');
+      labDoor.angry = true;                                           // (it heard that)
+      if (centi.active && centi.state === 'prowl') { centi.pushT = Math.max(centi.pushT || 0, 2.6); sfx.centiScreech(centi.head.x, centi.head.z); }
+      const atDoor = () => (centi.active && Math.hypot(centi.head.x - LAB.x, centi.head.z - LAB.zc) < 7 ? new THREE.Vector3(centi.head.x, 0.7, centi.head.z) : new THREE.Vector3(LAB.x, 1.3, LAB.zc));
+      if (!G.flashOn && !G.drained) { G.flashOn = true; $('#bFlash').classList.add('on'); }
+      if (!G.grab && !G.kill) G.lookSeq = { t: 0, shots: [{ p: atDoor, end: 2.2, zoom: 0.5 }, { p: () => new THREE.Vector3(DUCT.mouth.x, 0.45, DUCT.wallZ), end: 3.6 }] };
+    }, 3150);
   }
   if (G.gens === 3) {
     G.shutterOpening = true; sfx.doorRumble(0, 0.5, 3.4);
-    setTimeout(() => { if (!G.dk.in && !duct.open) tip(labDoor.k > 0.5 && !labDoor.broken ? `셔터는 너무 멀다... 문부터 닫고, 환기구 덮개를 뜯어내자 (${useLabel()})` : `셔터는 너무 멀다. 환기구 덮개를 뜯어내자 (${useLabel()} 꾹)`, 'ductgo'); }, 4200);
+    setTimeout(() => { if (!G.dk.in) tip('셔터는 하역장... 너무 멀다. 환기구로 기어가자', 'ductgo'); }, 6600);
   }
   { const n = G.gens; setTimeout(() => { if (!G.dead && !G.won && G.gens === n) voice.say(RADIO_GEN[n - 1]); }, 4300); }
   updateHud();
@@ -1234,7 +1248,6 @@ function findTarget() {
   if (!camItem.taken && same(camItem.x, camItem.z)) consider('camera', camItem, camItem.x, camItem.z, 1.8);
   if (!G.leeId) consider('leeId', lee, LEE.id.x, LEE.id.z, 1.7);
   if (!labDoor.broken) consider('labdoor', labDoor, LAB.x + (player.pos.x < LAB.x ? -0.3 : 0.3), LAB.zc, 2.2);
-  if (G.ventLoose && !duct.open) consider('vent', duct, DUCT.mouth.x, DUCT.wallZ + 0.15, 1.9);
   return best;
 }
 const useLabel = () => (touch ? 'E · 손 버튼' : 'E');   // the PC key shows on touch screens too
@@ -1402,10 +1415,19 @@ function drawMap() {
 }
 
 // ------------------------------------------------------------------ loop
+let baseFov = 70, fovK = 1;
+// a held look can close in (its shot's zoom); otherwise the view eases back out
+function updateZoom(dt) {
+  const q = G.lookSeq, shot = q && q.shots.find((s) => q.t < s.end), want = (shot && shot.zoom) || 1;
+  if (Math.abs(want - fovK) < 0.002) return;
+  fovK += (want - fovK) * Math.min(1, dt * 3);
+  camera.fov = baseFov * fovK; camera.updateProjectionMatrix();
+}
 function resize() {
   renderer.setSize(innerWidth, innerHeight); SILK_RES.set(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
-  camera.fov = innerWidth < innerHeight ? 80 : 70;
+  baseFov = innerWidth < innerHeight ? 80 : 70;
+  camera.fov = baseFov * fovK;
   camera.updateProjectionMatrix();
   paperMap.resize();
   faceBugs.resize();
@@ -1537,14 +1559,17 @@ function updateLabDoor(dt) {
   }
   if (D_.smash >= 0 && !D_.broken) {
     const s0 = D_.smash; D_.smash += dt;
-    // three blows, the steel jumping in its rail; on the third it comes in
-    for (const at of [0, 0.75, 1.5]) if (s0 <= at && D_.smash > at) {
+    // blow after blow, the steel jumping in its rail, till it gives (time enough to get into the vent)
+    for (const at of [0, 1.6, 3.2, 4.8, 6.4, 8.0]) if (s0 <= at && D_.smash > at) {
       sfx.ductBang(LAB.x, 1.2, LAB.zc); sfx.doorRumble(LAB.x, LAB.zc, 0.4); shakeScreen(); buzz([50, 30, 90]);
       if (at === 0) { tip('문을 들이받는다!!'); sfx.centiScreech(LAB.x + 1, LAB.zc); }
     }
-    D_.panel.position.x = -0.06 * Math.max(0, Math.sin((D_.smash % 0.75) * 30)) * Math.exp(-(D_.smash % 0.75) * 8);
-    if (D_.smash > 2.1) breakLabDoor();
+    D_.panel.position.x = -(0.04 + 0.01 * D_.smash) * Math.max(0, Math.sin((D_.smash % 1.6) * 30)) * Math.exp(-(D_.smash % 1.6) * 6);
+    if (D_.smash > 8.8) breakLabDoor();
   }
+  // the bulb: on once the last generator's power is back, flickering, jumping with every blow
+  const lit = G.gens >= 3 && G.blackT <= 0 ? (Math.random() < 0.06 || (D_.smash >= 0 && (D_.smash % 1.6) < 0.15) ? 0.15 : 1) : 0;
+  D_.light.intensity = 7 * lit; D_.bulb.material.emissiveIntensity = 2 * lit;
   if (D_.broken && D_.fall < 1) {
     D_.fall = Math.min(1, D_.fall + dt / 0.55);
     const e = D_.fall * D_.fall;
@@ -1702,6 +1727,19 @@ function applyCine(dt, inp) {
   player.pitch += (THREE.MathUtils.clamp(Math.atan2(c.at.y - cp.y, Math.hypot(dx, dz)), -1.2, 1.2) - player.pitch) * k;
   return { ...inp, mx: 0, mz: 0, run: false, lookX: 0, lookY: 0 };
 }
+// a held look (G.lookSeq): no moving, no looking away; the head turned to each thing in turn
+function applyLookSeq(dt, inp) {
+  const q = G.lookSeq;
+  if (!q) return inp;
+  q.t += dt;
+  const shot = q.shots.find((s) => q.t < s.end);
+  if (!shot || G.dead || G.grab || G.kill || G.won) { G.lookSeq = null; return inp; }
+  const at = shot.p(), cp = camera.position, dx = at.x - cp.x, dz = at.z - cp.z, k = 1 - Math.exp(-dt * 3.5);
+  let dy = Math.atan2(dx, dz) - player.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  player.yaw += dy * k;
+  player.pitch += (THREE.MathUtils.clamp(Math.atan2(at.y - cp.y, Math.hypot(dx, dz)), -1.2, 1.2) - player.pitch) * k;
+  return { ...inp, mx: 0, mz: 0, run: false, lookX: 0, lookY: 0 };
+}
 function applyFocus(dt, inp) {
   if (!focus) return inp;
   focus.t += dt;
@@ -1831,7 +1869,8 @@ function frame(dtOverride) {
   const inp = readInput(dt);
   const lookMag = Math.abs(inp.lookX) + Math.abs(inp.lookY) * 0.5, lookSign = Math.abs(inp.lookX) > 0.004 ? Math.sign(inp.lookX) : 0;
   if (G.started && !G.won && !G.dead && !G.grab && !G.kill && !G.drop) {
-    player.update(dt, applyFocus(dt, applyCine(dt, inp)));
+    player.update(dt, applyFocus(dt, applyLookSeq(dt, applyCine(dt, inp))));
+    updateZoom(dt);
     if (G.ductJolt > 0.001) { camera.position.x += (Math.random() - 0.5) * G.ductJolt; camera.position.y += (Math.random() - 0.5) * G.ductJolt; camera.position.z += (Math.random() - 0.5) * G.ductJolt; }
     if (G.glance) {
       const g = G.glance; g.t += dt;
@@ -2323,7 +2362,7 @@ function frame(dtOverride) {
   let prompt = '';
   const pressed = inp.usePressed || (inp.use && !prevUse);
   prevUse = inp.use; input.usePressed = false;
-  if (!target || (target.kind !== 'gen' && target.kind !== 'vent')) G.holdT = 0;
+  if (!target || target.kind !== 'gen') G.holdT = 0;
   if (target) {
     const o = target.obj;
     if (target.kind === 'gen') {
@@ -2347,26 +2386,6 @@ function frame(dtOverride) {
         if (D_.want > 0.5 && inWay) tip('문 앞에서 비켜야 닫을 수 있다');
         else if (D_.want > 0.5 && centi.active && Math.hypot(centi.head.x - LAB.x, centi.head.z - LAB.zc) < 1.6) tip('...늦었다');
         else { D_.want = D_.want > 0.5 ? 0 : 1; sfx.doorRumble(LAB.x, LAB.zc, 0.9); G.events.push({ x: LAB.x, z: LAB.zc, r: 8 }); }
-      }
-    } else if (target.kind === 'vent') {
-      // the grille: shaken loose by the fans, it still takes a good pull to tear off - and not with the door open
-      if (labDoor.k > 0.15 && !labDoor.broken) {
-        prompt = '문이 열려 있다';
-        if (pressed) tip(centi.active ? '지네가 문 밖에 있다... 먼저 문부터 닫자' : '먼저 문부터 닫자');
-      } else {
-        const need = 1.1;
-        if (inp.use) {
-          const before = G.holdT; G.holdT += dt;
-          if (before === 0 || Math.floor(before / 0.35) !== Math.floor(G.holdT / 0.35)) sfx.ductKnock(DUCT.mouth.x, 0.45, DUCT.wallZ, 0.7);
-          if (G.holdT >= need) {
-            G.holdT = 0;
-            duct.openVent(); sfx.ductBang(DUCT.mouth.x, 0.5, DUCT.wallZ); sfx.canClank(DUCT.mouth.x, 0.2, DUCT.wallZ + 1.6, 1);
-            msg('덮개가 뜯겨 나갔다! 들어가자'); G.events.push({ x: DUCT.mouth.x, z: DUCT.wallZ, r: 30 });
-            labDoor.angry = true;                                    // it heard that
-          }
-        } else G.holdT = Math.max(0, G.holdT - dt * 1.5);
-        G.holdMax = need;
-        prompt = `${useLabel()} 꾹 누르기 · 환기구 덮개 뜯기`;
       }
     } else if (target.kind === 'leeId') {
       prompt = `${useLabel()} · 사원증 챙기기`;
