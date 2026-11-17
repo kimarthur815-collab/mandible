@@ -403,7 +403,7 @@ export class Sound {
         o.connect(g); g.connect(bp); o.start(now); o.stop(now + len + 0.05);
       }
     };
-    for (let from = 0; from < dur; from += 1) { if (from === 0) batch(0); else setTimeout(() => batch(from), (from - 0.5) * 1000); }
+    for (let from = 0; from < dur; from += 1) batch(from);          // (all at once: a timer can come late when the game stalls)
     this.burst({ t: dur, dur: 0.02, f: 1800, q: 2, gain: 0.2 });
   }
   // something crawling over the far end's mic: legs scratching, through the radio
@@ -1329,9 +1329,11 @@ export class Sound {
     // the centipede has its own chase (music.js centiStep: 7/8, the factory's tune in the brass); the spiders this one
     const kind = s.chaseBy || ch.kind || 'spider';
     if (Lc > 0.03) {
-      if (!ch.run || ch.next < now - 0.25 || kind !== ch.kind) { ch.run = true; ch.next = now + 0.05; ch.step = 0; ch.bar = 0; ch.kind = kind; }
       const centi = kind === 'centi', stepDur = centi ? 60 / (148 + Lc * 30) / 4 : 60 / (134 + Lc * 36) / 4, steps = centi ? 14 : 16;
-      while (ch.next < now + 0.12) {
+      if (!ch.run || kind !== ch.kind) { ch.run = true; ch.next = now + 0.05; ch.step = 0; ch.bar = 0; ch.kind = kind; }
+      // after a stall longer than we schedule ahead: skip the beats that were missed but stay on the beat
+      if (ch.next < now) { const miss = Math.ceil((now - ch.next) / stepDur); ch.next += miss * stepDur; ch.bar += Math.floor((ch.step + miss) / steps); ch.step = (ch.step + miss) % steps; }
+      while (ch.next < now + 0.5) {          // (half a second ahead, so a frame that stalls doesn't leave a hole)
         if (centi) this.music.centiStep(Math.max(now, ch.next), ch.step, ch.bar, Lc, stepDur, this.chBus);
         else this.chaseStep(Math.max(0, ch.next - now), ch.step, ch.bar, Lc, stepDur);
         ch.next += stepDur; if (++ch.step >= steps) { ch.step = 0; ch.bar++; }

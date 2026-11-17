@@ -459,7 +459,7 @@ export class Music {
     if (q.t < late) q.t = now + 0.1;
     if (eq.ph && eq.t < late) eq.t = now + 0.1;
     nq.crick = nq.crick.map((v) => (v < late ? now + rnd(0, 0.5) : v)); if (nq.glass < late) nq.glass = now + 1;
-    const until = now + 0.35;
+    const until = now + 1.0;          // a second ahead: a frame that stalls (a heavy moment on a phone) doesn't leave a hole
     if (want.dusk > 0 || this.lvl.dusk > 0.01) this.duskTo(until, this.bus.dusk, mode === 'end');
     if (want.night > 0 || this.lvl.night > 0.01) this.nightTo(until, this.bus.night);
     if (want.inside > 0 || this.lvl.inside > 0.01) this.insideTo(until);
