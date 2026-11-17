@@ -197,7 +197,7 @@ export function dressLevel(scene, { colliders, T = 0.3, silkMat }) {
     // walls: control panel, gauges, electrical panel, pipes on the south wall
     g = P.box(1.0, 1.0, 0.25); g.translate(13.4, 1.3, 19.57); B.add('metal', rm, g, C('#7d8580'));
     P.quad(B, 'sign', rm, signT.cell(10), 0.9, 0.9, 13.4, 1.3, 19.43, '-z');
-    sign(rm, 'x1', 12.6, 1.6, 9, 0.5); sign(rm, 'z0', 18.2, 1.8, 2, 0.6); sign(rm, 'x0', 18.5, 2.0, 5, 0.6);
+    sign(rm, 'x1', 16.4, 1.6, 9, 0.5); sign(rm, 'z0', 15.8, 1.8, 2, 0.6); sign(rm, 'x0', 18.5, 2.0, 5, 0.6);   // (signs and gauges clear of the arrows to generator 1)
     P.elecPanel(B, rm, 21.68, 1.4, 18.8, -Math.PI / 2, ROOMS.machine.h, R);
     P.pipe(B, rm, [[12.3, 3.6, 10.6], [21.7, 3.6, 10.6]], 0.11, C('#b0522a'), R, { wall: { axis: 'z', at: 10.3 } });
     P.pipe(B, rm, [[12.3, 3.9, 10.9], [18.2, 3.9, 10.9], [18.2, 3.9, 19.7]], 0.07, C('#557089'), R, { valve: [18.2, 3.6, 15.5] });

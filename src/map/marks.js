@@ -21,6 +21,7 @@ export const MARKS = [
   { kind: 'warn', floor: [-10.4, 25.4], view: [0, 1], sym: 'x', text: '거미' },
   // machine room
   { kind: 'go', wall: [21.7, 2.3, 13.7], n: [-1, 0], to: [0, -1, -1], text: '발전기 1' },
+  { kind: 'go', wall: [19.9, 2.2, 10.3], n: [0, 1], to: [0, -1, 0], text: '발전기 1' },     // (right over it)
   { kind: 'go', wall: [15.5, 1.9, 19.7], n: [0, -1], to: [1, 0, 0], text: '발전기 2', sub: '복도' },
   // corridor: the threads
   { kind: 'warn', wall: [16.8, 1.7, 26.8], n: [1, 0], text: '실 조심!', sub: '앉아서 지나가' },

@@ -285,6 +285,7 @@ export class Sound {
     let out = g;
     if (pan && ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = pan; g.connect(p); out = p; }
     s.connect(fl); fl.connect(g); out.connect(dest);
+    if (dur + attack + 0.1 > buf.duration) s.loop = true;          // (longer than the noise: round again rather than stop short)
     s.start(now, Math.max(0, Math.random() * (buf.duration - dur - attack - 0.1))); s.stop(now + attack + dur + 0.05);
     return fl;
   }
@@ -378,21 +379,29 @@ export class Sound {
     this.tone({ t: dur, f0: 90, f1: 45, dur: 0.35, gain: 0.5 });
   }
   // a pocket recorder playing back: the button, tape hiss, a thin voice
+  // (the syllables are made a second's worth at a time, not a whole line's at once - fewer nodes alive,
+  // no hitch - and kept quiet enough not to squeeze the music down through the master compressor)
   tape(dur) {
     if (!this.ctx) return;
-    const ctx = this.ctx;
-    this.burst({ dur: 0.02, f: 2200, q: 2, gain: 0.3 });
-    this.burst({ t: 0.05, dur, f: 4500, q: 0.5, gain: 0.04, attack: 0.08 });
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    this.burst({ dur: 0.02, f: 2200, q: 2, gain: 0.22 });
+    this.burst({ t: 0.05, dur, f: 4500, q: 0.5, gain: 0.03, attack: 0.08 });
     const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1300; bp.Q.value = 0.9; bp.connect(this.sfx);
-    for (let x = 0.25; x < dur - 0.1; x += rnd(0.11, 0.21)) {
-      if (Math.random() < 0.1) { x += 0.25; continue; }
-      const now = ctx.currentTime + x, len = rnd(0.07, 0.14), f = rnd(140, 200);
-      const o = ctx.createOscillator(); o.type = 'sawtooth';
-      o.frequency.setValueAtTime(f, now); o.frequency.linearRampToValueAtTime(f * rnd(0.85, 1.15), now + len);
-      const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(rnd(0.1, 0.18), now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + len);
-      o.connect(g); g.connect(bp); o.start(now); o.stop(now + len + 0.05);
-    }
-    this.burst({ t: dur, dur: 0.02, f: 1800, q: 2, gain: 0.25 });
+    const syl = [];
+    for (let x = 0.25; x < dur - 0.1; x += rnd(0.11, 0.21)) { if (Math.random() < 0.1) { x += 0.25; continue; } syl.push(x); }
+    const batch = (from) => {
+      for (const x of syl) {
+        if (x < from || x >= from + 1) continue;
+        const now = t0 + x, len = rnd(0.07, 0.14), f = rnd(140, 200);
+        if (now < ctx.currentTime) continue;
+        const o = ctx.createOscillator(); o.type = 'sawtooth';
+        o.frequency.setValueAtTime(f, now); o.frequency.linearRampToValueAtTime(f * rnd(0.85, 1.15), now + len);
+        const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(rnd(0.06, 0.1), now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + len);
+        o.connect(g); g.connect(bp); o.start(now); o.stop(now + len + 0.05);
+      }
+    };
+    for (let from = 0; from < dur; from += 1) { if (from === 0) batch(0); else setTimeout(() => batch(from), (from - 0.5) * 1000); }
+    this.burst({ t: dur, dur: 0.02, f: 1800, q: 2, gain: 0.2 });
   }
   // something crawling over the far end's mic: legs scratching, through the radio
   radioSkitter(dur = 2.5) {

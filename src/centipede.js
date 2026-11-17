@@ -81,6 +81,7 @@ export class Centipede {
     this.group = new THREE.Group();
     this.time = 0;
     this.mode = 'idle';
+    this.look = 0;                    // 0..1: head up, turning this way and that (waiting, peering about)
     this.obstacles = [];
     this.b = { sub: 'pause', timer: 0.5, target: new THREE.Vector2(), desired: 0, stun: false, hold: 0, curl: 0, curlSide: 1, prev: 'idle', immune: 0, hits: 0, lastHit: -99, lunge: 0, lt: 0, caught: false };
     this.wasLit = false;
@@ -472,7 +473,8 @@ export class Centipede {
     const P = this.rPos[0], R = this.right[0], U = this.upv[0], T = this.tan[0];
     const m = new THREE.Matrix4().makeBasis(R, U, T);
     this.head.quaternion.setFromRotationMatrix(m);
-    const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12 - 0.35 * this.b.lunge + 0.08 * this.b.curl, 0.12 * Math.sin(t * 0.9), 0));
+    const lk = this.look;
+    const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12 - 0.35 * this.b.lunge + 0.08 * this.b.curl - 0.3 * lk, 0.12 * Math.sin(t * 0.9) + lk * 0.6 * Math.sin(t * 1.1 + 1.6 * Math.sin(t * 0.37)), 0));
     this.head.quaternion.multiply(look);
     this.head.position.copy(P).addScaledVector(T, 0.11).addScaledVector(U, 0.005);
     const open = this.mode === 'kill' ? (this.kill && this.kill.t < 1.5 ? 0.6 + 0.25 * Math.sin(t * 9) : 0.95 + 0.12 * Math.sin(t * 26)) : 0.25 + 0.5 * Math.max(this.b.lunge, this.b.curl * 0.6) + 0.06 * Math.sin(t * 2.3);

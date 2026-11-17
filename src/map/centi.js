@@ -255,11 +255,43 @@ export class MapCentipede {
         this.lostT = sees || dP < 6 ? 0 : this.lostT + dt;
         if (this.lostT > 9 || !ctx.player.alive) { this.state = 'patrol'; this.wpField = null; }
       }
+      // you're behind the lab door (fence: { inside, open, x, zc }): it won't come in while the door
+      // stands open - it waits outside, pacing and looking in - and it presses up to it once it's shut
+      const F = ctx.fence;
+      if (F && F.inside && ctx.player.alive && (this.state === 'chase' || this.state === 'search') && H.x > F.x + 0.3) { this.state = 'prowl'; this.pField = null; this.prowlP = null; }
+      if (this.state === 'prowl' && !(F && F.inside)) { this.state = 'chase'; this.lostT = 0; }
       if (this.sprayStun && !b.stun) { this.sprayStun = false; this.retreatT = 2.6; }
       if (this.retreatT > 0) {
         this.retreatT -= dt;
         if (nav.descend(ctx.field, H.x, H.y, D, -1)) target = new THREE.Vector2(H.x + D.x * 2, H.y + D.z * 2);
         speed = 3.2;
+      } else if (this.state === 'prowl') {
+        const front = new THREE.Vector2(F.x + 2.6, F.zc), dF = Math.hypot(front.x - H.x, front.y - H.y);
+        if (dF > 4.5) {
+          if (!this.pField) this.pField = nav.field([[front.x, front.y]], { wallCost: 0.9, maxDist: 70 });
+          target = nav.descend(this.pField, H.x, H.y, D) ? new THREE.Vector2(H.x + D.x * 1.6, H.y + D.z * 1.6) : front;
+          speed = 3.4;
+        } else if (F.smash) { target = new THREE.Vector2(F.x + 0.3, F.zc); speed = 3.0; }
+        else if (!F.open) { target = new THREE.Vector2(F.x + 0.9, F.zc + 1.0 * Math.sin(c.time * 0.6)); speed = 0.9; }
+        else {
+          // to and fro outside the doorway, stopping to look in, never over the threshold
+          this.prowlT = (this.prowlT || 0) - dt;
+          if (this.prowlT <= 0 || !this.prowlP) {
+            this.prowlT = 1.4 + Math.random() * 2.2;
+            this.prowlP = new THREE.Vector2(F.x + 1.8 + Math.random() * 2.2, F.zc - 2.5 + Math.random() * 5);
+            this.pause = Math.random() < 0.45 ? 0.6 + Math.random() * 1.2 : 0;
+          }
+          this.pause = Math.max(0, (this.pause || 0) - dt);
+          target = this.prowlP; speed = this.pause > 0 ? 0 : 1.5;
+          // (but come to the doorway and it has you)
+          if (dP < 1.9 && c.mode !== 'lunge' && !b.stun && ctx.player.alive && !hid) {
+            c.mode = 'lunge'; b.lt = 0; b.caught = false;
+            c.lungeDir = new V3(P.x - H.x, 0, P.z - H.y).normalize();
+            c.onCatch = () => ctx.onCatch && ctx.onCatch();
+            ctx.onLunge && ctx.onLunge();
+          }
+        }
+        if (target && !F.smash) target.x = Math.max(target.x, F.x + 0.8);
       } else if (this.state === 'chase' && ctx.safe) {
         // you are in a lamp's light: circle its edge and wait
         this.orbitA += dt * 0.35;
@@ -312,6 +344,8 @@ export class MapCentipede {
       c.driveSpeed = speed;
       if (target) b.target.copy(target);
     }
+    // looking about while it waits at an open door
+    c.look += ((this.state === 'prowl' && ctx.fence && ctx.fence.open && speed < 1.6 ? 1 : 0) - c.look) * Math.min(1, dt * 2);
     // stuns: only the beam on its head counts (handled inside), tips for the first one and the shorter ones
     const prevStun = b.stun;
     c.onStun = (hits, hold) => ctx.onStun && ctx.onStun(hits, hold);
@@ -321,6 +355,9 @@ export class MapCentipede {
       const k = nav.nearestFree(H.x, H.y, 4);
       if (k >= 0) { H.x += (nav.cx(k) - H.x) * 0.5; H.y += (nav.cz(k) - H.y) * 0.5; }
     }
+    // and through a shut door it doesn't go (until it has broken it down)
+    const Fd = ctx.fence;
+    if (Fd && !Fd.open && H.x < Fd.x + 0.45 && H.x > Fd.x - 1.2 && Math.abs(H.y - Fd.zc) < 1.9) H.x = Fd.x + 0.45;
     return prevStun;
   }
 
@@ -345,5 +382,5 @@ export class MapCentipede {
     this.orbitA = Math.atan2(this.head.x - this.spt.x, this.head.z - this.spt.y); this.orbitDir = Math.random() < 0.5 ? -1 : 1;
     return true;
   }
-  info() { return this.state === 'dormant' ? '잠듦' : this.c.b.stun ? '경직' : this.c.mode === 'lunge' ? '덮침' : ({ emerge: '등장', patrol: '순찰', chase: '추격', search: '수색', gone: '벽 속', ram: '환기구', poke: '덕트' })[this.state]; }
+  info() { return this.state === 'dormant' ? '잠듦' : this.c.b.stun ? '경직' : this.c.mode === 'lunge' ? '덮침' : ({ emerge: '등장', patrol: '순찰', chase: '추격', search: '수색', gone: '벽 속', ram: '환기구', poke: '덕트', prowl: '문 밖' })[this.state]; }
 }
