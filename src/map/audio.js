@@ -1146,7 +1146,7 @@ export class Sound {
   }
 
   // ------------------------------------------------------------ per frame
-  // s: { dt, camera, swarms:[{x,z,moving}], near:{x,z,d}|null, attached, intensity, gens:[{x,z,on}], pounce }
+  // s: { dt, camera, swarms:[{x,z,moving}], near:{x,z,d}|null, attached, intensity, gens:[{x,z,on}], pounce, chase 0..1, chaseBy 'spider'|'centi'|null }
   update(s) {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const ctx = this.ctx, now = ctx.currentTime, L = ctx.listener;
@@ -1213,10 +1213,16 @@ export class Sound {
     this.chBus.gain.setTargetAtTime(Math.min(1, Lc * 1.8) * 0.6 * (s.hush ? 0.35 : 1), now, 0.15);
     this.chDrone.gain.setTargetAtTime(Lc > 0.03 ? 0.5 + Lc * 0.5 : 0, now, 0.3);
     this.chLP.frequency.setTargetAtTime(300 + Lc * 900, now, 0.2);
+    // the centipede has its own chase (music.js centiStep: 7/8, the factory's tune in the brass); the spiders this one
+    const kind = s.chaseBy || ch.kind || 'spider';
     if (Lc > 0.03) {
-      if (!ch.run || ch.next < now - 0.25) { ch.run = true; ch.next = now + 0.05; ch.step = 0; ch.bar = 0; }
-      const stepDur = 60 / (134 + Lc * 36) / 4;
-      while (ch.next < now + 0.12) { this.chaseStep(Math.max(0, ch.next - now), ch.step, ch.bar, Lc, stepDur); ch.next += stepDur; if (++ch.step >= 16) { ch.step = 0; ch.bar++; } }
+      if (!ch.run || ch.next < now - 0.25 || kind !== ch.kind) { ch.run = true; ch.next = now + 0.05; ch.step = 0; ch.bar = 0; ch.kind = kind; }
+      const centi = kind === 'centi', stepDur = centi ? 60 / (148 + Lc * 30) / 4 : 60 / (134 + Lc * 36) / 4, steps = centi ? 14 : 16;
+      while (ch.next < now + 0.12) {
+        if (centi) this.music.centiStep(Math.max(now, ch.next), ch.step, ch.bar, Lc, stepDur, this.chBus);
+        else this.chaseStep(Math.max(0, ch.next - now), ch.step, ch.bar, Lc, stepDur);
+        ch.next += stepDur; if (++ch.step >= steps) { ch.step = 0; ch.bar++; }
+      }
     } else ch.run = false;
     // hiding: the music drops away and leaves the heartbeat (which also steps aside for the chase drums)
     const hush = s.hush ? 0.2 : 1;

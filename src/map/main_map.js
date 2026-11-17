@@ -2196,9 +2196,11 @@ function frame(dtOverride) {
     }
   }
   // who's after you: a spider or the centipede chasing drives the chase music, something searching keeps a low pulse
-  let chaseD = 99;
-  for (const q of spiders.chasers()) chaseD = Math.min(chaseD, Math.hypot(q.x - player.pos.x, q.z - player.pos.z));
-  if (centi.active && (centi.state === 'chase' || centi.state === 'emerge')) chaseD = Math.min(chaseD, Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z));
+  let chaseD = 99, chaseBy = null;
+  for (const q of spiders.chasers()) { const d = Math.hypot(q.x - player.pos.x, q.z - player.pos.z); if (d < chaseD) { chaseD = d; chaseBy = 'spider'; } }
+  if (centi.active && (centi.state === 'chase' || centi.state === 'emerge')) { const d = Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z); if (d < chaseD) { chaseD = d; chaseBy = 'centi'; } }
+  if (!chaseBy && centi.state === 'search') chaseBy = 'centi';
+  if (G.kill) chaseBy = 'centi'; else if (G.grab) chaseBy = 'spider';
   const chasing = G.started && !G.dead && !G.won && chaseD < 99;
   const searching = G.started && !G.dead && (spiders.searchers().length > 0 || centi.state === 'search');
   let chaseK = chasing ? 0.45 + 0.55 * Math.max(0, Math.min(1, 1 - (chaseD - 2) / 16)) : searching ? 0.2 : 0;
@@ -2209,12 +2211,15 @@ function frame(dtOverride) {
   // your heart in your hands: a double pulse with each beat while something is close
   G.buzzT = (G.buzzT || 0) - dt;
   if (canVibe && G.started && !G.dead && !G.won && inten > 0.6 && G.buzzT <= 0) { buzz([22, 110, 16]); G.buzzT = 60 / (62 + inten * 64); }
-  // the factory's music tightens as the night goes on and something hunts you; it steps back while you hide or run
-  sfx.setMusic(G.started && !G.won ? 'inside' : 'off', {
+  // the factory's music tightens as the night goes on and something hunts you; it steps back while you hide or run.
+  // From the duct on it gives way to the escape (which takes over from the chase music too)
+  const escPh = !G.started || G.dead || G.won ? null : G.dk.landed || (G.drop && G.drop.phase === 'land') ? 'run' : G.drop ? 'drop' : G.dk.in ? 'duct' : null;
+  sfx.setMusic(escPh ? 'escape' : G.started && !G.won ? 'inside' : 'off', {
     dt, tension: Math.min(1, 0.15 + 0.14 * G.gens + 0.35 * Math.max(0, Math.min(1, inten))),
     duck: (G.dead ? 0.3 : 1) * (G.hidden ? 0.4 : 1) * (1 - 0.8 * chaseK),
+    phase: escPh, k: Math.max(0, Math.min(1, inten)),
   });
-  sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started && !G.won ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce, chase: G.won ? 0 : chaseK,
+  sfx.update({ dt, camera, swarms: ai.swarms, near: ai.near, attached: G.attached.length, intensity: G.started && !G.won ? Math.max(0, Math.min(1, inten)) : 0, pounce: ai.pounce, chase: G.won || escPh ? 0 : chaseK, chaseBy,
     centi: centi.active ? { x: centi.head.x, z: centi.head.z, speed: centi.state === 'poke' ? 1.2 : centi.speed } : G.dk.F && G.dk.F.on && G.dk.in ? { x: G.dk.F.x, z: G.dk.F.z, speed: G.dk.F.v } : null, lings: lingInfo, ghost: spiders.ghostInfo(),
     brood: broodInfo, hush: G.hidden,
     emit: G.started ? ai.emit.concat(lingInfo.emit || [], broodInfo.emit, spiders.emitters(player.pos)) : [] });
@@ -2345,6 +2350,7 @@ function frame(dtOverride) {
   shutterGlow.color.set(G.gens === 3 ? 0x30ff60 : 0xff2010);
   if (!G.won && G.shutter > 0.55 && player.pos.z < -1.0) {
     G.won = true; G.timing = false;
+    sfx.setMusic('escape', { phase: 'out' });     // through the shutter: the escape music lands (and rings on into the yard)
     $('#winTime').textContent = fmt(G.time);
     if (document.pointerLockElement) document.exitPointerLock();
     const showWin = () => { document.body.classList.remove('ending'); renderer.toneMappingExposure = GAME_EXPOSURE; sfx.introMode(false); sfx.engine(false); sfx.win(); showResults(); $('#win').classList.add('show'); };
