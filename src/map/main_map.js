@@ -439,7 +439,28 @@ addEventListener('keydown', (e) => {
   else if (journal.open && e.code === 'Escape') journal.toggle(false);
 });
 
-// breath: after a hard run, short puffs of breath in front of your face, panting faster the more winded
+// the gas mask you put on at the truck (intro.js): its view (#mask), your breathing in it (slow, harder after a
+// run or with something after you; held while you hide, let out after), the visor fogging as you breathe out
+const maskEl = $('#mask'), maskFog = maskEl.querySelector('i');
+const MB = { on: false, t: 1, inhale: true, fog: 0, held: 0 };
+function setMask(on) { MB.on = on; maskEl.classList.toggle('on', on); if (!on) { MB.fog = 0; maskFog.style.opacity = 0; } }
+function maskTick(dt, k, hold) {
+  if (!MB.on) return;
+  if (hold) MB.held += dt;
+  else {
+    if (MB.held > 2.5) { sfx.maskBreath(false, 0.8); MB.fog = 0.6; MB.t = 0.7; MB.inhale = true; }
+    MB.held = 0;
+    if ((MB.t -= dt) <= 0) {
+      sfx.maskBreath(MB.inhale, k);
+      if (!MB.inhale) MB.fog = Math.min(1, 0.35 + 0.5 * k);
+      MB.t = (MB.inhale ? 1.5 : 2.1) * (1 - 0.55 * k) + Math.random() * 0.3;
+      MB.inhale = !MB.inhale;
+    }
+  }
+  MB.fog = Math.max(0, MB.fog - dt * 0.6);
+  maskFog.style.opacity = MB.fog.toFixed(3);
+}
+// breath (without the mask): after a hard run, short puffs of breath in front of your face, panting faster the more winded
 // you are. They hang in the air in front of you (camera space) and show up best in the flashlight
 const breath = (() => {
   const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -1805,6 +1826,7 @@ function frame(dtOverride) {
   // the opening drive has its own scene; the game waits until you step inside
   if (intro && intro.active) {
     if (!needRotate) intro.update(dt);
+    maskTick(dt, 0.12, false);
     if (intro.active) { sfx.setMusic(intro.musicMode(), { dt, duck: intro.musicDuck() }); if (!window.__NORENDER) withBright(() => intro.render()); return; }
   }
   if (needRotate) { withBright(() => renderer.render(scene, camera)); return; }
@@ -2297,7 +2319,7 @@ function frame(dtOverride) {
   }
   shutterGlow.color.set(G.gens === 3 ? 0x30ff60 : 0xff2010);
   if (!G.won && G.shutter > 0.55 && player.pos.z < -1.0) {
-    G.won = true; G.timing = false;
+    G.won = true; G.timing = false; setMask(false);
     sfx.setMusic('escape', { phase: 'out' });     // through the shutter: the escape music lands (and rings on into the yard)
     $('#winTime').textContent = fmt(G.time);
     if (document.pointerLockElement) document.exitPointerLock();
@@ -2391,7 +2413,8 @@ function frame(dtOverride) {
   voice.update(dt); journal.update(dt);
   { // winded: stamina well down from running (not while hiding: you hold your breath there)
     const st = player.stamina, k = G.started && !G.dead && !G.won && !G.hidden && !G.kill ? Math.max(player.exhausted ? 0.85 : 0, Math.min(1, (0.62 - st) / 0.62)) : 0;
-    breath.update(dt, k, G.flashOn && !G.drained && G.blackT <= 0 ? 1 : G.inSafe ? 0.7 : 0.28);
+    if (MB.on) maskTick(dt, Math.max(k, G.started && !G.dead && !G.won && !G.hidden ? Math.min(1, inten) * 0.5 : 0), G.hidden || G.dead || G.won);   // in the mask: heard, and fogging the visor
+    else breath.update(dt, k, G.flashOn && !G.drained && G.blackT <= 0 ? 1 : G.inSafe ? 0.7 : 0.28);
   }
   if (G.started && !G.dead && !G.won && G.oddN < RADIO_ODD.length && (G.oddT -= dt) <= 0 && !voice.busy) { voice.say(RADIO_ODD[G.oddN++]); G.oddT = 80 + Math.random() * 70; }
 
@@ -2475,6 +2498,7 @@ intro = TEST && !new URLSearchParams(location.search).has('intro') ? null : crea
   renderer, sfx, onDone: () => beginGame({ fromIntro: true }),
   ui: {
     fade(v) { $('#fadeBlack').style.opacity = v; },
+    mask: setMask,
     subtitle(who, text) {
       const el = $('#subtitle');
       if (!who) { el.classList.remove('show'); return; }
@@ -2494,7 +2518,7 @@ function beginGame({ fromIntro = false, quiet = false } = {}) {
   renderer.toneMappingExposure = GAME_EXPOSURE;
   sfx.introMode(false); sfx.engine(false);
   if (G.started) return;
-  G.started = true;
+  G.started = true; setMask(true);
   setTimeout(() => faceBugs.prepare(), 1500);       // build the close-up roaches while it's quiet
   G.hp = D().hp; G.spray = D().spray;
   if (fromIntro) sfx.slam();                      // the shutter comes down behind you
@@ -2514,7 +2538,7 @@ addEventListener('pointerdown', (e) => { if (intro && intro.active && !(e.target
 addEventListener('keydown', (e) => { if (intro && intro.active && (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space')) { e.preventDefault(); intro.tap(); } });
 $('#againBtn').addEventListener('click', () => {
   sfx.start();
-  resetGame(); G.started = true;
+  resetGame(); G.started = true; setMask(true);
   if (!viaTouch()) requestLock();
 });
 

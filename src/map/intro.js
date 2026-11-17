@@ -1,7 +1,8 @@
 // The opening. The main screen is the cab of the pest-control truck driving a forest road at dusk, on
 // and on, while the radio on the dash rings. Answering it plays the orders over the radio; then a fade
-// to night: the truck stands in the yard, you climb out, walk to the dock shutter, it rolls up, and you
-// step into the dark - where the game starts. The same scene plays the ending: out through the shutter at
+// to night: the truck stands in the yard, you climb out, go round to the back and open it up, kit up
+// (suit zipped, flashlight, two cans of spray, the gas mask on), walk to the dock shutter, it rolls up,
+// and you step into the dark - where the game starts. The same scene plays the ending: out through the shutter at
 // night, back to the truck, and one last call on the radio. Then something stirs under the seat; you look
 // up into the rear-view mirror, and it's in the cab with you. It has its own scene (the outside, the truck, their own
 // lights) so none of it weighs on the game once you are inside.
@@ -44,11 +45,14 @@ const END_LINES_TRUE = [
   ['나', '\'3조에게 — 셔터 열리면 뒤돌아보지 마. 고맙다. 이정훈\'', 3.8],
 ];
 const AROUND = new V3(0.9, 1.62, -8.6);          // past the truck's nose on the way to its door
+// round to the back of the truck (truck frame), where you stand to kit up, and back past its side
+const TO_BACK = [new V3(1.6, 1.62, -1.0), new V3(1.3, 1.62, -4.1)], REAR_STAND = new V3(0.1, 1.62, -3.85);
+const FROM_BACK = [new V3(1.5, 1.62, -3.9), new V3(1.6, 1.62, 1.6)];
 const ease = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
 const lerp = THREE.MathUtils.lerp;
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
-// ui: { fade(0..1), subtitle(who|null, text), radioButton(x, y) | radioButton(null), skip(bool) }
+// ui: { fade(0..1), subtitle(who|null, text), radioButton(x, y) | radioButton(null), skip(bool), mask(bool) (the gas mask's view) }
 export function createIntro({ renderer, sfx, ui, onDone }) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.05, 1200);
@@ -124,7 +128,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
   const q = new THREE.Quaternion(), e3 = new THREE.Euler(0, 0, 0, 'YXZ'), tmp = new V3();
   const toWorld = (v) => { g.updateMatrixWorld(); return v.clone().applyMatrix4(g.matrixWorld); };
 
-  let state = 'title', st = 0, time = 0, line = -1, lineT = 0, speed = SPEED, stepPhase = 0, fadeK = 0, ringT = 0;
+  let state = 'title', st = 0, st0 = 0, time = 0, line = -1, lineT = 0, speed = SPEED, stepPhase = 0, fadeK = 0, ringT = 0;
   let from = null, to = null, yaw0 = 0, yaw1 = 0;
   let lines = LINES, finish = () => onDone(true), path = null, pathI = 0;
   const go = (s) => { state = s; st = 0; };
@@ -141,6 +145,30 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
     const ph = stepPhase; stepPhase += dt * WALK * speedK / 0.7 * Math.PI;
     if (Math.floor(stepPhase / Math.PI) !== Math.floor(ph / Math.PI)) sfx.step('walk', Math.floor(stepPhase / Math.PI) % 2 === 0);
     return 1.62 + Math.abs(Math.sin(stepPhase)) * 0.035 - 0.02;
+  };
+
+  // walk the path (world points), turning to face along it; true once at its end
+  const walkPath = (dt, speedK = 1.15) => {
+    const p = path[pathI], d = tmp.subVectors(p, stand.pos).setY(0), len = d.length(), stepLen = WALK * speedK * dt;
+    if (len <= stepLen) { stand.pos.x = p.x; stand.pos.z = p.z; pathI++; } else stand.pos.addScaledVector(d, stepLen / len);
+    const next = path[Math.min(pathI, path.length - 1)];
+    stand.yaw += wrap(Math.atan2(next.x - stand.pos.x, next.z - stand.pos.z) - stand.yaw) * Math.min(1, dt * 2.6);
+    stand.pitch += (-0.04 - stand.pitch) * Math.min(1, dt * 2);
+    stand.pos.y = stepSound(dt, speedK);
+    return pathI >= path.length;
+  };
+  // the gear in the crate: taking a thing flies it up to you (under your chin, or for the mask onto your face) and it's gone
+  const cargo = truck.cargo, crate = cargo.items.mask.parent;
+  const home = Object.fromEntries(Object.entries(cargo.items).map(([k, o]) => [k, o.position.clone()]));
+  const resetCargo = () => { for (const [k, o] of Object.entries(cargo.items)) { o.position.copy(home[k]); o.visible = true; o.scale.setScalar(1); } cargo.light.intensity = 0; cargo.bulb.material.emissiveIntensity = 0; cargo.group.visible = false; truck.setRear(0); };
+  const take = (o, k, onFace = false) => {
+    if (k <= 0 || !o.visible) return;
+    camera.updateMatrixWorld();
+    const f = new V3(0, 0, -1).applyQuaternion(camera.quaternion), to = camera.position.clone().addScaledVector(f, onFace ? 0.12 : 0.3);
+    if (!onFace) to.y -= 0.15;
+    crate.updateMatrixWorld(); crate.worldToLocal(to);
+    o.position.lerpVectors(o.userData.from || (o.userData.from = o.position.clone()), to, ease(k));
+    if (k >= 1) { o.visible = false; o.userData.from = null; }
   };
 
   const api = {
@@ -170,6 +198,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
       ext.dockShutter.position.y = 4.35;
       seated = false; fadeK = 1; line = -1; ui.skip(true); ui.radioButton(null);
       thing.visible = false; mirror.visible = false; camera.fov = 66; camera.updateProjectionMatrix();
+      resetCargo(); ui.mask(false);                    // (out in the open air, the mask comes off)
       stand.pos.set(THREE.MathUtils.clamp(x, -2, 2), 1.62, -0.6); stand.yaw = Math.PI; stand.pitch = 0;
       path = [SHUTTER_FRONT.clone(), AROUND.clone(), toWorld(DOOR_OUT)]; pathI = 0;
       go('outWalk');
@@ -200,7 +229,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
       renderer.render(scene, camera);
     },
     update(dt) {
-      time += dt; st += dt;
+      time += dt; st0 = st; st += dt;
       // ---- the truck
       if (state === 'title' || state === 'call' || state === 'fadeout') {
         g.position.z += speed * dt;
@@ -245,17 +274,35 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
           stand.yaw = yaw0 + wrap(face - yaw0) * ease((st - 2.7) / 1.0); stand.pitch = lerp(-0.05, -0.02, a);
           if (st > 2.95 && !api._shut) { api._shut = true; sfx.truckDoor(false); }
         }
-        if (st >= 3.7) { from = stand.pos.clone(); go('walk'); }
-      } else if (state === 'walk') {
-        const d = from.distanceTo(SHUTTER_FRONT), k = Math.min(1, (st * WALK) / d);
-        stand.pos.lerpVectors(from, SHUTTER_FRONT, k);
-        const face = Math.atan2(SHUTTER_FRONT.x - stand.pos.x, (SHUTTER_FRONT.z + 3) - stand.pos.z);
-        stand.yaw += wrap(face - stand.yaw) * Math.min(1, dt * 3);
-        stand.pitch += (0.05 - stand.pitch) * Math.min(1, dt * 2);
-        const ph = stepPhase; stepPhase += dt * WALK / 0.7 * Math.PI;
-        stand.pos.y = 1.62 + Math.abs(Math.sin(stepPhase)) * 0.035 - 0.02;
-        if (Math.floor(stepPhase / Math.PI) !== Math.floor(ph / Math.PI) && k < 1) sfx.step('walk', Math.floor(stepPhase / Math.PI) % 2 === 0);
-        if (k >= 1) { sfx.shutterRoll(2.4); go('open'); }
+        if (st >= 3.7) { path = [...TO_BACK, REAR_STAND].map(toWorld); pathI = 0; resetCargo(); go('toBack'); }
+      } else if (state === 'toBack') {
+        if (walkPath(dt)) go('gear');
+      } else if (state === 'gear') {
+        // at the back: open it up, the bulb inside stutters on; zip the suit up; flashlight, two cans, the mask on
+        const T = (a) => st >= a && st0 < a;          // (did st just pass a)
+        const look = st < 5.4 ? [0, st < 1.6 ? -0.1 : -0.38] : [0, -0.38 + 0.3 * ease((st - 5.4) / 0.6)];
+        stand.yaw += wrap(look[0] - stand.yaw) * Math.min(1, dt * 3); stand.pitch += (look[1] - stand.pitch) * Math.min(1, dt * 3);
+        if (T(0.5)) { sfx.truckDoor(true); cargo.group.visible = true; }
+        if (T(0.6)) sfx.hinge(); if (T(0.85)) sfx.hinge(0.9);
+        truck.setRear(ease((st - 0.6) / 1.1), ease((st - 0.85) / 1.1));
+        if (st > 1.4) { const on = st > 1.95 || Math.random() < 0.5; cargo.light.intensity = on ? 2.2 : 0.3; cargo.bulb.material.emissiveIntensity = on ? 3 : 0.5; }
+        if (T(1.4)) sfx.click(true);
+        if (T(2.0)) { ui.subtitle('나', '(방역복 지퍼를 끝까지 올린다)'); sfx.zip(); }
+        if (T(3.1)) ui.subtitle(null);
+        if (T(3.2)) sfx.gearTake();
+        take(cargo.items.flashlight, (st - 3.2) / 0.35);
+        if (T(4.0)) sfx.canRattle();
+        take(cargo.items.spray1, (st - 4.0) / 0.35);
+        if (T(4.6)) sfx.gearTake();
+        take(cargo.items.spray2, (st - 4.6) / 0.35);
+        take(cargo.items.mask, (st - 5.4) / 0.65, true);
+        if (st > 5.95 && st < 6.5) fadeK = 1 - Math.abs(st - 6.2) / 0.3;            // the mask goes over your eyes
+        else fadeK = 0;
+        if (T(6.2)) { ui.mask(true); sfx.maskOn(); }
+        if (T(7.0)) { ui.subtitle('나', '...좋아. 들어가자.'); sfx.mumble(0.9); }
+        if (st >= 8.2) { ui.subtitle(null); path = [...FROM_BACK.map(toWorld), SHUTTER_FRONT.clone()]; pathI = 0; go('toShutter'); }
+      } else if (state === 'toShutter') {
+        if (walkPath(dt)) { sfx.shutterRoll(2.4); go('open'); }
       } else if (state === 'open') {
         ext.dockShutter.position.y = ease(st / 2.4) * 4.35;
         stand.pitch += (0.12 - stand.pitch) * Math.min(1, dt * 1.5);
@@ -300,7 +347,7 @@ export function createIntro({ renderer, sfx, ui, onDone }) {
         else { want.yaw = -0.3; want.pitch = -0.2; }
       } else if (state === 'outTwist') {
         // quiet; something under the seat; a look up into the mirror; it rises between the seats; it comes
-        const T = (a) => st >= a && st - dt < a;
+        const T = (a) => st >= a && st0 < a;          // (did st just pass a)
         if (st < 2.6) { want.yaw = -0.1; want.pitch = -0.1; }
         if (T(0.8)) sfx.seatRustle();
         if (T(1.9)) { ui.subtitle('나', '...?'); sfx.mumble(0.4); }

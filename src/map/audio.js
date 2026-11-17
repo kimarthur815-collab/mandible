@@ -777,6 +777,50 @@ export class Sound {
     for (let t = 0; t < end; t += 0.5) f.frequency.linearRampToValueAtTime(rnd(500, 1100), ctx.currentTime + t);
     for (const k of [0.3, 0.7]) setTimeout(() => { const i = Math.min(pts.length - 1, Math.round(k * (pts.length - 1))), [, x, y, z] = pts[i]; this.creak(x, y, z); }, k * end * 1000);
   }
+  // ---- kitting up at the back of the truck
+  // a rear door's hinge: a dry, rising creak
+  hinge(k = 1) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, now = ctx.currentTime, o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(180 * k, now); o.frequency.linearRampToValueAtTime(260 * k, now + 0.5); o.frequency.linearRampToValueAtTime(210 * k, now + 0.9);
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1300; bp.Q.value = 6;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.18, now + 0.08); g.gain.linearRampToValueAtTime(0.12, now + 0.7); g.gain.linearRampToValueAtTime(0, now + 1.0);
+    o.connect(bp); bp.connect(g); g.connect(this.sfx); o.start(now); o.stop(now + 1.05);
+    this.tone({ t: 1.0, f0: 120, f1: 70, dur: 0.15, gain: 0.25 });
+  }
+  // the suit's zip pulled right up
+  zip() {
+    if (!this.ctx) return;
+    for (let i = 0, t = 0; i < 26; i++, t += 0.022 + i * 0.0006) this.burst({ t, dur: 0.012, f: 2800 + i * 60, q: 4, gain: 0.12, attack: 0.001 });
+    this.burst({ t: 0.7, dur: 0.05, f: 1800, q: 2, gain: 0.15 });
+  }
+  // something taken out of the crate: a scrape, a tap
+  gearTake() {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.12, f: 1500, q: 1, gain: 0.12, attack: 0.01 });
+    this.tone({ t: 0.1, f0: 900, f1: 600, dur: 0.05, gain: 0.08, type: 'triangle' });
+  }
+  // the gas mask on: rubber pulled over the face, the straps snapped tight, the first breath through the filters
+  maskOn() {
+    if (!this.ctx) return;
+    this.burst({ dur: 0.35, f: 700, q: 3, gain: 0.18, attack: 0.05 });
+    for (const t of [0.4, 0.55]) { this.burst({ t, dur: 0.02, f: 2200, q: 2, gain: 0.25 }); this.tone({ t, f0: 300, f1: 160, dur: 0.05, gain: 0.15 }); }
+    setTimeout(() => this.maskBreath(true, 0.2), 900);
+  }
+  // breathing through the mask: drawn in through the filters (a hiss with a thin whistle in it), out through
+  // the valve (it flaps). k 0..1: how hard you're breathing
+  maskBreath(inhale, k = 0) {
+    if (!this.ctx) return;
+    const dur = (inhale ? 1.1 : 0.9) * (1 - 0.45 * k), gain = (0.035 + 0.07 * k);
+    if (inhale) {
+      this.burst({ dur, f: 1700, q: 1.3, gain, attack: dur * 0.5 });
+      this.burst({ dur: dur * 0.9, f: 2600, q: 14, gain: gain * 0.6, attack: dur * 0.5 });
+    } else {
+      this.burst({ dur: 0.025, f: 420, q: 2, gain: gain * 2.2 });                      // the valve
+      this.burst({ t: 0.02, dur, f: 750, q: 0.9, gain: gain * 1.2, attack: 0.08 });
+      this.burst({ t: 0.03, dur: dur * 0.8, f: 300, q: 0.8, type: 'lowpass', gain: gain * 0.8, attack: 0.08, buf: this.brown });
+    }
+  }
   // the drive home: something moving under the seat (a bag rustling, legs on the floor pan, a knock)
   seatRustle() {
     if (!this.ctx) return;

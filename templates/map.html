@@ -181,6 +181,12 @@
   #loading.done { opacity: 0; pointer-events: none; }
 
   /* damage */
+  /* the gas mask's view: a dark rim round the visor, the nose cup's shadow below; it fogs as you breathe out */
+  #mask { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .5s;
+    background: radial-gradient(ellipse 120% 92% at 50% 46%, rgba(0,0,0,0) 64%, rgba(4,5,6,.5) 82%, rgba(2,2,3,.9) 100%),
+      radial-gradient(ellipse 30% 16% at 50% 112%, rgba(0,0,0,.7) 0%, rgba(0,0,0,.45) 55%, rgba(0,0,0,0) 100%); }
+  #mask.on { opacity: 1; }
+  #mask i { position: absolute; inset: 0; opacity: 0; background: radial-gradient(ellipse 70% 45% at 50% 92%, rgba(215,225,230,.32), rgba(215,225,230,0) 72%); }
   #hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .6s; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(120,0,0,.55) 100%); }
   #hit { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: rgba(160,0,0,.45); }
   #hit.on { animation: hit .5s ease-out; }
@@ -313,7 +319,7 @@
 <div id="paperMap"><div class="scr"><canvas></canvas></div><i class="cam"></i></div>
 <div id="bugToast"><canvas width="240" height="320"></canvas></div>
 <div id="journal"><div class="head">2조 이정훈의 수첩 · 새로 찾은 기록</div><div class="page"><canvas width="600" height="800"></canvas></div><div class="nav"><button id="jPrev">◀</button><span id="jNum">1 / 1</span><button id="jNext">▶</button><button id="jClose">닫기</button></div></div>
-<div id="hurt"></div><div id="hit"></div><div id="camFx"></div>
+<div id="mask"><i></i></div><div id="hurt"></div><div id="hit"></div><div id="camFx"></div>
 <div id="crawl"></div>
 <div id="grab"><div class="t">거미가 덮쳤다!</div><div class="bar"><i></i></div><div class="s only-desk">클릭 연타로 버텨라 · T 스프레이</div><div class="s only-touch">화면 연타로 버텨라 (클릭 연타) · 스프레이 버튼 (T)</div></div>
 <div id="devinfo"></div>

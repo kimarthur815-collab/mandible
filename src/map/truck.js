@@ -205,6 +205,75 @@ function between(a, b, r, seg = 6) {
   return g;
 }
 
+// ---------------------------------------------------------------- the load in the box body
+// What a pest-control crew carries: shelves of boxes, jugs and spare cans down the left, protective suits
+// hanging on the right, a backpack sprayer, drums and a hose at the front wall, and by the doors an open
+// crate with what you take for the job (a flashlight, two cans of spray, a full-face gas mask).
+// Its own meshes, in the truck's frame; only shown while the doors are open. light: a bulb in the roof.
+function buildCargo() {
+  const g = new THREE.Group();
+  const M = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.8, ...o });
+  const put = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); parent.add(m); return m; };
+  const BOX = (w, h, d) => new THREE.BoxGeometry(w, h, d), CYL = (r0, r1, h, n = 16) => new THREE.CylinderGeometry(r0, r1, h, n);
+  // the inside of the box: bare galvanised walls, a tread-plate floor
+  put(BOX(1.8, 1.76, 3.42), M(0x4c5054, { side: THREE.BackSide, roughness: 0.75, metalness: 0.3 }), 0, 1.7, -0.88);
+  put(new THREE.PlaneGeometry(1.78, 3.4), M(0x7d8084, { metalness: 0.6, roughness: 0.5 }), 0, 0.83, -0.88, -Math.PI / 2);
+  const bulb = put(new THREE.SphereGeometry(0.035, 12, 8), new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xffd6a0, emissiveIntensity: 0 }), 0, 2.52, -1.3);
+  const light = new THREE.PointLight(0xffd6a0, 0, 4.5, 1.6); light.position.set(0, 2.45, -1.3); g.add(light);
+  // left: a steel rack, three shelves
+  const steel = M(0x6f7377, { metalness: 0.5, roughness: 0.55 });
+  for (const z of [-2.3, -1.35, -0.4]) for (const x of [0.64, 0.88]) put(BOX(0.03, 1.7, 0.03), steel, x, 1.68, z);
+  const card = M(0x9c7a52), jug = M(0xe8e6de, { roughness: 0.6 }), cap = M(0x2a5aa8), yellow = M(0xd8b11a, { roughness: 0.45 }), black = M(0x151515, { roughness: 0.5 }), chrome = M(0xc8c8c8, { metalness: 0.9, roughness: 0.25 });
+  const can = (x, y, z, parent = g) => {          // a can of the spray: yellow, a black band, a silver dome and nozzle
+    const c = new THREE.Group(); c.position.set(x, y, z); parent.add(c);
+    put(CYL(0.032, 0.032, 0.15), yellow, 0, 0.075, 0, 0, 0, 0, c); put(CYL(0.0325, 0.0325, 0.04), black, 0, 0.12, 0, 0, 0, 0, c);
+    put(new THREE.SphereGeometry(0.03, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), chrome, 0, 0.15, 0, 0, 0, 0, c); put(CYL(0.008, 0.008, 0.02, 8), black, 0, 0.18, 0, 0, 0, 0, c);
+    return c;
+  };
+  [1.1, 1.6, 2.1].forEach((y, i) => {
+    put(BOX(0.28, 0.025, 1.95), steel, 0.76, y, -1.35);
+    for (let k = 0; k < 4; k++) {
+      const z = -2.15 + k * 0.5 + (i % 2) * 0.12;
+      if ((k + i) % 3 === 0) { put(CYL(0.07, 0.07, 0.26), jug, 0.74, y + 0.14, z); put(CYL(0.025, 0.025, 0.04), cap, 0.74, y + 0.29, z); }
+      else if ((k + i) % 3 === 1) put(BOX(0.24, 0.2 + 0.08 * ((k * 7 + i) % 3) / 2, 0.3), card, 0.76, y + 0.12 + 0.02 * (k % 2), z, 0, 0.05 * (k - 1.5));
+      else for (let j = 0; j < 3; j++) can(0.7 + (j % 2) * 0.08, y + 0.013, z - 0.08 + j * 0.08);
+    }
+  });
+  // right: suits hanging off a rail
+  const suitM = M(0xe9e9e3, { roughness: 0.9 });
+  put(CYL(0.012, 0.012, 1.7, 8), chrome, -0.72, 2.38, -1.4, Math.PI / 2);
+  for (const z of [-2.0, -1.55, -1.1, -0.65]) {
+    const s = new THREE.Group(); s.position.set(-0.72, 2.36, z); s.rotation.y = (z * 7) % 0.3; g.add(s);
+    put(CYL(0.004, 0.004, 0.32, 6), chrome, 0, -0.05, 0, Math.PI / 2, 0, 0, s);               // the hanger
+    const body = put(new THREE.CapsuleGeometry(0.17, 0.62, 4, 12), suitM, 0, -0.55, 0, 0, Math.PI / 2, 0, s); body.scale.set(1, 1, 0.38);
+    put(new THREE.SphereGeometry(0.1, 12, 8), suitM, 0, -0.08, 0, 0, 0, 0, s).scale.set(0.5, 1, 1);  // the hood, flat
+    for (const sd of [-1, 1]) put(new THREE.CapsuleGeometry(0.05, 0.55, 4, 8), suitM, 0, -0.62, sd * 0.2, sd * 0.12, 0, 0, s);
+  }
+  // the front wall: a backpack sprayer, two drums, a coiled hose
+  put(CYL(0.15, 0.15, 0.5), M(0xf0f0e8, { roughness: 0.5 }), -0.55, 1.08, 0.55); put(CYL(0.05, 0.05, 0.04), M(0xd8b11a), -0.55, 1.35, 0.55);
+  put(CYL(0.012, 0.012, 0.6, 8), black, -0.4, 1.2, 0.5, 0, 0, 0.3);
+  for (const [x, c] of [[0.1, 0x2a5aa8], [0.55, 0x2a5aa8]]) { put(CYL(0.24, 0.24, 0.82, 20), M(c, { roughness: 0.5 }), x, 1.24, 0.5); put(new THREE.TorusGeometry(0.24, 0.012, 6, 24), black, x, 1.45, 0.5, Math.PI / 2); }
+  put(new THREE.TorusGeometry(0.22, 0.03, 8, 28), M(0x2f6a33), -0.35, 0.87, -0.1, Math.PI / 2);
+  // the crate by the doors and what you take from it
+  const crateM = M(0xc9a21c, { roughness: 0.6 });
+  const crate = new THREE.Group(); crate.position.set(0.0, 0.84, -2.15); g.add(crate);
+  put(BOX(0.62, 0.02, 0.42), crateM, 0, 0.01, 0, 0, 0, 0, crate);
+  for (const sd of [-1, 1]) { put(BOX(0.02, 0.2, 0.42), crateM, sd * 0.3, 0.1, 0, 0, 0, 0, crate); put(BOX(0.62, 0.2, 0.02), crateM, 0, 0.1, sd * 0.2, 0, 0, 0, crate); }
+  const flashlight = new THREE.Group(); flashlight.position.set(-0.17, 0.05, -0.08); flashlight.rotation.set(0, 0.4, Math.PI / 2); crate.add(flashlight);
+  put(CYL(0.019, 0.019, 0.17), black, 0, 0, 0, 0, 0, 0, flashlight); put(CYL(0.028, 0.02, 0.05), black, 0, 0.1, 0, 0, 0, 0, flashlight);
+  put(new THREE.CircleGeometry(0.024, 16), new THREE.MeshStandardMaterial({ color: 0xdde6ee, roughness: 0.1, metalness: 0.4 }), 0, 0.126, 0, -Math.PI / 2, 0, 0, flashlight);
+  const spray1 = can(0.2, 0.02, 0.1, crate), spray2 = can(0.2, 0.02, -0.02, crate);
+  // the gas mask: a full-face rubber mask lying face up, its visor, two filter cartridges and the straps
+  const mask = new THREE.Group(); mask.position.set(-0.04, 0.09, 0.05); mask.rotation.set(-Math.PI / 2 + 0.25, 0, 0.2); crate.add(mask);
+  const rubber = M(0x1c1d1f, { roughness: 0.7 });
+  put(new THREE.SphereGeometry(0.1, 20, 14), rubber, 0, 0, 0, 0, 0, 0, mask).scale.set(1, 1.25, 0.55);
+  put(new THREE.SphereGeometry(0.085, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2.4), new THREE.MeshPhysicalMaterial({ color: 0x1a2228, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.85 }), 0, 0.03, 0.045, Math.PI / 2, 0, 0, mask).scale.set(1, 0.55, 1.15);
+  for (const sd of [-1, 1]) put(CYL(0.034, 0.034, 0.03, 16), M(0x8a2a5a, { roughness: 0.55 }), sd * 0.07, -0.08, 0.05, Math.PI / 2 - 0.3, 0, sd * 0.5, mask);
+  put(CYL(0.03, 0.03, 0.03, 14), rubber, 0, -0.12, 0.055, Math.PI / 2, 0, 0, mask);
+  put(new THREE.TorusGeometry(0.1, 0.008, 6, 24, Math.PI), black, 0, 0.02, -0.05, 0, 0, 0, mask);
+  return { group: g, light, bulb, items: { flashlight, spray1, spray2, mask } };
+}
+
 // ---------------------------------------------------------------- build
 export function buildTruck() {
   const R = S.rng(5150);
@@ -331,7 +400,17 @@ export function buildTruck() {
     if (s < 0) { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i)); }
     g.translate(s * bx, (by0 + by1) / 2, (bz0 + bz1) / 2); add('boxSide', g);
   });
-  { const g = new THREE.PlaneGeometry(bx * 2, bh); g.rotateY(Math.PI); g.translate(0, (by0 + by1) / 2, bz0); add('boxBack', g); }
+  // the rear doors: two leaves on their hinges (see setRear), each with its half of the painted back
+  // outside and bare panel inside
+  const rear = (s) => (mat, g, col = 0xffffff) => B.add(mat, s > 0 ? 'rearL' : 'rearR', g, col instanceof THREE.Color ? col : C(col));
+  const rbox = (s, mat, w, h, d, x, y, z, col) => { const g = P.box(w, h, d); g.translate(x, y, z); rear(s)(mat, g, col); };
+  both((s) => {
+    const g = new THREE.PlaneGeometry(bx, bh); g.rotateY(Math.PI); g.translate(s * bx / 2, (by0 + by1) / 2, bz0);
+    const uv = g.attributes.uv, pos = g.attributes.position;
+    for (let i = 0; i < uv.count; i++) uv.setX(i, 0.5 - pos.getX(i) / (2 * bx));
+    rear(s)('boxBack', g);
+    const inner = new THREE.PlaneGeometry(bx, bh); inner.translate(s * bx / 2, (by0 + by1) / 2, bz0 + 0.004); rear(s)('plastic', inner, C('#5c5f62'));
+  });
   { const g = new THREE.PlaneGeometry(bx * 2, bh); g.translate(0, (by0 + by1) / 2, bz1); add('paint', g, C('#cfcec8')); }
   { const g = new THREE.PlaneGeometry(bx * 2, bl); g.rotateX(-Math.PI / 2); g.translate(0, by1, (bz0 + bz1) / 2); add('paint', g, C('#bdbcb6')); }
   box('plastic', bx * 2, 0.1, bl, 0, by0 - 0.04, (bz0 + bz1) / 2, C('#232424'));
@@ -341,14 +420,14 @@ export function buildTruck() {
     for (const y of [by1, by0 + 0.03]) box('alu', 0.07, y === by1 ? 0.07 : 0.11, bl + 0.07, s * bx, y, (bz0 + bz1) / 2);
   });
   for (const z of [bz0, bz1]) { box('alu', bx * 2 + 0.07, 0.07, 0.07, 0, by1, z); box('alu', bx * 2 + 0.07, 0.1, 0.07, 0, by0 + 0.03, z); }
-  box('alu', 0.05, bh, 0.03, 0, (by0 + by1) / 2, bz0 - 0.03);                                   // centre seam
+  rbox(-1, 'alu', 0.05, bh, 0.03, 0, (by0 + by1) / 2, bz0 - 0.03);                              // centre seam (on the leaf that closes last)
   both((s) => {
     for (const y of [1.05, 1.7, 2.35]) { box('alu', 0.12, 0.08, 0.04, s * (bx - 0.05), y, bz0 - 0.03); box('alu', 0.03, 0.05, 0.05, s * (bx - 0.01), y, bz0 - 0.02); }   // hinges
     for (const x of [0.28, 0.08]) {                                                                // lock rods with keepers
-      add('alu', between(new V3(s * x, by0 + 0.05, bz0 - 0.05), new V3(s * x, by1 - 0.05, bz0 - 0.05), 0.016, 8));
-      for (const y of [by0 + 0.08, by1 - 0.08]) box('alu', 0.07, 0.05, 0.05, s * x, y, bz0 - 0.04);
+      rear(s)('alu', between(new V3(s * x, by0 + 0.05, bz0 - 0.05), new V3(s * x, by1 - 0.05, bz0 - 0.05), 0.016, 8));
+      for (const y of [by0 + 0.08, by1 - 0.08]) rbox(s, 'alu', 0.07, 0.05, 0.05, s * x, y, bz0 - 0.04);
     }
-    box('alu', 0.2, 0.03, 0.04, s * 0.18, 1.45, bz0 - 0.07);                                       // handle
+    rbox(s, 'alu', 0.2, 0.03, 0.04, s * 0.18, 1.45, bz0 - 0.07);                                   // handle
   });
   // chassis, fuel tank, guards, rear bar, lamps, mud flaps
   both((s) => box('plastic', 0.07, 0.18, 5.0, s * 0.42, 0.52, -0.2, C('#1c1d1d')));
@@ -504,6 +583,13 @@ export function buildTruck() {
   // the driver's door on its hinge (the front edge, at the side of the cab)
   const doorPivot = new THREE.Group(); doorPivot.position.set(SX, 0, 2.2); group.add(doorPivot);
   for (const m of meshes) if (m.userData.room === 'door') { doorPivot.add(m); m.position.set(-SX, 0, -2.2); }
+  // the rear doors on theirs (the outer edges of the back)
+  const rearPivots = [1, -1].map((s) => {
+    const pv = new THREE.Group(); pv.position.set(s * bx, 0, bz0); group.add(pv);
+    for (const m of meshes) if (m.userData.room === (s > 0 ? 'rearL' : 'rearR')) { pv.add(m); m.position.set(-s * bx, 0, -bz0); }
+    return pv;
+  });
+  const cargo = buildCargo(); cargo.group.visible = false; group.add(cargo.group);
 
   // wheels as their own meshes so they can turn
   const wheels = wheelParts.map((w) => {
@@ -545,6 +631,9 @@ export function buildTruck() {
     setRinging(on) { ringing = on; },
     // the driver's door: 0 shut .. 1 open wide (it swings out, its back edge away from the cab)
     setDoor(k) { doorPivot.rotation.y = -1.3 * k; },
+    // the rear doors: 0 shut .. 1 swung wide open (left and right leaves apart if given)
+    setRear(kl, kr = kl) { rearPivots[0].rotation.y = -1.9 * kl; rearPivots[1].rotation.y = 1.9 * kr; },
+    cargo,
     // dt in s, speed in m/s: turn wheels, spin the beacon, blink the radio while it rings
     update(dt, speed = 0) {
       t += dt;
