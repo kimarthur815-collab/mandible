@@ -657,7 +657,7 @@ function resetGame() {
     stats: { hits: 0, deaths: 0, spray: 0, thrown: 0, photos: 0, radio: 0, work: false },
     drop: null, dk: freshDuct(), ductJolt: 0, cine: null, readQ: [], reading: false,
   });
-  swarms.reset(); swarms.sealed = new Set([3]); gate.setOpen(false); phantom.hide();
+  swarms.reset(); swarms.sealed = new Set([3]); gate.setOpen(false); phantom.hide(); setCrouch(false);
   spiders.reset(); eggs.reset(); brood.reset(); centi.reset();
   document.body.classList.remove('grabbed'); $('#grab').classList.remove('show');
   $('#crawl').classList.remove('show'); $('#dead').classList.remove('show'); $('#hurt').style.opacity = 0;
@@ -762,6 +762,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyG') throwCan();
   if (e.code === 'KeyV') snapPhoto();
   if (e.code === 'Space' && struggling()) mashGrab();
+  if (e.code === 'ControlLeft' || e.code === 'ControlRight' || e.code === 'KeyC') setCrouch(!hold.crouch);     // (a toggle: press again to stand)
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 // crouching is Ctrl, so while playing, Ctrl+key shortcuts (Ctrl+W closes the tab!) are kept from the browser where it allows:
@@ -838,6 +839,7 @@ const endTouch = (e) => {
 el.addEventListener('pointerup', endTouch);
 el.addEventListener('pointercancel', endTouch);
 const hold = { run: false, use: false, crouch: false };
+const setCrouch = (on) => { hold.crouch = on; $('#bCrouch').classList.toggle('on', on); };
 const bindHold = (id, key) => {
   const b = $(id);
   const on = (e) => { e.preventDefault(); e.stopPropagation(); hold[key] = true; b.classList.add('on'); if (key === 'use') input.usePressed = true; };
@@ -846,7 +848,7 @@ const bindHold = (id, key) => {
 };
 bindHold('#bRun', 'run'); bindHold('#bUse', 'use');
 $('#bRadio').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); radioCall(); });
-$('#bCrouch').addEventListener('pointerdown', (e) => { e.preventDefault(); hold.crouch = !hold.crouch; $('#bCrouch').classList.toggle('on', hold.crouch); });
+$('#bCrouch').addEventListener('pointerdown', (e) => { e.preventDefault(); setCrouch(!hold.crouch); });
 $('#bFlash').addEventListener('pointerdown', (e) => { e.preventDefault(); toggleFlash(); });
 $('#bSpray').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); useSpray(); });
 $('#bThrow').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); throwCan(); });
@@ -865,7 +867,7 @@ function readInput(dt) {
   input.mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0) + joy.x;
   input.mz = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0) - joy.y;
   input.run = !!(keys.ShiftLeft || keys.ShiftRight || hold.run);
-  input.crouch = !!(keys.ControlLeft || keys.ControlRight || keys.KeyC || hold.crouch);
+  input.crouch = hold.crouch;
   input.use = !!(keys.KeyE || hold.use);
   return input;
 }
