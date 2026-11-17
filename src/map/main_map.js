@@ -1313,7 +1313,7 @@ function onAttach(r) {
   if (dev.god || G.dead || G.attached.length >= 3 || G.attachCd > 0) return false;
   G.attachCd = ATTACH_CD;
   G.attached.push({ r, age: 0, shake: 0, rev: 0, lastSign: 0, taps: 0 });
-  sfx.attach(); buzz(45);
+  sfx.attach(); buzz(45); shudJolt = 1.8; shudNext = 0.6;
   tip(touch ? '떼어내야 해! (화면 좌우로 흔들기 · 마우스 흔들기)' : '떼어내야 해! (마우스를 흔들거나 클릭 연타)', 'attach');
   return true;
 }
@@ -1872,6 +1872,7 @@ function frame(dtOverride) {
     player.update(dt, applyFocus(dt, applyLookSeq(dt, applyCine(dt, inp))));
     updateZoom(dt);
     if (G.ductJolt > 0.001) { camera.position.x += (Math.random() - 0.5) * G.ductJolt; camera.position.y += (Math.random() - 0.5) * G.ductJolt; camera.position.z += (Math.random() - 0.5) * G.ductJolt; }
+    if (G.attached.length && SET.shake !== false) faceShudder(dt);
     if (G.glance) {
       const g = G.glance; g.t += dt;
       if (g.t > 1.6) G.glance = null;
@@ -2638,6 +2639,19 @@ addEventListener('resize', checkOrient);
 addEventListener('orientationchange', () => setTimeout(checkOrient, 200));
 checkOrient();
 function shakeTap() { if (G.attached[0]) G.attached[0].taps++; shakeKick = 1; }
+// a roach on your face: the view shudders the whole time it's there, with a sharper flinch now and then
+// (harder with more of them on you, and while you fight it off)
+let shudT = 0, shudJolt = 0, shudNext = 0;
+function faceShudder(dt) {
+  shudT += dt; shudNext -= dt; shudJolt = Math.max(0, shudJolt - dt * 5);
+  if (shudNext <= 0) { shudJolt = Math.max(shudJolt, 0.6 + Math.random() * 0.8); shudNext = 0.5 + Math.random() * 1.1; }
+  const k = Math.min(1.6, 0.6 + 0.25 * G.attached.length + shakeKick * 0.6) * (1 + shudJolt), t = shudT;
+  const w = (a, b, c) => Math.sin(t * a) + 0.6 * Math.sin(t * b + 1.3) + 0.35 * Math.sin(t * c + 2.1);
+  camera.rotateY(w(19, 31, 53) * 0.009 * k);
+  camera.rotateX(w(23, 37, 59) * 0.007 * k);
+  camera.rotateZ(w(13, 29, 47) * 0.016 * k);
+  camera.position.y += w(27, 41, 67) * 0.006 * k;
+}
 
 // ------------------------------------------------------------------ developer mode
 const TP = {
