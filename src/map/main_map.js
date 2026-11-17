@@ -49,7 +49,7 @@ scene.fog = new THREE.FogExp2(0x000000, 0.05);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 140);
 let intro = null;   // the opening drive (built near the end, see createIntro)
 // settings, kept in this browser: look sensitivity, volume, brightness, quality (see the settings panel)
-const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal', sub: 'm', shake: true, tips: true, vibe: true, book: true };
+const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal', sub: 'm', shake: true, tips: true, vibe: true, book: true, autoQ: true };
 // difficulty: health, spray cans, how fast hunters run, how fast the flashlight heats, how far your
 // footsteps carry, how long the starter cord takes to catch (s), and how hard a grab is to fight off
 const DIFF = {
@@ -2556,8 +2556,10 @@ $('#againBtn').addEventListener('click', () => {
 
 // ------------------------------------------------------------------ settings
 // keeping up the frame rate: when frames run slow for a couple of seconds the picture is drawn a little
-// less sharp (down to 60%), and sharper again once there's room; never sharper than the quality setting
-const dynRes = { k: 1, acc: 0, n: 0, slow: 0, fast: 0, last: 0 };
+// less sharp (down to 60%), and sharper again once there's room; never sharper than the quality setting.
+// Still under 30 fps at 60% for a few seconds: the quality setting itself steps down (high → mid → low,
+// which drops the shadows), unless '화질 자동 조절' is off; it never steps back up on its own
+const dynRes = { k: 1, acc: 0, n: 0, slow: 0, fast: 0, last: 0, crawl: 0, qHold: 0 };
 function adaptRes() {
   const now = performance.now(), dt = (now - dynRes.last) / 1000; dynRes.last = now;
   if (TEST || !(dt > 0) || dt > 0.5 || document.hidden) return;
@@ -2565,6 +2567,11 @@ function adaptRes() {
   if (dynRes.acc < 1) return;
   const fps = dynRes.n / dynRes.acc; dynRes.acc = 0; dynRes.n = 0;
   if (fps < 45) { dynRes.slow++; dynRes.fast = 0; } else if (fps > 56) { dynRes.fast++; dynRes.slow = 0; } else dynRes.slow = dynRes.fast = 0;
+  dynRes.crawl = fps < 30 && dynRes.k <= 0.61 ? dynRes.crawl + 1 : 0;
+  if (dynRes.crawl >= 3 && SET.autoQ !== false && SET.quality !== 'low' && G.started && now > dynRes.qHold) {
+    SET.quality = SET.quality === 'high' ? 'mid' : 'low'; dynRes.crawl = 0; dynRes.qHold = now + 15000; applySettings();
+    msg(`화면이 버벅여서 화질을 '${SET.quality === 'mid' ? '중간' : '낮음'}'으로 낮췄어요 (설정에서 바꿀 수 있어요)`);
+  }
   if (dynRes.slow >= 2 && dynRes.k > 0.6) { dynRes.k = Math.max(0.6, dynRes.k - 0.1); dynRes.slow = 0; dynRes.hold = now + 20000; applyQuality(); }
   else if (dynRes.fast >= 6 && dynRes.k < 1 && now > (dynRes.hold || 0)) { dynRes.k = Math.min(1, dynRes.k + 0.05); dynRes.fast = 0; applyQuality(); }
 }
