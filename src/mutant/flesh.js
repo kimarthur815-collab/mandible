@@ -156,8 +156,8 @@ export function fuseCentiFlesh(c, { lite = false } = {}) {
     const inst = (g, m, k) => { const im = new THREE.InstancedMesh(g, m, k); im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); c.group.add(im); return im; };
     const hg = [handGeometry({ lo: lite, curl: 0.45, spread: 2.6, long: 1.3 }), handGeometry({ lo: lite, curl: 0.45, spread: 2.6, long: 1.3, mirror: true })];
     const arms = {
-      up: inst(limb(R, [1, 1.12, 1.05, 0.9, 0.78, 0.7, 0.74]), armMat, n),
-      fore: inst(limb(R, [0.95, 1.0, 0.9, 0.78, 0.66, 0.56, 0.5], lite ? 0 : 0.12), armMat, n),
+      up: inst(limb(R, [1, 1.14, 1.18, 1.08, 0.92, 0.78, 0.76], lite ? 0 : 0.06), armMat, n),       // (shoulder, biceps, down to the elbow)
+      fore: inst(limb(R, [0.92, 1.05, 1.0, 0.86, 0.72, 0.6, 0.56], lite ? 0 : 0.12), armMat, n),   // (thick under the elbow, thin at the wrist)
       knob: inst(new THREE.SphereGeometry(1, R, Math.round(R * 0.7)), armMat, n * 3),
       hands: hg.map((g) => inst(g, handMat, n)),
       rise: -hg[0].boundingBox.min.y,
@@ -167,7 +167,7 @@ export function fuseCentiFlesh(c, { lite = false } = {}) {
       const front = l.i === ARMS[0], k = ARMS.indexOf(l.i) / (ARMS.length - 1);
       // where its hands go (for the stepping): the front pair reaching far ahead, the rest out to the sides
       l.lat = front ? 0.95 : 1.05 - 0.2 * k; l.fwd = front ? 0.85 : 0.3 - 0.75 * k;
-      l.arm = { Lu: front ? 0.62 : 0.55 - 0.08 * k, Lo: front ? 0.6 : 0.52 - 0.08 * k, Lh: front ? 0.36 : 0.31 - 0.05 * k };
+      l.arm = { Lu: front ? 0.62 : 0.55 - 0.08 * k, Lo: front ? 0.6 : 0.52 - 0.08 * k, Lh: front ? 0.42 : 0.37 - 0.05 * k };
       cc.set('#ffffff').multiplyScalar(0.88 + 0.12 * l.shade);
       arms.up.setColorAt(i, cc); arms.fore.setColorAt(i, cc); for (let j = 0; j < 3; j++) arms.knob.setColorAt(i * 3 + j, cc);
       arms.hands[0].setColorAt(i, cc); arms.hands[1].setColorAt(i, cc);
@@ -190,11 +190,11 @@ export function fuseCentiFlesh(c, { lite = false } = {}) {
       const th = al + Math.acos(THREE.MathUtils.clamp((Lu * Lu + D * D - Lo * Lo) / (2 * Lu * D), -1, 1));
       K.copy(S).addScaledVector(h, Lu * Math.cos(th)); K.y += Lu * Math.sin(th);
       W.copy(S).addScaledVector(h, D * Math.cos(al)); W.y = S.y + D * Math.sin(al);
-      A.up.setMatrixAt(i, seg(M, S, K, up, 0.031));
-      A.fore.setMatrixAt(i, seg(M, K, W, h, 0.028));
-      A.knob.setMatrixAt(i * 3, M.makeScale(0.036, 0.036, 0.036).setPosition(S));
-      A.knob.setMatrixAt(i * 3 + 1, M.makeScale(0.027, 0.034, 0.027).setPosition(K));
-      A.knob.setMatrixAt(i * 3 + 2, M.makeScale(0.019, 0.017, 0.022).setPosition(W));
+      A.up.setMatrixAt(i, seg(M, S, K, up, 0.047));
+      A.fore.setMatrixAt(i, seg(M, K, W, h, 0.043));
+      A.knob.setMatrixAt(i * 3, M.makeScale(0.054, 0.054, 0.054).setPosition(S));
+      A.knob.setMatrixAt(i * 3 + 1, M.makeScale(0.04, 0.046, 0.04).setPosition(K));
+      A.knob.setMatrixAt(i * 3 + 2, M.makeScale(0.026, 0.022, 0.03).setPosition(W));
       // (s = -1 a right hand, s = 1 a left one: either way the thumb toward its head)
       hx.crossVectors(up, h);
       A.hands[l.s > 0 ? 1 : 0].setMatrixAt(i, M.makeBasis(hx.multiplyScalar(Lh), _y.copy(up).multiplyScalar(Lh), _z.copy(h).multiplyScalar(Lh)).setPosition(W));
