@@ -545,7 +545,7 @@ function radioSituation() {
   if (centi.state === 'poke') return '머리를 들이밀면 손전등을 비춰라. 빛을 받으면 물러난다.';
   if (centi.active && centi.state === 'chase') return G.gens >= 3 && !G.dk.landed ? '긴 놈이 따라오면 환기구로 기어 들어가! 그 덩치로는 못 들어온다.' : '긴 놈이 따라오면 불 켜진 전등 밑으로 가라. 그 빛 안으로는 못 들어온다.';
   if (spiders.chasers().length) return spiders.wolf && spiders.wolf.g && spiders.wolf.g.phase === 'chase'
-    ? '홀의 큰 거미는 빛으로는 잠깐 움찔할 뿐이다. 느리니까 뛰어서 따돌리거나 숨어라.' : '거미가 쫓아오면 손전등을 똑바로 비춰라. 빛을 싫어한다.';
+    ? '홀의 큰 거미는 빛으로는 잠깐 움찔할 뿐이다. 앉아서 컨베이어 밑에 숨어라. 불 끄고, 가만히.' : '거미가 쫓아오면 손전등을 똑바로 비춰라. 빛을 싫어한다.';
   if (G.attached.length) return '몸에 붙은 건 당장 털어내라!';
   if (G.drained || G.battery < 0.3) return '손전등이 뜨거우면 잠깐 꺼서 식혀라.';
   if (G.spray === 0 && !refill.taken) return '스프레이가 떨어졌으면, 연결 복도에 2조가 두고 간 리필이 있을 거다.';
@@ -1837,6 +1837,7 @@ function poolLights() {
   }
 }
 
+const wolfHelp = { t: 5, n: 0 };     // (the wolf spider's hiding hints, see the frame)
 function frame(dtOverride) {
   const dt = dtOverride != null ? dtOverride : Math.min(clock.getDelta(), 1 / 20);
   t += dt;
@@ -1987,6 +1988,11 @@ function frame(dtOverride) {
   G.hidden = G.stillT > 0.6;          // a moment of keeping still first
   G.hiddenT = G.hidden ? G.hiddenT + dt : 0;
   if (hideIn && G.started) tip(`불을 끄고 가만히 있자 (${KEY.flash}). 그럼 못 찾을 거야`, 'hide');
+  // the wolf spider on you in the hall: what to do, spelled out (5 s into the chase, then every 12 s; four times in all)
+  if (G.started && !G.dead && !G.hidden && wolfHelp.n < 4 && spiders.wolf && spiders.wolf.g && spiders.wolf.g.phase === 'chase' && roomAt(player.pos.x, player.pos.z) === 'hall' && (wolfHelp.t -= dt) <= 0) {
+    wolfHelp.t = 12; wolfHelp.n++;
+    tip(hideIn ? `컨베이어 밑이다. 불 끄고 가만히! (${KEY.flash})` : `컨베이어 밑으로! 앉아서 기어 들어가자 (${KEY.crouch})`);
+  }
   // ---- thrown cans, the camera's flash
   cans.update(dt, canHit);
   camFlash.intensity *= Math.exp(-dt * 22);
@@ -2017,7 +2023,7 @@ function frame(dtOverride) {
   spiders.update({
     dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god || G.grabSafeT > 0, hidden: G.hidden,
     nav: swarms.nav, field: swarms.fPlayer,
-    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip('벽에서 거미가 내려온다! 느리지만... 끝까지 쫓아올 것 같다', 'wolfwake'); discover('wolf'); },
+    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip(`벽에서 거미가 내려온다! 앉아서 컨베이어 밑에 숨자 (${KEY.crouch})`, 'wolfwake'); discover('wolf'); },
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드렸다... 뭔가 깨어났다', 'tripwake'); },
     onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추니 움츠러든다', 'ghostlit'); },
