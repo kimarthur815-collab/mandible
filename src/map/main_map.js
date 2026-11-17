@@ -2267,6 +2267,15 @@ function frame(dtOverride) {
       G.feetCd = 12;
       lookToward(new THREE.Vector3(sx / n, 0.05, sz / n), 0.6, true);
       tip('발밑에... 바퀴가 우글거린다!', 'feet');
+    } else if (eggs.active) {
+      // the wolf spiderlings round your feet: the same look down
+      let m = 0, lx = 0, lz = 0;
+      for (const l of eggs.L) if (l.alive && l.t >= 0 && l.phase !== 'fall' && l.p.y < 0.4 && Math.hypot(l.p.x - player.pos.x, l.p.z - player.pos.z) < 1.4) { m++; lx += l.p.x; lz += l.p.z; }
+      if (m >= 4) {
+        G.feetCd = 12;
+        lookToward(new THREE.Vector3(lx / m, 0.05, lz / m), 0.6, true);
+        tip('발밑에... 거미 새끼들이 우글거린다!', 'feetling');
+      }
     }
   }
   { const on = G.attached.length > 0 || swarms.flyer.state === 'face', k = on ? (G.flashOn ? 0.3 : 0.22) : 0; swarms.faceAmb += (k - swarms.faceAmb) * Math.min(1, dt * 6); }
