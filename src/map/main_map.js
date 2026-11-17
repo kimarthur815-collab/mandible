@@ -49,7 +49,7 @@ scene.fog = new THREE.FogExp2(0x000000, 0.05);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 140);
 let intro = null;   // the opening drive (built near the end, see createIntro)
 // settings, kept in this browser: look sensitivity, volume, brightness, quality (see the settings panel)
-const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal', sub: 'm', shake: true, tips: true, vibe: true };
+const SET_DEFAULT = { sens: 1, vol: 1, bright: 1, quality: 'high', diff: 'normal', sub: 'm', shake: true, tips: true, vibe: true, book: true };
 // difficulty: health, spray cans, how fast hunters run, how fast the flashlight heats, how far your
 // footsteps carry, how long the starter cord takes to catch (s), and how hard a grab is to fight off
 const DIFF = {
@@ -389,10 +389,10 @@ const journal = (() => {
       setTimeout(() => $('#jClose').classList.remove('wait'), 1300);
       api.toggle(true);
     },
-    toggle(on = !open) {
+    toggle(on = !open, now = false) {          // (now: close a page put in front of you without the short wait)
       if (on && !found.length) return;
       if (!on && forced) {
-        if (performance.now() - forcedAt < 1300) return;
+        if (!now && performance.now() - forcedAt < 1300) return;
         forced = false; G.reading = false;
         $('#journal').classList.remove('forced'); $('#jClose').textContent = '닫기';
         if (!G.tipped.bookKey) { G.tipped.bookKey = true; setTimeout(() => tip(`수첩에 끼워 뒀다. 다시 보려면 (${KEY.book})`), 400); }
@@ -411,7 +411,8 @@ const journal = (() => {
   return api;
 })();
 // a new bug: a torn page of team 2's notebook turns up (shown small at the side; J / 수첩 to read it)
-// The first time, the page is put in front of you to read (the game waits): see readQueued
+// The first time, the page is put in front of you to read (the game waits): see readQueued. With
+// '새 벌레 기록 펼치기' off in the settings (or '다음부턴 안 펼치기' on such a page) it only shows small at the side
 function discover(id) {
   if (!G.started || journal.has(id)) return;
   journal.add(id);
@@ -423,7 +424,7 @@ function readQueued() {
   if (!q || t < q.at || !journal.has(q.id)) { if (q && !journal.has(q.id)) G.readQ.shift(); return; }
   if (!G.started || G.dead || G.won || G.grab || G.kill || G.drop || G.cine || G.lookSeq || focus || G.glance || G.chasing || G.attached.length || journal.open || (intro && intro.active)) return;
   G.readQ.shift();
-  if (TEST && !window.__READ) { journal.toast(); return; }      // (automated runs: no one to close it)
+  if ((TEST && !window.__READ) || SET.book === false) { journal.toast(); return; }      // (automated runs: no one to close it)
   if (showMap) toggleMap();
   journal.read(q.id);
 }
@@ -431,6 +432,10 @@ document.querySelectorAll('[data-act="book"]').forEach((b) => b.addEventListener
 $('#jPrev').addEventListener('click', (e) => { e.stopPropagation(); journal.flip(-1); });
 $('#jNext').addEventListener('click', (e) => { e.stopPropagation(); journal.flip(1); });
 $('#jClose').addEventListener('click', (e) => { e.stopPropagation(); journal.toggle(false); });
+$('#jNever').addEventListener('click', (e) => {
+  e.stopPropagation(); SET.book = false; applySettings(); journal.toggle(false, true);
+  msg('이제 새 기록은 옆에 작게만 뜬다 (설정에서 다시 켤 수 있어요)');
+});
 $('#journal').addEventListener('pointerdown', (e) => e.stopPropagation());
 $('#journal').addEventListener('click', (e) => { if (e.target.id === 'journal') journal.toggle(false); });   // tap beside the page
 addEventListener('keydown', (e) => {

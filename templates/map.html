@@ -50,6 +50,8 @@
   /* a page you've just found: it's put in front of you to read (the game waits), once per bug */
   #journal .head { display: none; color: var(--ink); font-size: 14px; letter-spacing: .08em; margin-bottom: 10px; opacity: .85; text-align: center; }
   #journal.forced .head { display: block; }
+  #journal #jNever { display: none; }
+  #journal.forced #jNever { display: inline-block; }
   #journal.forced #jPrev, #journal.forced #jNext, #journal.forced #jNum { display: none; }
   #journal.forced .page { animation: jIn .55s cubic-bezier(.2,.8,.3,1.1) both; }
   #journal.forced #jClose.wait { opacity: .35; pointer-events: none; }
@@ -318,7 +320,7 @@
 <div id="tools"><button data-act="set">설정</button><button data-act="snd" class="on">소리</button><button data-act="fs">전체화면</button><button data-act="dev">개발</button><button data-act="map">지도</button><button data-act="book">수첩</button><button data-act="marks">벌레 위치</button><button data-act="bright">밝게</button></div>
 <div id="paperMap"><div class="scr"><canvas></canvas></div><i class="cam"></i></div>
 <div id="bugToast"><canvas width="240" height="320"></canvas></div>
-<div id="journal"><div class="head">2조 이정훈의 수첩 · 새로 찾은 기록</div><div class="page"><canvas width="600" height="800"></canvas></div><div class="nav"><button id="jPrev">◀</button><span id="jNum">1 / 1</span><button id="jNext">▶</button><button id="jClose">닫기</button></div></div>
+<div id="journal"><div class="head">2조 이정훈의 수첩 · 새로 찾은 기록</div><div class="page"><canvas width="600" height="800"></canvas></div><div class="nav"><button id="jPrev">◀</button><span id="jNum">1 / 1</span><button id="jNext">▶</button><button id="jNever">다음부턴 안 펼치기</button><button id="jClose">닫기</button></div></div>
 <div id="mask"><i></i></div><div id="hurt"></div><div id="hit"></div><div id="camFx"></div>
 <div id="crawl"></div>
 <div id="grab"><div class="t">거미가 덮쳤다!</div><div class="bar"><i></i></div><div class="s only-desk">클릭 연타로 버텨라 · T 스프레이</div><div class="s only-touch">화면 연타로 버텨라 (클릭 연타) · 스프레이 버튼 (T)</div></div>
@@ -385,6 +387,7 @@
   <div class="row"><span>화질</span><div class="seg"><button data-q="low">낮음</button><button data-q="mid">중간</button><button data-q="high">높음</button></div></div>
   <div class="row"><span>자막 크기</span><div class="seg"><button data-sub="s">작게</button><button data-sub="m">보통</button><button data-sub="l">크게</button></div></div>
   <div class="row"><span>화면 흔들림</span><div class="seg"><button data-tog="shake" data-v="1">켜기</button><button data-tog="shake" data-v="0">끄기</button></div></div>
+  <div class="row"><span>새 벌레 기록 펼치기</span><div class="seg"><button data-tog="book" data-v="1">켜기</button><button data-tog="book" data-v="0">끄기</button></div></div>
   <div class="row"><span>힌트 혼잣말</span><div class="seg"><button data-tog="tips" data-v="1">켜기</button><button data-tog="tips" data-v="0">끄기</button></div></div>
   <div class="row" id="vibeRow"><span>진동</span><div class="seg"><button data-tog="vibe" data-v="1">켜기</button><button data-tog="vibe" data-v="0">끄기</button></div></div>
   <div class="foot"><button id="setReset">기본값</button><button id="setClose">닫기</button></div>
