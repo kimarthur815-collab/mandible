@@ -708,8 +708,9 @@ const KEYS = { flash: ['손전등', '우클릭'], crouch: ['앉기', 'Ctrl'], sp
 const KEY = Object.fromEntries(Object.entries(KEYS).map(([k, [act, key]]) => [k, `${act} ${key}`]));   // same on phones: the action matches the button label, plus the PC key
 const tipQueue = [];
 let tipBusy = false;
-function tip(text, key) {
-  if (SET.tips === false) return;
+// must: what you need to know to get through (where to go, how to hide); it shows even with '힌트 혼잣말' off
+function tip(text, key, must) {
+  if (SET.tips === false && !must) return;
   if (key) { shownTips[key] = (shownTips[key] || 0) + 1; if (shownTips[key] > 2) return; }
   if ((tipBusy && tipEl.textContent === text) || tipQueue.includes(text)) return;   // already showing or waiting
   tipQueue.push(text);
@@ -1194,7 +1195,7 @@ function genOn(g) {
   }
   if (G.gens === 3) {
     G.shutterOpening = true; sfx.doorRumble(0, 0.5, 3.4);
-    setTimeout(() => { if (!G.dk.in) tip('셔터는 하역장... 너무 멀다. 환기구로 기어가자', 'ductgo'); }, 6600);
+    setTimeout(() => { if (!G.dk.in) tip('셔터는 하역장... 너무 멀다. 환기구로 기어가자', 'ductgo', true); }, 6600);
   }
   { const n = G.gens; setTimeout(() => { if (!G.dead && !G.won && G.gens === n) voice.say(RADIO_GEN[n - 1]); }, 4300); }
   updateHud();
@@ -1575,7 +1576,7 @@ function updateDuct(dt) {
   sfx.ductAir(inside ? Math.min(1, s / 2) : 0);
   if (!live) return;
   K.in = inside && s > 0.6;
-  if (!K.in && !K.seen && !K.landed && Math.hypot(P.x - DUCT.mouth.x, P.z - DUCT.wallZ) < 3.2) { K.seen = true; tip('환기구다... 저기로 기어 들어가자', 'ductin'); }
+  if (!K.in && !K.seen && !K.landed && Math.hypot(P.x - DUCT.mouth.x, P.z - DUCT.wallZ) < 3.2) { K.seen = true; tip('환기구다... 저기로 기어 들어가자', 'ductin', true); }
   K.outT = K.in ? 0 : K.outT + dt;
   // in: too narrow for it
   if (K.in && !K.parked) {
@@ -1613,7 +1614,7 @@ function updateDuct(dt) {
     sfx.ductBang(bx, 0.45, bz - 0.3); duct.dent(0.08); shakeScreen(); buzz([80, 40, 160]); G.ductJolt = 0.05;
     lookToward(new THREE.Vector3(bx, 0.45, bz), 1.6);                  // (the view turned to the metal caving in)
     setTimeout(() => { if (G.dead || G.won) return; sfx.ductBang(bx + 0.2, 0.35, bz - 0.3); sfx.centiScreech(bx, bz - 0.6, 0.05); duct.dent(0.17); G.ductJolt = 0.07; buzz(200); }, 650);
-    setTimeout(() => { if (G.dk.in) tip('...벽 너머에 있다. 오른쪽으로, 계속 가자'); }, 1900);
+    setTimeout(() => { if (G.dk.in) tip('...벽 너머에 있다. 오른쪽으로, 계속 가자', 0, true); }, 1900);
   }
   // the side grille: a few taps ahead, then its head comes through
   const g = DUCT.grate;
@@ -1898,7 +1899,7 @@ function frame(dtOverride) {
     if (G.flashOn) toggleFlash();
     sfx.overheat(); tip('손전등이 과열되었다');
   }
-  if (G.flashOn && G.battery < 0.3 && !ductCool) tip(`손전등이 뜨거워진다... 잠깐 꺼 둬야겠다 (${KEY.flash})`, 'battery');
+  if (G.flashOn && G.battery < 0.3 && !ductCool) tip(`손전등이 뜨거워진다... 잠깐 꺼 둬야겠다 (${KEY.flash})`, 'battery', true);
   flickT -= dt;
   if (flickT < 0) {
     // it stutters more often as the battery runs down
@@ -1994,19 +1995,19 @@ function frame(dtOverride) {
   G.stillT = quiet ? (G.stillT || 0) + dt : 0;
   G.hidden = G.stillT > 0.6;          // a moment of keeping still first
   G.hiddenT = G.hidden ? G.hiddenT + dt : 0;
-  if (hideIn && G.started) tip(`불을 끄고 가만히 있자 (${KEY.flash}). 그럼 못 찾을 거야`, 'hide');
+  if (hideIn && G.started) tip(`불을 끄고 가만히 있자 (${KEY.flash}). 그럼 못 찾을 거야`, 'hide', true);
   // the last generator on and the centipede seen (after any held look is over): run for the vent
   if (G.gens >= 3 && duct.open && !G.fleeSaid && G.started && !G.dead && !G.won && !G.dk.in && !G.dk.landed && !G.drop) {
     if (!G.centiSeen && centi.active && centi.state !== 'dormant' && centi.state !== 'gone') {
       const h = fleeV.set(centi.head.x, Math.max(0.4, centi.head.y), centi.head.z), c = camera.position, d = h.distanceTo(c);
       if (d < 18 && fleeF.set(0, 0, -1).applyQuaternion(camera.quaternion).dot(h.clone().sub(c)) / d > 0.6 && canSee(h)) G.centiSeen = true;
     }
-    if (G.centiSeen && !G.lookSeq && !G.cine) { G.fleeSaid = true; msg('지네다...! 환풍기로 도망가자!'); tip('환풍기 쪽 환기구로 기어 들어가자. 저 덩치로는 못 따라온다'); }
+    if (G.centiSeen && !G.lookSeq && !G.cine) { G.fleeSaid = true; msg('지네다...! 환풍기로 도망가자!'); tip('환풍기 쪽 환기구로 기어 들어가자. 저 덩치로는 못 따라온다', 0, true); }
   }
   // the wolf spider on you in the hall: what to do, spelled out (5 s into the chase, then every 12 s; four times in all)
   if (G.started && !G.dead && !G.hidden && wolfHelp.n < 4 && spiders.wolf && spiders.wolf.g && spiders.wolf.g.phase === 'chase' && roomAt(player.pos.x, player.pos.z) === 'hall' && (wolfHelp.t -= dt) <= 0) {
     wolfHelp.t = 12; wolfHelp.n++;
-    tip(hideIn ? `컨베이어 밑이다. 불 끄고 가만히! (${KEY.flash})` : `컨베이어 밑으로! 앉아서 기어 들어가자 (${KEY.crouch})`);
+    tip(hideIn ? `컨베이어 밑이다. 불 끄고 가만히! (${KEY.flash})` : `컨베이어 밑으로! 앉아서 기어 들어가자 (${KEY.crouch})`, 0, true);
   }
   // ---- thrown cans, the camera's flash
   cans.update(dt, canHit);
@@ -2038,11 +2039,11 @@ function frame(dtOverride) {
   spiders.update({
     dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god || G.grabSafeT > 0, hidden: G.hidden,
     nav: swarms.nav, field: swarms.fPlayer,
-    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip(`벽에서 거미가 내려온다! 앉아서 컨베이어 밑에 숨자 (${KEY.crouch})`, 'wolfwake'); discover('wolf'); },
+    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip(`벽에서 거미가 내려온다! 앉아서 컨베이어 밑에 숨자 (${KEY.crouch})`, 'wolfwake', true); discover('wolf'); },
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드렸다... 뭔가 깨어났다', 'tripwake'); },
     onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추니 움츠러든다', 'ghostlit'); },
-    onThreadLit: () => tip(`실이 쳐져 있다. 앉아서 지나가야겠다 (${KEY.crouch})`, 'trip'),
+    onThreadLit: () => tip(`실이 쳐져 있다. 앉아서 지나가야겠다 (${KEY.crouch})`, 'trip', true),
     onSacBurst: (p) => {
       brood.burst(p); sfx.sacDrop(p.x, p.z); sfx.eggBurst(p.x, 0.2, p.z);
       G.broodGone = false; tip('알집이 터졌다... 새끼들이 쏟아져 나온다!'); lookToward(new THREE.Vector3(p.x, 0.15, p.z), 0.6, true);
@@ -2050,7 +2051,7 @@ function frame(dtOverride) {
     onFirstLit: () => tip('위에서 뭔가 기다리고 있었다. 천장을 잘 봐야겠다', 'spiderlit'),
     onDrop: (sp) => sfx.creak(sp.s.root.position.x, sp.ceil - 0.3, sp.s.root.position.z),
     onCatch: (sp) => startGrab(sp),
-    onWebLit: () => tip(`거미줄이다. 스프레이로 녹일 수 있겠다 (${KEY.spray})`, 'weblit'),
+    onWebLit: () => tip(`거미줄이다. 스프레이로 녹일 수 있겠다 (${KEY.spray})`, 'weblit', true),
   });
   // the spider walling off the passage, the one from the blackout, the dead man in the corridor
   gate.update({ dt, cam: camera.position, light, playerPos: player.pos,
@@ -2093,7 +2094,7 @@ function frame(dtOverride) {
   if (G.started && !G.dead) {
     if (noise >= 12) eggs.hear(player.pos.x, player.pos.z, noise) && sfx.eggBurst(-7.6, 4, 62.6);
     for (const e of G.events) if (eggs.hear(e.x, e.z, e.r)) sfx.eggBurst(-7.6, 4, 62.6);
-    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip(`알집이다... 앉아서 소리 내지 말고 지나가자 (${KEY.crouch})`, 'eggs'); discover('eggs'); }
+    if (!G.eggTip && eggs.nearestSac(player.pos) < 6 && !eggs.burstDone) { G.eggTip = true; tip(`알집이다... 앉아서 소리 내지 말고 지나가자 (${KEY.crouch})`, 'eggs', true); discover('eggs'); }
   }
   const lingInfo = eggs.update({
     dt, player: { pos: player.pos }, nav: swarms.nav, field: swarms.fPlayer, light, frozen, hidden: G.hidden,
@@ -2176,7 +2177,7 @@ function frame(dtOverride) {
   if (G.hidden) inten = Math.max(inten * 0.6, searchK * 0.9);
   // being chased with somewhere to hide close by
   if (inten > 0.6 && !player.under && !G.tipped.hideHint && hideSpots.some((c) => Math.max(c.x0 - player.pos.x, 0, player.pos.x - c.x1) + Math.max(c.z0 - player.pos.z, 0, player.pos.z - c.z1) < 6)) {
-    G.tipped.hideHint = true; tip(`앉아서 테이블이나 컨베이어 밑에 숨자 (${KEY.crouch})`, 'hidehint');
+    G.tipped.hideHint = true; tip(`앉아서 테이블이나 컨베이어 밑에 숨자 (${KEY.crouch})`, 'hidehint', true);
   }
   if (spiders.ghostInfo()) inten = Math.max(inten, 0.8);
   if (lingInfo.moving) inten = Math.max(inten, 0.7);
@@ -2571,7 +2572,7 @@ function beginGame({ fromIntro = false, quiet = false } = {}) {
   setTimeout(() => faceBugs.prepare(), 1500);       // build the close-up roaches while it's quiet
   G.hp = D().hp; G.spray = D().spray;
   if (fromIntro) sfx.slam();                      // the shutter comes down behind you
-  if (!quiet) setTimeout(() => tip(`너무 어둡다. 손전등을 켜자 (${KEY.flash})`, 'start'), fromIntro ? 1800 : 1200);
+  if (!quiet) setTimeout(() => tip(`너무 어둡다. 손전등을 켜자 (${KEY.flash})`, 'start', true), fromIntro ? 1800 : 1200);
   if (!quiet) setTimeout(() => { if (G.started && !G.won && G.calls === 3 && G.gens === 0) tip(`길을 모르겠으면 본부에 물어보자 (${KEY.radio}) · 세 번까지`, 'radiohint'); }, 50000);
   updateRadioBtn();
 }
