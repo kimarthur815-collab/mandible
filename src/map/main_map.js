@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import * as TX from '../textures.js';
-import { buildLevel, buildBugMarkers, ROOMS, DOORS, SPOTS, greyMat, boxGeom } from './level.js';
+import { buildLevel, buildBugMarkers, ROOMS, DOORS, SPOTS, CONVEYORS, greyMat, boxGeom } from './level.js';
 import { Player } from './player.js';
 import { makeSilkMaterial, SILK_RES } from '../silk.js';
 import { RoachSwarms } from './roachswarm.js';
@@ -1523,6 +1523,7 @@ function glanceAt(p) {
 // ---- the lab door (see labDoor): sliding; the centipede at it; battering it down
 function updateLabDoor(dt) {
   const D_ = labDoor;
+  autoLabDoor();
   if (!D_.broken) {
     D_.k += THREE.MathUtils.clamp(D_.want - D_.k, -dt / 0.9, dt / 0.9);
     const zc = D_.shut + (D_.open - D_.shut) * D_.k, edge = zc - D_.W / 2;      // (its leading edge)
@@ -1560,6 +1561,17 @@ function updateLabDoor(dt) {
     D_.panel.rotation.z = (Math.PI / 2 - 0.04) * e; D_.panel.position.set(-0.3 * e, 0.05 * e, 0);
   }
 }
+// chased into the lab: the door slammed shut behind you (once you're past it, each time you come in)
+function autoLabDoor() {
+  const D_ = labDoor, inside = player.pos.x < LAB.x - 0.7 && roomAt(player.pos.x, player.pos.z) === 'lab';
+  const came = inside && !G.labIn; G.labIn = inside;
+  if (!came || D_.broken || D_.want < 0.5 || !centi.active || G.dead || G.won) return;
+  // (after you: chasing, hunting for you, or already prowling the doorway since you stepped in; and not far off)
+  if (!['chase', 'search', 'prowl'].includes(centi.state) || Math.hypot(centi.head.x - player.pos.x, centi.head.z - player.pos.z) > 15) return;
+  if (Math.hypot(centi.head.x - LAB.x, centi.head.z - LAB.zc) < 1.6) return;          // (already in the doorway)
+  D_.want = 0; sfx.doorRumble(LAB.x, LAB.zc, 0.9); G.events.push({ x: LAB.x, z: LAB.zc, r: 8 }); buzz(60);
+  msg('문을 쾅 닫았다!');
+}
 function breakLabDoor() {
   const D_ = labDoor;
   D_.broken = true; D_.fall = 0; D_.col.off = true; D_.smash = -1;
@@ -1582,6 +1594,8 @@ function updateDuct(dt) {
   if (K.in && !K.parked) {
     K.parked = true;
     const rams = centi.blocked(DUCT.mouth, swarms.nav);
+    // it's coming at the mouth behind you: the view held on the mouth until it has hit and snapped (see onRam)
+    if (rams && !G.lookSeq && !G.cine) G.lookSeq = { t: 0, ram: true, shots: [{ p: () => new THREE.Vector3(DUCT.mouth.x, 0.45, DUCT.mouth.z), end: 4.2, zoom: 0.8 }] };
     if (!K.cornerDone && !K.followAt) K.followAt = t + (rams ? 4.2 : 1.2);
   }
   // out again: it comes looking (and if it's still at the mouth, it's right there)
@@ -1890,8 +1904,12 @@ function frame(dtOverride) {
     G.battery = Math.min(1, G.battery + dt / 5);
     G.tickT = (G.tickT || 0) - dt;
     if (G.tickT <= 0) { G.tickT = 0.5 + Math.random() * 1.2; sfx.coolTick(); }
-    if (G.battery >= 1) { G.drained = false; tip('손전등이 식었다'); }
-  } else if (G.flashOn && G.blackT <= 0) G.battery -= dt / 30 * D().heat;
+    if (G.battery >= 1) {
+      G.drained = false;
+      if (SET.diff !== 'hard' && !G.flashOn && !G.hidden && !(player.inside && player.inside.hide)) { toggleFlash(); tip('손전등이 식었다. 다시 켜졌다'); }
+      else tip('손전등이 식었다');
+    }
+  } else if (G.flashOn && G.blackT <= 0) G.battery -= dt / 45 * D().heat;
   else G.battery += dt * 0.02 * (G.inSafe ? 2 : 1);
   G.battery = Math.min(1, G.battery);
   if (G.battery <= 0 && !G.drained) {
@@ -2039,11 +2057,20 @@ function frame(dtOverride) {
   spiders.update({
     dt, cam: camera.position.clone(), camFwd: fwd.clone(), light, safe: !!safeLamp, frozen, playerPos: player.pos, alive: G.started && !G.dead && !G.won, god: dev.god || G.grabSafeT > 0, hidden: G.hidden,
     nav: swarms.nav, field: swarms.fPlayer,
-    onWolfWake: (sp) => { const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip(`벽에서 거미가 내려온다! 앉아서 컨베이어 밑에 숨자 (${KEY.crouch})`, 'wolfwake', true); discover('wolf'); },
+    onWolfWake: (sp) => {
+      const p = sp.s.root.position; sfx.spiderWake(p.x, p.y, p.z); tip(`벽에서 거미가 내려온다! 앉아서 컨베이어 밑에 숨자 (${KEY.crouch})`, 'wolfwake', true); discover('wolf');
+      // the first time: the view on it coming down, then on the nearest conveyor to get under (it waits that long)
+      if (!G.tipped.wolfCut && !G.lookSeq && !G.cine && !G.grab && !G.kill) {
+        G.tipped.wolfCut = true; if (sp.g) sp.g.graceT = Math.max(sp.g.graceT || 0, 3.2);
+        let best = null;
+        for (const [x, z0, z1] of CONVEYORS) { const z = THREE.MathUtils.clamp(player.pos.z, z0 + 0.6, z1 - 0.6), d = Math.hypot(x - player.pos.x, z - player.pos.z); if (!best || d < best.d) best = { d, v: new THREE.Vector3(x, 0.3, z) }; }
+        G.lookSeq = { t: 0, shots: [{ p: () => sp.s.bodyWorld, end: 1.4, zoom: 0.6 }, { p: () => best.v, end: 2.7, zoom: 0.75 }] };
+      }
+    },
     onWolfLit: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); },
     onWake: (sp) => { const p = sp.s.root.position; sfx.creak(p.x, 3.6, p.z); sfx.centiHiss(p.x, p.z); tip('실을 건드렸다... 뭔가 깨어났다', 'tripwake'); },
     onCower: (sp) => { const p = sp.s.root.position; sfx.spiderFlinch(p.x, p.y, p.z); tip('빛을 비추니 움츠러든다', 'ghostlit'); },
-    onThreadLit: () => tip(`실이 쳐져 있다. 앉아서 지나가야겠다 (${KEY.crouch})`, 'trip', true),
+    onThreadLit: (t) => (t.low ? tip('발목 높이에도 실이... 서서 천천히 넘어가자', 'triplow', true) : tip(`실이 쳐져 있다. 앉아서 지나가야겠다 (${KEY.crouch})`, 'trip', true)),
     onSacBurst: (p) => {
       brood.burst(p); sfx.sacDrop(p.x, p.z); sfx.eggBurst(p.x, 0.2, p.z);
       G.broodGone = false; tip('알집이 터졌다... 새끼들이 쏟아져 나온다!'); lookToward(new THREE.Vector3(p.x, 0.15, p.z), 0.6, true);
@@ -2077,11 +2104,30 @@ function frame(dtOverride) {
     spiders.spiders.forEach((sp, i) => {
       if (G.tipped['see' + i]) return;
       const b = sp.s.bodyWorld;
+      // the wolf spider, still on its wall: shown from further off, held and closed in on, so you know it's there
+      if (sp.mode === 'wall' && sp.g && (sp.g.phase === 'perch' || sp.g.phase === 'home') && !G.lookSeq && !G.cine && b.distanceTo(camera.position) < 18 && canSee(b)) {
+        G.tipped['see' + i] = true; sp.g.wakeCd = Math.max(sp.g.wakeCd || 0, 3);      // (not woken by being looked at)
+        G.lookSeq = { t: 0, shots: [{ p: () => sp.s.bodyWorld, end: 2.6, zoom: 0.42 }] };
+        sfx.violinStab(); discover('wolf');
+        tip(`저 벽에... 큰 거미가 붙어 있다. 들키면 컨베이어 밑에 숨자 (${KEY.crouch})`, 0, true);
+        return;
+      }
       if (b.distanceTo(camera.position) < 7 && canSee(b)) { G.tipped['see' + i] = true; lookToward(b, 0.5, true); discover(sp.mode === 'trip' ? 'ghost' : 'wolf'); }
     });
   }
+  // the first thread you come up to (and the ankle one): the view held on it, closing in, before you walk into it
+  if (G.started && !G.dead && !G.grab && !G.kill && !G.lookSeq && !G.cine) for (const tr of spiders.trips) {
+    const key = tr.low ? 'tripLowShown' : 'tripShown';
+    if (tr.state !== 'whole' || G.tipped[key]) continue;
+    const m = tr.a.clone().lerp(tr.b, 0.5), d = Math.hypot(m.x - player.pos.x, m.z - player.pos.z);
+    if (d > 3.2 || d < 0.9) continue;
+    G.tipped[key] = true; tr.seen = true;
+    G.lookSeq = { t: 0, shots: [{ p: () => m, end: 2.4, zoom: 0.45 }] };
+    tip(tr.low ? '발목 높이에도 실이... 이건 서서 천천히 넘어가자. 앉거나 뛰면 걸린다' : `실이 쳐져 있다... 건드리면 거미가 깬다. 앉아서 지나가자 (${KEY.crouch})`, 0, true);
+    break;
+  }
   if (G.started && !G.dead && !G.grab) {
-    const tr = spiders.threadAt(player.pos, camera.position.y + 0.12);
+    const tr = spiders.threadAt(player.pos, camera.position.y + 0.12, player.crouch || player.running);
     if (tr) { spiders.snapThread(tr); sfx.threadSnap(player.pos.x, 1.4, player.pos.z); msg('실을 끊어 버렸다...'); discover('ghost'); }
     const w = spiders.webAt(player.pos);
     if (w) {
@@ -2121,7 +2167,11 @@ function frame(dtOverride) {
       const m = DUCT.mouth;
       sfx.ductBang(m.x, 0.5, m.z - 0.3); sfx.centiScreech(m.x, m.z + 0.4, 0.08); shakeScreen(); buzz([90, 40, 160]); G.ductJolt = 0.06;
       setTimeout(() => { if (!G.dead && !G.won && centi.state === 'ram') { sfx.ductScrape(m.x, 0.5, m.z - 0.4, 1.0); sfx.centiHiss(m.x, m.z + 0.4); } }, 700);
-      if (G.dk.in) { tip('못 들어온다... 덩치가 너무 크다'); lookToward(new THREE.Vector3(m.x, 0.5, m.z), 1.2); }
+      if (G.dk.in) {
+        tip('못 들어온다... 덩치가 너무 크다');
+        const q = G.lookSeq;
+        if (q && q.ram) q.shots[0].end = q.t + 1.8; else lookToward(new THREE.Vector3(m.x, 0.5, m.z), 1.2);
+      }
     },
     onPokeLit: () => { sfx.centiHiss(centi.head.x, centi.head.z); tip('빛을 받으니 물러난다', 'pokelit'); },
     onLunge: () => sfx.centiScreech(centi.head.x, centi.head.z),

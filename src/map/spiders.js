@@ -16,6 +16,7 @@ const V3 = THREE.Vector3;
 // walls and the floor.
 const CORR = { wx0: 16.8, wx1: 20.2, z0: 20.4, z1: 45.6, ceil: 4.0 };
 const TRIP_Z = [23.6, 27.2, 30.8, 34.2, 37.6, 42.6];
+const LOW_TRIP_Z = 40.1;     // one at the ankle: crouch or run through it and it snaps; walk over it standing
 const GR = 0.38;   // how far the ghost's body sits from an edge when it rolls around it
 const CT = { x0: 16.8, x1: 17.6, z0: 38.6, z1: 40.4 };   // the table against the corridor's west wall (level.js TABLES)
 
@@ -33,8 +34,8 @@ const HALL_WALLS = [
   { name: 'S', O: new V3(HALL.x1, 0, HALL.z0), T: new V3(-1, 0, 0), N: new V3(0, 0, 1), len: HALL.x1 - HALL.x0, gaps: [[HALL.x1 - 20.5 - 0.6, HALL.x1 - 16.5 + 0.6]] },
   { name: 'N', O: new V3(HALL.x0, 0, HALL.z1), T: new V3(1, 0, 0), N: new V3(0, 0, -1), len: HALL.x1 - HALL.x0, gaps: [[15 - HALL.x0 - 1.2, 15 - HALL.x0 + 1.2]] },
 ];
-// where it waits: wall index, distance along the wall, height
-const WOLF_PERCH = [[1, 13.5, 2.5], [3, 10.0, 2.7], [0, 6.0, 2.4], [1, 4.5, 2.6]];
+// where it waits: wall index, distance along the wall, height (the first: on the north wall right over the hall's generator)
+const WOLF_PERCH = [[3, 8.5, 2.6], [1, 13.5, 2.5], [0, 6.0, 2.4], [1, 4.5, 2.6]];
 const inHall = (p, m = 0) => p.x > HALL.x0 - m && p.x < HALL.x1 + m && p.z > HALL.z0 - m && p.z < HALL.z1 + m;
 const ZONES = [
   { type: 'ghost', mode: 'trip', scale: 2.05, ceil: 4.0, bounds: { x0: 17.0, x1: 20.0, z0: 20.8, z1: 45.2 }, spots: [[18.5, 29.0, 0.2], [18.3, 32.4, 3.0], [18.7, 35.8, 1.4]] },
@@ -76,12 +77,12 @@ export class MapSpiders {
     this.webs = [this.makeWeb({ x: -6.0, z: 57.5, axis: 'x', halfW: 1.5, h: 3.0 })];
     // tripwire threads across the corridor
     // (drawn a few pixels wide so they can be found, the base brighter in the beam, dust beads glinting on them)
-    this.trips = TRIP_Z.map((z) => {
+    this.trips = [...TRIP_Z.map((z) => [z, false]), [LOW_TRIP_Z, true]].map(([z, low]) => {
       const mat = makeSilkRibbon(this.silk, { width: 2.6, base: 0.55, share: false });
       const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
       mesh.frustumCulled = false;
       this.scene.add(mesh);
-      return { z, mat, mesh, a: new V3(), b: new V3(), state: 'whole', seen: false };
+      return { z, low, mat, mesh, a: new V3(), b: new V3(), state: 'whole', seen: false };
     });
     this.reset();
   }
@@ -107,8 +108,9 @@ export class MapSpiders {
     // threads: a slightly different slant every run, always between a crouching and a standing head
     for (const t of this.trips) {
       const dz = (Math.random() - 0.5) * 0.9;
-      t.a.set(CORR.wx0 + 0.02, 1.3 + Math.random() * 0.22, t.z - dz / 2);
-      t.b.set(CORR.wx1 - 0.02, 1.3 + Math.random() * 0.22, t.z + dz / 2);
+      const y0 = t.low ? 0.12 : 1.3, dy = t.low ? 0.06 : 0.22;
+      t.a.set(CORR.wx0 + 0.02, y0 + Math.random() * dy, t.z - dz / 2);
+      t.b.set(CORR.wx1 - 0.02, y0 + Math.random() * dy, t.z + dz / 2);
       t.state = 'whole'; t.seen = false;
       this.setThreadGeo(t);
     }
@@ -169,7 +171,7 @@ export class MapSpiders {
     else {
       // snapped: two loose ends hanging from the walls
       for (const [p, q] of [[t.a, t.b], [t.b, t.a]]) {
-        const end = p.clone().lerp(q, 0.22); end.y -= 0.85;
+        const end = p.clone().lerp(q, 0.22); end.y = Math.max(0.02, end.y - (t.low ? 0.1 : 0.85));
         sagLine(p, end, -0.05, 6, segs);
       }
     }
@@ -177,14 +179,16 @@ export class MapSpiders {
     t.mesh.geometry = ribbonGeometry(segs);
   }
 
-  // does a body standing at (x, z) with its head at headY touch a thread?
-  threadAt(p, headY) {
+  // does a body standing at (x, z) with its head at headY touch a thread? (low: the ankle thread catches you
+  // if you go through it crouched or running)
+  threadAt(p, headY, low = false) {
     for (const t of this.trips) {
       if (t.state !== 'whole') continue;
       const ax = t.a.x, az = t.a.z, bx = t.b.x - ax, bz = t.b.z - az;
       const u = THREE.MathUtils.clamp(((p.x - ax) * bx + (p.z - az) * bz) / (bx * bx + bz * bz), 0, 1);
       const cx = ax + bx * u, cz = az + bz * u;
       if (Math.hypot(p.x - cx, p.z - cz) > 0.3) continue;
+      if (t.low) { if (low) return t; continue; }
       const y = t.a.y + (t.b.y - t.a.y) * u - 0.035 * 4 * u * (1 - u);
       if (headY > y) return t;
     }
