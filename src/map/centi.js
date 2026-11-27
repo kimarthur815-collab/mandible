@@ -82,7 +82,7 @@ export class MapCentipede {
     if (this.state === 'dormant' || this.state === 'emerge' || this.c.mode === 'kill' || Math.hypot(H.x - mouth.x, H.y - mouth.z) > 11) { if (this.state !== 'dormant') this.park(); return false; }
     const k = nav.nearestFree(mouth.x + mouth.dx * 0.9, mouth.z + mouth.dz * 0.9, 6);
     this.state = 'ram'; this.c.b.lunge = 0; this.c.b.stun = false; this.c.b.curl = 0; this.c.mode = 'drive';
-    this.ram = { t: 0, x: mouth.x - mouth.dx * 0.25, z: mouth.z - mouth.dz * 0.25, mx: mouth.x, mz: mouth.z, dx: mouth.dx, dz: mouth.dz, ax: k >= 0 ? nav.cx(k) : mouth.x, az: k >= 0 ? nav.cz(k) : mouth.z + 1, hit: false, ht: 0, f: null };
+    this.ram = { t: 0, x: mouth.x - mouth.dx * 0.25, z: mouth.z - mouth.dz * 0.25, mx: mouth.x, mz: mouth.z, dx: mouth.dx, dz: mouth.dz, ax: k >= 0 ? nav.cx(k) : mouth.x, az: k >= 0 ? nav.cz(k) : mouth.z + 1, hit: false, ht: 0, go: false, gt: 0, f: null };
     return true;
   }
   // its head through a side grille of the duct at (x, z), coming in along (dx, dz)
@@ -224,17 +224,19 @@ export class MapCentipede {
       const R = this.ram; R.t += dt;
       b.immune = 9; b.stun = false;
       if (!R.hit) {
-        // its head no closer than ~1.4 m to you along the duct (it aims 2.2 m short: it carries on ~0.8 m after the hit):
-        // if you're still just inside, it snaps at the opening
+        // it comes up to the opening and waits there; it lunges in only once you're 3 m down the duct (or after 6 s).
+        // Its head no closer than ~1.4 m to you along the duct (it aims 2.2 m short: it carries on ~0.8 m after the
+        // hit), so if you're still just inside by then it snaps at the opening
         const dep = -((P.x - R.mx) * R.dx + (P.z - R.mz) * R.dz), g = Math.min(0.25, dep - 2.2);
+        if (!R.go && (dep >= 3 || R.t > 6)) { R.go = true; R.gt = R.t; }
         R.x = R.mx - R.dx * g; R.z = R.mz - R.dz * g;
-        const dR = Math.hypot(R.x - H.x, R.z - H.y);
-        if (Math.hypot(R.ax - H.x, R.az - H.y) > 1.6) {
+        const dR = Math.hypot(R.x - H.x, R.z - H.y), far = Math.hypot(R.ax - H.x, R.az - H.y) > 1.6;
+        if (far) {
           if (!R.f) R.f = nav.field([[R.ax, R.az]], { wallCost: 0.9, maxDist: 40 });
           target = nav.descend(R.f, H.x, H.y, D) ? new THREE.Vector2(H.x + D.x * 1.6, H.y + D.z * 1.6) : new THREE.Vector2(R.ax, R.az);
-        } else target = new THREE.Vector2(R.x, R.z);
-        speed = 4.5;
-        if (dR < 0.35 || R.t > 3.5) { R.hit = true; R.ht = R.t; ctx.onRam && ctx.onRam(); }
+        } else target = R.go ? new THREE.Vector2(R.x, R.z) : new THREE.Vector2(R.ax, R.az);
+        speed = far || R.go ? 4.5 : 0;
+        if (R.go && (dR < 0.35 || R.t - R.gt > 3.5)) { R.hit = true; R.ht = R.t; ctx.onRam && ctx.onRam(); }
       } else if (R.t - R.ht < 1.7) speed = 0;
       else {
         // backs out the way it came, and off into the walls

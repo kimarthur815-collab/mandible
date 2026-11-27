@@ -1613,11 +1613,13 @@ function updateDuct(dt) {
     K.parked = true;
     const rams = centi.blocked(DUCT.mouth, swarms.nav);
     if (rams) K.ramAt = t;
-    if (!K.cornerDone && !K.followAt) K.followAt = t + (rams ? 4.2 : 1.2);
+    if (!K.cornerDone && !K.followAt && !rams) K.followAt = t + 1.2;
   }
-  // it's coming at the mouth behind you: once you're 1.5 m in (or 1.2 s on), the view held on the mouth until it has
-  // hit and snapped (see onRam)
-  if (K.ramAt && !K.ramHeld && K.in && centi.state === 'ram' && (s >= 1.5 || t - K.ramAt > 1.2) && !G.lookSeq && !G.cine) {
+  // (after a ram, its legs come along the outside of the duct a second after it has gone)
+  if (K.ramAt && !K.cornerDone && !K.followAt && centi.state !== 'ram') K.followAt = t + 1.0;
+  // it came at the mouth behind you and waited; as it lunges in (you're 3 m down the duct), the view held on the
+  // mouth until it has hit and snapped (see onRam)
+  if (K.ramAt && !K.ramHeld && K.in && centi.state === 'ram' && centi.ram && centi.ram.go && !G.lookSeq && !G.cine) {
     K.ramHeld = true;
     const R = centi.ram, left = R && R.hit ? Math.max(0.8, 2.0 - (R.t - R.ht)) : 4.2, m = DUCT.mouth;
     // (then turned back the way you were crawling, so going on forward doesn't take you back out to it)
