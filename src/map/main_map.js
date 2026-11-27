@@ -1501,6 +1501,23 @@ function canSee(p) {
   seeRay.set(o, p.clone().sub(o).divideScalar(d)); seeRay.far = d - 0.4;
   return seeRay.intersectObjects(levelMeshes, false).length === 0;
 }
+// canSee knows only the walls; this also counts what stands in the way (the water tanks, machines, crates, tables:
+// each collider as a box from the floor to its top, or full height), but not one p itself lies in
+function canSeeFull(p) {
+  if (!canSee(p)) return false;
+  const o = camera.position, d = [p.x - o.x, p.y - o.y, p.z - o.z];
+  for (const c of colliders) {
+    if (c.off || (p.x > c.x0 && p.x < c.x1 && p.z > c.z0 && p.z < c.z1)) continue;
+    let t0 = 0, t1 = 1;
+    for (const [a, da, lo, hi] of [[o.x, d[0], c.x0, c.x1], [o.z, d[2], c.z0, c.z1], [o.y, d[1], 0, c.y1 === undefined ? 9 : c.y1]]) {
+      if (Math.abs(da) < 1e-9) { if (a < lo || a > hi) { t0 = 2; break; } continue; }
+      let u = (lo - a) / da, v = (hi - a) / da; if (u > v) [u, v] = [v, u];
+      t0 = Math.max(t0, u); t1 = Math.min(t1, v); if (t0 > t1) break;
+    }
+    if (t0 <= t1) return false;
+  }
+  return true;
+}
 // (stab: it's a bug you're being made to look at: a shriek of violins with it)
 function lookToward(p, hold = 0.5, stab = false) {
   if (!G.started || G.dead || G.grab) return;
@@ -2090,9 +2107,10 @@ function frame(dtOverride) {
   phantom.update({ dt, cam: camera.position, light, onRetract: (x, y, z) => sfx.spiderFlinch(x, y, z) });
   deadMan.update(dt);
   lee.update(dt);
-  if (G.started && !G.dead && !G.tipped.leeSeen && Math.hypot(player.pos.x - LEE.x, player.pos.z - LEE.z) < 11 && canSee(lee.pos)) {
+  // Lee found: in front of you, and really in sight (the hall's water tank and the like hide him too)
+  if (G.started && !G.dead && !G.tipped.leeSeen && Math.hypot(player.pos.x - LEE.x, player.pos.z - LEE.z) < 11) {
     const v = lee.pos.clone().sub(camera.position).normalize(), f = new THREE.Vector3(); player.forward(f);
-    if (v.dot(f.normalize()) > 0.75) { G.tipped.leeSeen = true; tip('저기... 누가 쓰러져 있다'); lookToward(lee.pos, 0.5); }
+    if (v.dot(f.normalize()) > 0.75 && canSeeFull(lee.pos)) { G.tipped.leeSeen = true; tip('저기... 누가 쓰러져 있다'); lookToward(lee.pos, 0.5); }
   }
   if (G.started && !G.dead && G.tipped.leeSeen && !G.tipped.leeNear && Math.hypot(player.pos.x - LEE.x, player.pos.z - (LEE.z - 1)) < 2.6) { G.tipped.leeNear = true; tip('...2조 이정훈 씨?'); }
   if (G.started && !G.tipped.body && Math.hypot(player.pos.x - BODY.x, player.pos.z - BODY.z) < 5.5 && canSee(BODY_SEE)) {
