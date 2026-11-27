@@ -1597,7 +1597,7 @@ function breakLabDoor() {
   msg('문이 부서졌다!!');
   if (centi.state === 'prowl') { centi.state = 'chase'; centi.lostT = 0; }
 }
-function freshDuct() { return { in: false, outT: 0, seen: false, parked: false, followAt: 0, F: null, saidF: false, cornerWait: 0, cornerDone: false, poked: false, pokeT: 0, pokeGo: false, popped: false, bit: false, pokeTip: false, after: false, broke: false, landed: false, ambushAt: 0, ambushed: false }; }
+function freshDuct() { return { in: false, outT: 0, seen: false, parked: false, followAt: 0, F: null, saidF: false, cornerWait: 0, cornerDone: false, poked: false, pokeT: 0, pokeGo: false, popped: false, bit: false, pokeTip: false, after: false, broke: false, landed: false, ambushAt: 0, ambushed: false, ramAt: 0, ramHeld: false }; }
 function updateDuct(dt) {
   const K = G.dk, P = player.pos;
   duct.update(dt, t);
@@ -1612,9 +1612,16 @@ function updateDuct(dt) {
   if (K.in && !K.parked) {
     K.parked = true;
     const rams = centi.blocked(DUCT.mouth, swarms.nav);
-    // it's coming at the mouth behind you: the view held on the mouth until it has hit and snapped (see onRam)
-    if (rams && !G.lookSeq && !G.cine) G.lookSeq = { t: 0, ram: true, shots: [{ p: () => new THREE.Vector3(DUCT.mouth.x, 0.45, DUCT.mouth.z), end: 4.2, zoom: 0.8 }] };
+    if (rams) K.ramAt = t;
     if (!K.cornerDone && !K.followAt) K.followAt = t + (rams ? 4.2 : 1.2);
+  }
+  // it's coming at the mouth behind you: once you're 1.5 m in (or 1.2 s on), the view held on the mouth until it has
+  // hit and snapped (see onRam)
+  if (K.ramAt && !K.ramHeld && K.in && centi.state === 'ram' && (s >= 1.5 || t - K.ramAt > 1.2) && !G.lookSeq && !G.cine) {
+    K.ramHeld = true;
+    const R = centi.ram, left = R && R.hit ? Math.max(0.8, 2.0 - (R.t - R.ht)) : 4.2, m = DUCT.mouth;
+    // (then turned back the way you were crawling, so going on forward doesn't take you back out to it)
+    G.lookSeq = { t: 0, ram: true, shots: [{ p: () => new THREE.Vector3(m.x, 0.45, m.z), end: left, zoom: 0.8 }, { p: () => new THREE.Vector3(m.x - m.dx * 8, 0.45, m.z - m.dz * 8), end: left + 0.7 }] };
   }
   // out again: it comes looking (and if it's still at the mouth, it's right there)
   if (!K.in && K.parked && !K.landed && !G.drop) {
@@ -2192,7 +2199,7 @@ function frame(dtOverride) {
       if (G.dk.in) {
         tip('못 들어온다... 덩치가 너무 크다');
         const q = G.lookSeq;
-        if (q && q.ram) q.shots[0].end = q.t + 1.8; else lookToward(new THREE.Vector3(m.x, 0.5, m.z), 1.2);
+        if (q && q.ram) { q.shots[0].end = q.t + 1.8; q.shots[1].end = q.t + 2.5; } else lookToward(new THREE.Vector3(m.x, 0.5, m.z), 1.2);
       }
     },
     onPokeLit: () => { sfx.centiHiss(centi.head.x, centi.head.z); tip('빛을 받으니 물러난다', 'pokelit'); },
