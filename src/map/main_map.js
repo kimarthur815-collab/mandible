@@ -1195,7 +1195,8 @@ function genOn(g) {
   }
   if (G.gens === 3) {
     G.shutterOpening = true; sfx.doorRumble(0, 0.5, 3.4);
-    setTimeout(() => { if (!G.dk.in) tip('셔터는 하역장... 너무 멀다. 환기구로 기어가자', 'ductgo', true); }, 6600);
+    // (one line about the vent, not two: skipped if '환풍기로 도망가자' has already come)
+    setTimeout(() => { if (!G.dk.in && !G.fleeSaid) { G.ductGoSaid = true; tip('셔터는 하역장... 너무 멀다. 환기구로 기어가자', 'ductgo', true); } }, 6600);
   }
   { const n = G.gens; setTimeout(() => { if (!G.dead && !G.won && G.gens === n) voice.say(RADIO_GEN[n - 1]); }, 4300); }
   updateHud();
@@ -2037,7 +2038,10 @@ function frame(dtOverride) {
       const h = fleeV.set(centi.head.x, Math.max(0.4, centi.head.y), centi.head.z), c = camera.position, d = h.distanceTo(c);
       if (d < 18 && fleeF.set(0, 0, -1).applyQuaternion(camera.quaternion).dot(h.clone().sub(c)) / d > 0.6 && canSee(h)) G.centiSeen = true;
     }
-    if (G.centiSeen && !G.lookSeq && !G.cine) { G.fleeSaid = true; msg('지네다...! 환풍기로 도망가자!'); tip('환풍기 쪽 환기구로 기어 들어가자. 저 덩치로는 못 따라온다', 0, true); }
+    if (G.centiSeen && !G.lookSeq && !G.cine) {
+      G.fleeSaid = true; msg('지네다...! 환풍기로 도망가자!');
+      if (!G.ductGoSaid) tip('환풍기 쪽 환기구로 기어 들어가자. 저 덩치로는 못 따라온다', 0, true);    // (unless the vent was already said)
+    }
   }
   // the wolf spider on you in the hall: what to do, spelled out (5 s into the chase, then every 12 s; four times in all)
   if (G.started && !G.dead && !G.hidden && wolfHelp.n < 4 && spiders.wolf && spiders.wolf.g && spiders.wolf.g.phase === 'chase' && roomAt(player.pos.x, player.pos.z) === 'hall' && (wolfHelp.t -= dt) <= 0) {
